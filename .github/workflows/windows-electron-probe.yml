@@ -40,13 +40,19 @@ jobs:
       - name: Assert toolchain
         shell: bash
         run: node --version && npm --version
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        id: npm-cache
         with:
           path: .npm-cache
           key: windows-electron-node24-npm-${{ hashFiles('browser/package-lock.json') }}
       - name: Native restored cleanup and all three owned files
         shell: bash
         run: node probe/electron-boundaries.mjs
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        if: always() && steps.npm-cache.outputs.cache-hit != 'true'
+        with:
+          path: .npm-cache
+          key: windows-electron-node24-npm-${{ hashFiles('browser/package-lock.json') }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

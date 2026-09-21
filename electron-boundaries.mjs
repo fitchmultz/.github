@@ -1,9 +1,9 @@
 // Frozen source, real native Windows processes, no query warmup or budget changes.
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
-import {mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync,createWriteStream} from 'node:fs';
+import {mkdirSync,mkdtempSync,readFileSync,readdirSync,copyFileSync,rmSync,writeFileSync,createWriteStream} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {dirname,join,resolve} from 'node:path';
+import {dirname,join,relative,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {isolatedEnvironment,run,sha256,stageSource} from '../automation/scripts/common.mjs';
 import {prepareHost,selectDevelopmentHost} from '../automation/scripts/hosts.mjs';
@@ -33,15 +33,27 @@ try{
  const discovery='test/agent-browser.extension-electron-discovery.test.ts',cleanupFile='extensions/agent-browser/lib/electron/cleanup.ts';
  // Actual restored shutdown is the FIRST candidate test. No preceding query control/warmup.
  await observe('candidate-cold-restored',['--import','tsx','--test','--test-reporter=tap','--test-name-pattern=restores Electron launch records',discovery],60000,testEnv);
+ await observe('candidate-reload-primary',['--import','tsx','--test','--test-reporter=tap','--test-name-pattern=reuses only verified tracked Electron connections','test/agent-browser.extension-ref-guards.test.ts'],60000,testEnv);
  await observe('candidate-all-three',['--import','tsx','--test','--test-reporter=tap','--test-concurrency=1',discovery,'test/agent-browser.extension-electron-lifecycle.test.ts','test/agent-browser.extension-ref-guards.test.ts'],600000,testEnv);
  for(const [name,args] of [['identity',['scripts/compat-host.mjs']],['typecheck',['node_modules/typescript/bin/tsc','--noEmit']],['build',['scripts/build.mjs']]])await observe(name,args,180000,testEnv);
  const candidate=readFileSync(join(development,cleanupFile));writeFileSync(join(development,cleanupFile),run('git',['show',`HEAD:${cleanupFile}`],{cwd:development,quiet:true}));
- await observe('original-restored',['--import','tsx','--test','--test-reporter=tap','--test-name-pattern=restores Electron launch records|native command-line profile ownership',discovery],60000,testEnv);
- writeFileSync(join(development,cleanupFile),candidate);
+ const originalTrace='test/electron-original-trace.test.ts';
+ const originalTests=readFileSync(join(development,discovery),'utf8');
+ const assertion='await assert.rejects(stat(launch.userDataDir));';assert.equal(originalTests.split(assertion).length,2);
+ writeFileSync(join(development,originalTrace),originalTests.replace(assertion,'await assert.rejects(stat(launch.userDataDir)).catch(error => { console.log(JSON.stringify({phase: "original-restored-primary-error", error: String(error)})); throw error; });'));
+ await observe('original-restored',['--import','tsx','--test','--test-reporter=tap','--test-name-pattern=restores Electron launch records|native command-line profile ownership',originalTrace],60000,testEnv);
+ rmSync(join(development,originalTrace));writeFileSync(join(development,cleanupFile),candidate);
  report.finalHashes=Object.fromEntries(Object.keys(manifest.files).map(f=>[f,sha256(join(development,f))]));assert.deepEqual(report.finalHashes,manifest.files);
  assert.equal(run('git',['status','--porcelain'],{cwd:source,quiet:true}).trim(),'');
  if(Object.entries(report.runs).some(([n,r])=>n!=='original-restored'&&r.status!==0))process.exitCode=1;
  assert.notEqual(report.runs['original-restored'].status,0,'original must reproduce the native failure');
 }catch(e){report.error=String(e);process.exitCode=1;console.error(e)}finally{
- try{rmSync(root,{recursive:true,force:true});report.cleanup='removed'}catch(e){report.cleanupError=String(e);process.exitCode=1}save();
+ try{
+  report.journals=[];
+  function preserveJournals(dir){for(const entry of readdirSync(dir,{withFileTypes:true})){
+   if(entry.isDirectory()&&!['node_modules','.git'].includes(entry.name))preserveJournals(join(dir,entry.name));
+   else if(entry.isFile()&&entry.name.endsWith('.jsonl')){const file=join(dir,entry.name),rel=relative(root,file),dest=join(out,'journals',rel);mkdirSync(dirname(dest),{recursive:true});copyFileSync(file,dest);report.journals.push(rel)}
+  }}preserveJournals(root);
+  rmSync(root,{recursive:true,force:true});report.cleanup='removed'
+ }catch(e){report.cleanupError=String(e);process.exitCode=1}save();
 }
