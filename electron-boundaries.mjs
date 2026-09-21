@@ -1,4 +1,5 @@
-// Diagnostic branch only. Apply checked private Browser candidate; never alter checkout.
+// Final bounded diagnostic: expose newly observed restored-PID primary failure;
+// retain assigned causal proof from prior job, finish types/build and immutable receipts.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -21,38 +22,22 @@ try {
  const testEnv={...env,PI_COMPAT_HOST:'official',PI_HOST_INDEX:selected.index,PI_HOST_CLI:selected.cli,PI_PACKAGE_DIR:selected.packageDir,PI_COMPAT_EXPECTED_PACKAGE_DIR:selected.packageDir,PI_COMPAT_EXPECTED_VERSION:host.version};
  report.hostHashes={index:sha256(selected.index),cli:sha256(selected.cli)};
  function observe(name,args,timeout=60000){const r=spawnSync(process.execPath,args,{cwd:development,env:testEnv,encoding:'utf8',timeout,maxBuffer:32*1024*1024});writeFileSync(join(out,name+'.stdout.log'),r.stdout??'');writeFileSync(join(out,name+'.stderr.log'),r.stderr??'');report.runs[name]={args,status:r.status,signal:r.signal,error:r.error?.message};console.log(JSON.stringify({name,...report.runs[name]}));console.log(r.stdout??'');console.error(r.stderr??'');return r;}
- const cleanupFile='extensions/agent-browser/lib/electron/cleanup.ts';
- const candidateCleanup=readFileSync(join(development,cleanupFile));
- const originalCleanup=run('git',['show',`HEAD:${cleanupFile}`],{cwd:development,quiet:true});
- writeFileSync(join(development,'direct-cleanup.ts'),readFileSync(join(here,'direct-cleanup.ts')));
- const discovery='test/agent-browser.extension-electron-discovery.test.ts',lifecycle='test/agent-browser.extension-electron-lifecycle.test.ts';
- const regression=['--import','tsx','--test','--test-reporter=tap','--test-name-pattern=awaits tracked child exit',lifecycle];
- writeFileSync(join(development,cleanupFile),originalCleanup);
- const redControl=observe('red-direct-cleanup',['--import','tsx','direct-cleanup.ts']);assert.match(redControl.stdout,/EPERM/);
- assert.equal(observe('red-regression',regression).status,1);
- writeFileSync(join(development,cleanupFile),candidateCleanup);
- const greenControl=observe('green-direct-cleanup',['--import','tsx','direct-cleanup.ts']);assert.equal(greenControl.status,0);
- const controls=greenControl.stdout.trim().split('\n').map(s=>JSON.parse(s));assert.equal(controls.length,8);for(const r of controls){assert.equal(r.removal,'removed');assert.ok(r.events.some(e=>e.phase==='exit'));assert.equal(r.state.alive,false)}
- assert.equal(observe('green-regression',regression).status,0);
- rmSync(join(development,'direct-cleanup.ts'));
- const focused=['--import','tsx','--test','--test-reporter=tap','--test-concurrency=1','--test-name-pattern=live writer|retains headed autosave'];
- assert.equal(observe('corrected-focused',[...focused,discovery,lifecycle]).status,0);
- const sequence=['--import','tsx','--test','--test-reporter=tap','--test-concurrency=1','--test-name-pattern=abort|cancel|timeout|overlap|kill|cleanup|exits|exit'];
- assert.equal(observe('final-electron-files',['--import','tsx','--test','--test-reporter=tap','--test-concurrency=1',discovery,lifecycle],240000).status,0);
- // Keep original failure and every assertion. Trace primary error before finally can mask it,
- // and use the independent app receipt solely for failure cleanup.
- let text=readFileSync(join(development,lifecycle),'utf8');
- const start=text.indexOf('test("agentBrowserExtension retains headed autosave policy'),end=text.indexOf('\ntest(',start+1);
- let block=text.slice(start,end);
- block=block.replace('assert.equal(launchResult.isError, false, JSON.stringify(launchResult));','console.log(JSON.stringify({phase:"launch-result",launchResult})); assert.equal(launchResult.isError, false, JSON.stringify(launchResult));');
- block=block.replace('assert.equal(cleanupResult.isError, false, JSON.stringify(cleanupResult));','console.log(JSON.stringify({phase:"cleanup-result",cleanupResult})); assert.equal(cleanupResult.isError, false, JSON.stringify(cleanupResult));');
- block=block.replace('} finally {\n\t\tif (launchedPid)', '} catch (error) { console.log(JSON.stringify({phase:"primary-error",error:String(error),stack:error.stack})); throw error; } finally {\n        const rows=await readOptionalFakeElectronLaunchLog(launchLogPath);console.log(JSON.stringify({phase:"finally",launchedPid,rows}));\n\t\tif (launchedPid)');
- block=block.replace('await rm(tempDir, { force: true, recursive: true });', 'try { await rm(tempDir, { force: true, recursive: true }); } catch (error) { console.log(JSON.stringify({phase:"rm-error",error:String(error)})); for(const row of rows) { console.log(JSON.stringify({phase:"rescue-owned",pid:row.pid})); await stopTestPid(row.pid); } await rm(tempDir,{force:true,recursive:true}); throw error; }');
- text=text.slice(0,start)+block+text.slice(end);text=text.replace('fakeAgentBrowserLifecycleScript,','readOptionalFakeElectronLaunchLog,\n\tfakeAgentBrowserLifecycleScript,');
- const trace='test/electron-lifecycle-diagnostic.test.ts';writeFileSync(join(development,trace),text);
- assert.equal(observe('headed-sequence-primary-trace',[...sequence,trace]).status,0);rmSync(join(development,trace));
+ assert.equal(observe('identity',['scripts/compat-host.mjs']).status,0);
  assert.equal(observe('typecheck',['node_modules/typescript/bin/tsc','--noEmit'],120000).status,0);
  assert.equal(observe('build',['scripts/build.mjs'],120000).status,0);
+ const discovery='test/agent-browser.extension-electron-discovery.test.ts',cleanupFile='extensions/agent-browser/lib/electron/cleanup.ts';
+ let text=readFileSync(join(development,discovery),'utf8');
+ const start=text.indexOf('test("agentBrowserExtension restores Electron launch records'),end=text.indexOf('\ntest(',start+1);
+ let block=text.slice(start,end);
+ block=block.replace('await assert.rejects(stat(launch.userDataDir));','console.log(JSON.stringify({phase:"restored-pid-cleanup",result:await cleanupElectronLaunchResources({record:(launchResult.details.electron).launch,timeoutMs:1000})})); await assert.rejects(stat(launch.userDataDir));');
+ block=block.replace('} finally {\n\t\tawait stopTestPid(launchedPid);','} catch (error) {console.log(JSON.stringify({phase:"restored-primary-error",error:String(error),stack:error.stack}));throw error;} finally {\n\t\tconsole.log(JSON.stringify({phase:"restored-finally",launchedPid})); await stopTestPid(launchedPid);');
+ text=text.slice(0,start)+block+text.slice(end);
+ const trace='test/electron-restored-diagnostic.test.ts';writeFileSync(join(development,trace),text);
+ const args=['--import','tsx','--test','--test-reporter=tap','--test-name-pattern=restores Electron launch records',trace];
+ const candidate=readFileSync(join(development,cleanupFile));
+ writeFileSync(join(development,cleanupFile),run('git',['show',`HEAD:${cleanupFile}`],{cwd:development,quiet:true}));
+ observe('original-restored-primary',args);
+ writeFileSync(join(development,cleanupFile),candidate);observe('candidate-restored-primary',args);rmSync(join(development,trace));
  report.finalHashes=Object.fromEntries(Object.keys(manifest.files).map(f=>[f,sha256(join(development,f))]));assert.deepEqual(report.finalHashes,manifest.files);
  assert.equal(run('git',['status','--porcelain'],{cwd:source,quiet:true}).trim(),'');
 } finally {
