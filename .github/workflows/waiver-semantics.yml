@@ -1,0 +1,40 @@
+name: Waiver aggregate semantics
+on:
+  push:
+    branches: [diagnostic/windows-waiver-semantics]
+permissions:
+  contents: read
+jobs:
+  waived-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: required-pass
+            waived: false
+            exit: 0
+          - label: waived-failure
+            waived: true
+            exit: 1
+    continue-on-error: ${{ matrix.waived }}
+    steps:
+      - env:
+          EXIT_CODE: ${{ matrix.exit }}
+        run: exit "$EXIT_CODE"
+  required-failure-control:
+    runs-on: ubuntu-latest
+    steps:
+      - run: exit 1
+  assert-outcomes:
+    if: always()
+    needs: [waived-matrix, required-failure-control]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          WAIVED_MATRIX: ${{ needs.waived-matrix.result }}
+          REQUIRED_FAILURE: ${{ needs.required-failure-control.result }}
+        run: |
+          printf 'waived-matrix=%s\nrequired-failure=%s\n' "$WAIVED_MATRIX" "$REQUIRED_FAILURE"
+          test "$WAIVED_MATRIX" = success
+          test "$REQUIRED_FAILURE" = failure
