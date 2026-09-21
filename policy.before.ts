@@ -169,14 +169,24 @@ async function ownerAlive(owner: PolicyLockOwner): Promise<boolean | undefined> 
 	return current === undefined ? undefined : processStartIdentitiesMatch(owner.startIdentity, current);
 }
 
-async function removeClaimOwnedBy(path: string, token: string): Promise<boolean> {
-	const current = await readClaim(path);
-	if (current?.owner.token !== token) return false;
+async function removeClaimOwnedBy(path: string, token: string, deadline = 0): Promise<boolean> {
 	const movedPath = join(dirname(path), `.pi-agent-browser-policy-remove-${token}-${randomUUID()}`);
-	try {
-		await rename(path, movedPath);
-	} catch (error) {
-		return (error as NodeJS.ErrnoException).code === "ENOENT";
+	while (true) {
+		const current = await readClaim(path);
+		if (current?.owner.token !== token) return false;
+		try {
+			await rename(path, movedPath);
+			break;
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code === "ENOENT") return true;
+			// Windows may refuse a directory move while a contender reads its
+			// metadata. Revalidate before retrying, using only time remaining
+			// in the original acquisition budget, never a new release budget.
+			if (process.platform !== "win32" || code !== "EPERM" || Date.now() >= deadline) return false;
+			await waitForRetry();
+			if (Date.now() >= deadline) return false;
+		}
 	}
 	const moved = await readClaim(movedPath);
 	if (moved?.owner.token !== token) {
@@ -203,6 +213,12 @@ function claimPrecedes(left: PolicyLockClaim, right: PolicyLockClaim): boolean {
 	if (left.ticket === null) return true;
 	if (right.ticket === null) return false;
 	return left.ticket < right.ticket || (left.ticket === right.ticket && left.owner.token < right.owner.token);
+}
+
+async function hasPublishedLaterTicket(claim: PolicyLockClaim, ownClaim: PolicyLockClaim): Promise<boolean> {
+	if (claim.ticket !== null) return false;
+	const current = await readClaim(claim.path);
+	return current?.owner.token === claim.owner.token && !claimPrecedes(current, ownClaim);
 }
 
 function waitForRetry(signal?: AbortSignal): Promise<void> {
@@ -261,6 +277,9 @@ export async function acquireManagedSessionPolicyLock(options: {
 			let blocked = false;
 			for (const claim of claims) {
 				if (claim.owner.token === token || !claimPrecedes(claim, ownClaim)) continue;
+				// Choosing is transient: a later published ticket must not make
+				// its predecessor wait on it using an earlier null snapshot.
+				if (await hasPublishedLaterTicket(claim, ownClaim)) continue;
 				const alive = await ownerAlive(claim.owner);
 				if (alive === false) {
 					await removeClaimOwnedBy(claim.path, claim.owner.token);
@@ -272,13 +291,15 @@ export async function acquireManagedSessionPolicyLock(options: {
 				try { await lstat(claim.path); } catch (error) {
 					if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
 				}
+				// Publication can also complete during the native identity query.
+				if (await hasPublishedLaterTicket(claim, ownClaim)) continue;
 				blocked = true;
 				break;
 			}
 			if (!blocked) {
 				await cleanDeadPolicyArtifacts(directory);
 				lockAcquired = true;
-				return { release: async () => { await removeClaimOwnedBy(claimPath, token); } };
+				return { release: async () => { await removeClaimOwnedBy(claimPath, token, deadline); } };
 			}
 			if (Date.now() >= deadline) return undefined;
 			await waitForRetry(options.signal);

@@ -1,8 +1,7 @@
 {
   "base": "6075283fea803fb5d002700852e591ef7d3a2caa",
-  "patch": "2a58479de1eb1f29b2246728057e9e2ace17449ec039a2fc4d740ffd3de13a82",
-  "frozenSource": "/Users/mitchfultz/Library/Caches/pi-runs/atb-harness/extension-compatibility-20260920/implementation/logs/browser-managed-followup/qualification-2/frozen-source",
-  "frozenAt": "2026-09-21T11:56:20.549070+00:00",
+  "patch": "0bfddd43c09473a5e7bfc5bc768cfe715d18e429083b0c03d9d0fb1be356f708",
+  "oldPolicy": "324e93cf0d945cd6755be8dfc118241e2cd2edd5a74d0fcb39f3d1c9d8ccbb27",
   "files": {
     ".github/workflows/native-checkpoint.yml": "ead80069f2bed8a58c3b41f7d660eb023b739eb96b31ed6e2cda66c85230b3f2",
     ".github/workflows/pi-compatibility.yml": "0d21ad9c6a0592bd7c79e7b19fe1fc54c85f07670a0cd5d77a729f141fa7b1a6",
@@ -187,7 +186,7 @@
     "test/agent-browser.extension-validation.test.ts": "c5cacaa38c3b3fd8f6c8582d0babef75e9458b8ada9abaa3f37e0f5c42797083",
     "test/agent-browser.import-boundaries.test.ts": "db6dbe928081dc3d9aeb481c1d20d4d79411353a1d133a8036e021bd73e256f3",
     "test/agent-browser.managed-session-daemon-policy.test.ts": "71adea92535d37a26ae9a39c0426b0e2c53625ae26a0de2c35ba82256c5d8013",
-    "test/agent-browser.managed-session-policy-lock.test.ts": "31687dcfbddfe924c54698ad1e7199160e997de2d811bb28f473652605770594",
+    "test/agent-browser.managed-session-policy-lock.test.ts": "1f1e823db67eb5d143bc77c35ca203ec463c93f8f42b989b7704727ee66af181",
     "test/agent-browser.managed-session-restore.test.ts": "8062e60d0a457dc57f2b5ea3941293b52b1a846cdd634efdbbffaf63277b0f21",
     "test/agent-browser.overlay-click-recovery.test.ts": "685811a12979a324b219aa5886b0dbe9fa5a65e05ac3d22621435ee6de207675",
     "test/agent-browser.overlay-real-upstream.test.ts": "61806dc3940d9dbfadfcf2add8b0657a3133e23f0bf728dd3e3f6bf554281a6a",
@@ -240,7 +239,5 @@
     "test/verify-package.test.ts": "69c893ee3837fbafb454540b2f0602ba2b05ff50142c570c43e35bc58949b427",
     "tsconfig.build.json": "0206b4c0d324a6ee908df256cb02314890961410b6dadbe2ddce758c064dc454",
     "tsconfig.json": "264c86c5f1d6c1e3f661563a06357ae1b978b60ead2e4c5c967b7b21eacbfee2"
-  },
-  "boundary": "Combined diagnostic before launcher-policy decision; known multiline argv failure stays active. No release/full-green claim.",
-  "oldPolicy": "31f2c763ae091e9bcc140ee114d76bc5a1b33e32353c694f3a85499c5f4b50ed"
+  }
 }

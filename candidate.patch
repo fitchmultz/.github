@@ -973,7 +973,7 @@ index 3771c91..6054431 100644
  			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--session", "shared", "open", "https://example.test/"] })).isError, false);
  			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--session", "shared", "record", "start", "branch.webm"] })).isError, false);
 diff --git a/test/agent-browser.managed-session-policy-lock.test.ts b/test/agent-browser.managed-session-policy-lock.test.ts
-index 1176a6b..fab15f5 100644
+index 1176a6b..bd30e3c 100644
 --- a/test/agent-browser.managed-session-policy-lock.test.ts
 +++ b/test/agent-browser.managed-session-policy-lock.test.ts
 @@ -6,7 +6,10 @@
@@ -1014,7 +1014,7 @@ index 1176a6b..fab15f5 100644
  	await first.release();
  	await stat(claimPath);
  });
-@@ -102,6 +114,86 @@ test("managed session policy lock serializes concurrent contenders", async () =>
+@@ -102,6 +114,90 @@ test("managed session policy lock serializes concurrent contenders", async () =>
  	assert.equal(maxActive, 1);
  });
  
@@ -1070,33 +1070,37 @@ index 1176a6b..fab15f5 100644
 +	});
 +}
 +
-+test("managed session policy lock releases after a native open-file rename conflict within its original budget", async (t) => {
-+	const lock = await acquireManagedSessionPolicyLock({ sessionName });
-+	assert.ok(lock);
-+	const claimPath = await onlyClaimPath();
-+	const reader = await fs.open(join(claimPath, "owner.json"), "r");
-+	const nativeRename = fs.rename;
-+	let nativeConflict = false;
-+	t.mock.method(fs, "rename", async (...args: Parameters<typeof fs.rename>) => {
-+		try { return await nativeRename(...args); } catch (error) {
-+			if (String(args[0]) === claimPath && (error as NodeJS.ErrnoException).code === "EPERM") {
-+				nativeConflict = true;
-+				await reader.close(); // The actual competing reader finishes.
++for (const holdMs of [0, 1_100]) {
++	test(`managed session policy lock releases after a native open-file rename conflict ${holdMs === 0 ? "within" : "after"} its acquisition wait`, async (t) => {
++		const lock = await acquireManagedSessionPolicyLock({ sessionName });
++		assert.ok(lock);
++		// A protected native close can outlast the default 1,000 ms acquisition wait.
++		if (holdMs > 0) await new Promise((resolve) => setTimeout(resolve, holdMs));
++		const claimPath = await onlyClaimPath();
++		const reader = await fs.open(join(claimPath, "owner.json"), "r");
++		const nativeRename = fs.rename;
++		let nativeConflict = false;
++		t.mock.method(fs, "rename", async (...args: Parameters<typeof fs.rename>) => {
++			try { return await nativeRename(...args); } catch (error) {
++				if (String(args[0]) === claimPath && (error as NodeJS.ErrnoException).code === "EPERM") {
++					nativeConflict = true;
++					await reader.close(); // The actual competing reader finishes.
++				}
++				throw error; // Never fabricate or replace the native rename result.
 +			}
-+			throw error; // Never fabricate or replace the native rename result.
++		});
++		syncBuiltinESMExports();
++		try {
++			await lock.release();
++			if (process.platform === "win32") assert.equal(nativeConflict, true);
++			assert.deepEqual(await claimPaths(), []);
++		} finally {
++			t.mock.restoreAll();
++			syncBuiltinESMExports();
++			await reader.close();
 +		}
 +	});
-+	syncBuiltinESMExports();
-+	try {
-+		await lock.release();
-+		if (process.platform === "win32") assert.equal(nativeConflict, true);
-+		assert.deepEqual(await claimPaths(), []);
-+	} finally {
-+		t.mock.restoreAll();
-+		syncBuiltinESMExports();
-+		await reader.close();
-+	}
-+});
++}
 +
  test("managed session policy lock excludes a live owner in another process", async () => {
  	const moduleUrl = new URL("../extensions/agent-browser/lib/managed-session-policy-lock.ts", import.meta.url).href;
