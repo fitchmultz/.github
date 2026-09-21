@@ -19,7 +19,7 @@ try {
   const {evaluateDoctor}=await import(pathToFileURL(modulePath));
   for(const [kind,extensions] of [['native-absolute',[join(cwd,'extensions/agent-browser/index.ts')]],['settings-relative',['../extensions/agent-browser/index.ts']],['npm-only',[]]]) {
    const settings=new Map([[join(agentDir,'settings.json'),JSON.stringify({packages:['npm:pi-agent-browser-native']})],[join(cwd,'.pi/settings.json'),JSON.stringify({extensions})]]);
-   const result=await evaluateDoctor({cwd,agentDir,pathExists:async p=>settings.has(p),readText:async p=>settings.get(p),runAgentBrowser:async()=>({stdout:`agent-browser ${TARGET_AGENT_BROWSER_VERSION}\n`,stderr:''}),runPi:async()=>({stdout:'0.86.1\n',stderr:''})});
+   const result=await evaluateDoctor({cwd,agentDir,pathExists:async p=>settings.has(p),readText:async p=>settings.get(p),runAgentBrowser:async()=>`agent-browser ${TARGET_AGENT_BROWSER_VERSION}\n`,runPi:async()=>'0.86.1\n'});
    const row={label,kind,cwd,extensions,failures:result.failures,checks:result.checks};report.rows.push(row);console.log(JSON.stringify(row));
    const expected=kind==='npm-only'||(label==='original'&&kind==='native-absolute')?0:1;assert.equal(result.failures.length,expected,`${label}/${kind}`);
    if(expected)assert.ok(result.failures.some(f=>f.title.includes('Duplicate')));
