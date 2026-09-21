@@ -1,8 +1,8 @@
 {
   "base": "6075283fea803fb5d002700852e591ef7d3a2caa",
-  "patch": "29e7a45524adea9900d90f1075144ec76b4c1d9f0d8e5c2437d83f4f668975f7",
-  "frozenSource": "/var/folders/4v/r934nqgs7qvd20dw1j315yjm0000gn/T/browser-combined-win-rcycyoas",
-  "frozenAt": "2026-09-21T10:59:28.404200+00:00",
+  "patch": "c4d43d7315efc7713e7c1b021f0cf2a708c95e30aeae7c2a1e1f9dab7aa82890",
+  "frozenSource": "/Users/mitchfultz/Library/Caches/pi-runs/atb-harness/extension-compatibility-20260920/implementation/logs/browser-managed-followup/qualification-1/frozen-source",
+  "frozenAt": "2026-09-21T11:37:10.954948+00:00",
   "files": {
     ".github/workflows/native-checkpoint.yml": "ead80069f2bed8a58c3b41f7d660eb023b739eb96b31ed6e2cda66c85230b3f2",
     ".github/workflows/pi-compatibility.yml": "0d21ad9c6a0592bd7c79e7b19fe1fc54c85f07670a0cd5d77a729f141fa7b1a6",
@@ -48,7 +48,7 @@
     "extensions/agent-browser/lib/input-modes/types.ts": "811eab8d77df9a45ece3e3d12899bda639b9ff1ef95dfa9ff8c78b51df8d38a8",
     "extensions/agent-browser/lib/json-schema.ts": "db2883ef021b7345327167fa67d9ab3f299bd6dd39e9f7d0e4eb7fea1f4da34e",
     "extensions/agent-browser/lib/launch-scoped-flags.ts": "889a4f78ec6e2d99ac0eeede59632c1b3053f4829a7871838613287e517926b4",
-    "extensions/agent-browser/lib/managed-session-policy-lock.ts": "31f2c763ae091e9bcc140ee114d76bc5a1b33e32353c694f3a85499c5f4b50ed",
+    "extensions/agent-browser/lib/managed-session-policy-lock.ts": "893fc52097c1062324e2e7c11fef3e5e0b591d537cd1bf02d15483abaa2f4cfe",
     "extensions/agent-browser/lib/managed-session-restore.ts": "317a2b5060369ec408f95d93809f60d23d8cbafe12eadef35039a630f54773f4",
     "extensions/agent-browser/lib/managed-session-snapshots.ts": "9d1bf390b9cdc706c5698796077480e7f2dd6af0c9be110ae329e67dc0150dbc",
     "extensions/agent-browser/lib/managed-session-storage.ts": "589d3f76e3464147b676bf2ada26a6dd27ab264298b13c6fe14f60cec2783452",
@@ -187,7 +187,7 @@
     "test/agent-browser.extension-validation.test.ts": "c5cacaa38c3b3fd8f6c8582d0babef75e9458b8ada9abaa3f37e0f5c42797083",
     "test/agent-browser.import-boundaries.test.ts": "db6dbe928081dc3d9aeb481c1d20d4d79411353a1d133a8036e021bd73e256f3",
     "test/agent-browser.managed-session-daemon-policy.test.ts": "71adea92535d37a26ae9a39c0426b0e2c53625ae26a0de2c35ba82256c5d8013",
-    "test/agent-browser.managed-session-policy-lock.test.ts": "6abf82cffd64ba3e77103e4a98c2c15df51a9649b1aaa19c29d1893cefa77ac7",
+    "test/agent-browser.managed-session-policy-lock.test.ts": "8563629ce169a4cd553ff81875c07aa4d316c865d7f6b14b50b2141e0c8e25e9",
     "test/agent-browser.managed-session-restore.test.ts": "8062e60d0a457dc57f2b5ea3941293b52b1a846cdd634efdbbffaf63277b0f21",
     "test/agent-browser.overlay-click-recovery.test.ts": "685811a12979a324b219aa5886b0dbe9fa5a65e05ac3d22621435ee6de207675",
     "test/agent-browser.overlay-real-upstream.test.ts": "61806dc3940d9dbfadfcf2add8b0657a3133e23f0bf728dd3e3f6bf554281a6a",
@@ -241,5 +241,6 @@
     "tsconfig.build.json": "0206b4c0d324a6ee908df256cb02314890961410b6dadbe2ddce758c064dc454",
     "tsconfig.json": "264c86c5f1d6c1e3f661563a06357ae1b978b60ead2e4c5c967b7b21eacbfee2"
   },
-  "boundary": "Combined diagnostic before launcher-policy decision; known multiline argv failure stays active. No release/full-green claim."
+  "boundary": "Combined diagnostic before launcher-policy decision; known multiline argv failure stays active. No release/full-green claim.",
+  "oldPolicy": "31f2c763ae091e9bcc140ee114d76bc5a1b33e32353c694f3a85499c5f4b50ed"
 }

@@ -266,6 +266,12 @@ export async function acquireManagedSessionPolicyLock(options: {
 					await removeClaimOwnedBy(claim.path, claim.owner.token);
 					continue;
 				}
+				// A native identity query can outlive the owner's entire critical
+				// section. Its result (including unknown after exit) does not make
+				// an already released immutable claim a current blocker.
+				try { await lstat(claim.path); } catch (error) {
+					if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+				}
 				blocked = true;
 				break;
 			}
