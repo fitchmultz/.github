@@ -11,9 +11,15 @@ if (process.platform !== 'win32') throw new Error('Native Windows diagnostic onl
 const output = (value) => console.log(JSON.stringify(value));
 if (process.argv[2] !== 'child') {
   let failed = false;
-  for (const label of ['runner-environment', 'isolated-environment']) {
+  for (const [label, restore] of [
+    ['runner-environment', []], ['isolated-environment', []],
+    ['isolated-with-module-path', ['PSModulePath']],
+    ['isolated-with-program-files', ['ProgramFiles']],
+    ['isolated-with-both', ['PSModulePath', 'ProgramFiles']],
+  ]) {
     const root = mkdtempSync(join(tmpdir(), 'process-query-probe-'));
-    const env = label === 'runner-environment' ? process.env : isolatedEnvironment(root);
+    const env = label === 'runner-environment' ? { ...process.env } : isolatedEnvironment(root);
+    for (const key of restore) if (process.env[key]) env[key] = process.env[key];
     const child = spawnSync(process.execPath, ['--experimental-strip-types', fileURLToPath(import.meta.url), 'child', label], {
       env, encoding: 'utf8', timeout: 180_000, maxBuffer: 1024 * 1024,
     });
@@ -27,7 +33,7 @@ if (process.argv[2] !== 'child') {
   const environment = process.argv[3];
   const records = [];
   output({ environment, node: process.version, platform: process.platform,
-    present: Object.fromEntries(['SystemRoot','SYSTEMDRIVE','USERDOMAIN','USERPROFILE','APPDATA','LOCALAPPDATA','PSModulePath'].map(k => [k, Boolean(process.env[k])])) });
+    present: Object.fromEntries(['SystemRoot','SYSTEMDRIVE','USERDOMAIN','USERPROFILE','APPDATA','LOCALAPPDATA','PSModulePath','ProgramFiles'].map(k => [k, Boolean(process.env[k])])) });
   const command = buildProcessStartIdentityCommand(process.pid);
   const start = performance.now();
   const identity = await readProcessStartIdentity(process.pid);
