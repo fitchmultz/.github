@@ -50,6 +50,22 @@ jobs:
           PI_TEST_HOST: ${{ runner.temp }}/test-host
         run: npm run test:native
 
+  windows-environment:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          check-latest: true
+          package-manager-cache: false
+      - name: Query native process identity in the isolated environment
+        shell: bash
+        run: node --test test/windows-environment.native.mjs
+
   configuration:
     runs-on: ubuntu-latest
     steps:
@@ -81,11 +97,12 @@ jobs:
 
   automation:
     if: always()
-    needs: [tests, configuration, fleet]
+    needs: [tests, windows-environment, configuration, fleet]
     runs-on: ubuntu-latest
     steps:
       - env:
           TESTS: ${{ needs.tests.result }}
+          WINDOWS_ENVIRONMENT: ${{ needs.windows-environment.result }}
           CONFIGURATION: ${{ needs.configuration.result }}
           FLEET: ${{ needs.fleet.result }}
-        run: test "$TESTS" = success && test "$CONFIGURATION" = success && test "$FLEET" = success
+        run: test "$TESTS" = success && test "$WINDOWS_ENVIRONMENT" = success && test "$CONFIGURATION" = success && test "$FLEET" = success

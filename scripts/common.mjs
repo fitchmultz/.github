@@ -48,7 +48,7 @@ export function isolatedEnvironment(root) {
   // Leave agentDir HOME-derived: several tests deliberately substitute HOME.
   writeFileSync(env.npm_config_userconfig, "");
   writeFileSync(env.npm_config_globalconfig, "");
-  for (const name of ["SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT"]) {
+  for (const name of ["SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "PSModulePath"]) {
     if (process.env[name]) env[name] = process.env[name];
   }
   return env;
