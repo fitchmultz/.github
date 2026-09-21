@@ -1,0 +1,2800 @@
+diff --git a/.github/workflows/native-checkpoint.yml b/.github/workflows/native-checkpoint.yml
+index 3e94aa4..99a04a8 100644
+--- a/.github/workflows/native-checkpoint.yml
++++ b/.github/workflows/native-checkpoint.yml
+@@ -15,7 +15,7 @@ concurrency:
+   cancel-in-progress: true
+ 
+ env:
+-  PI_AUTOMATION_REF: a78d00c02fa2f3c05fe53b082f0a338150981a65 # v1.0.0
++  PI_AUTOMATION_REF: 736c45701fe96157644479a91fe507bea3135d22 # v1.0.0
+ 
+ jobs:
+   native-checkpoint-linux:
+diff --git a/.github/workflows/pi-compatibility.yml b/.github/workflows/pi-compatibility.yml
+index c70a4ae..ccc8521 100644
+--- a/.github/workflows/pi-compatibility.yml
++++ b/.github/workflows/pi-compatibility.yml
+@@ -15,6 +15,6 @@ concurrency:
+ 
+ jobs:
+   compatibility:
+-    uses: fitchmultz/.github/.github/workflows/pi-compatibility.yml@a78d00c02fa2f3c05fe53b082f0a338150981a65 # v1.0.0
++    uses: fitchmultz/.github/.github/workflows/pi-compatibility.yml@736c45701fe96157644479a91fe507bea3135d22 # v1.0.0
+     with:
+-      automation-ref: a78d00c02fa2f3c05fe53b082f0a338150981a65 # v1.0.0
++      automation-ref: 736c45701fe96157644479a91fe507bea3135d22 # v1.0.0
+diff --git a/AGENTS.md b/AGENTS.md
+index 999917b..4c3be25 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -142,7 +142,7 @@ This module is **pre-spawn planning only**: it validates raw `args`, derives imp
+ - **Upstream subprocess environment** — `extensions/agent-browser/lib/process.ts` passes through the parent environment so user-approved provider credentials and other runtime variables reach upstream, then applies wrapper overrides such as the managed socket directory, managed-session idle timeout, clamped default operation timeout, canonical owned-session namespace (including empty default), and managed-session restore env from the pure `getManagedSessionRestoreEnv` resolver in `extensions/agent-browser/lib/managed-session-restore.ts`; on POSIX, the selected socket directory must be absolute, current-uid-owned mode `0700`, under trusted ancestry, and free of symlink, foreign-owner, or special planted entries, with pre-existing unsafe modes rejected rather than repaired and validation repeated before spawn; `commitManagedSessionRestoreSuppression` records a restore-disabled identity only after an owned-context child emits `spawn` on POSIX; the Windows `cross-spawn` path commits after process completion unless the spawner reports an error such as `ENOENT`. Every subprocess targeting a wrapper-owned session—including helper probes such as fresh snapshots, tab lists, and navigation summaries—must receive the same implicit `AGENT_BROWSER_IDLE_TIMEOUT_MS`; caller-owned sessions retain native idle policy (including an unset value), and per-call idle/config overrides must reach their helpers; compatible non-close subprocesses must also receive the same restore decision for a given managed session, while close omits the wrapper's automatic key without changing caller environment. Wrapper-owned headed launches default `AGENT_BROWSER_AUTOSAVE_INTERVAL_MS` to `0` unless the caller set it because upstream 0.33.2's periodic multi-origin collector opens visible temporary targets and holds the daemon lock; the owned managed-session context retains the effective launch-time interval across every helper and follow-up subprocess, including transcript reload/resume, so daemon configuration stays stable; any explicit change in either direction must fail until close plus a fresh launch. Native close still saves, but direct window close can lose newer state because headed browsers are exempt from idle shutdown. Upstream can otherwise restart the background browser between calls, discard the active tab, invalidate fresh refs, or switch restore keys mid-session. Keep model-facing output redacted, but do not drop execution-path secrets merely because their names are not known to this wrapper.
+ - **Attached browser continuity** — successful `connect`, `--cdp`, enabled `--auto-connect`, matching environment launches, and wrapper Electron attachments are branch-visible session state. First-use and later content-bearing calls live-check `get url` so external tab drift cannot silently target the wrong page. Caller launch/config/file-access arguments and environment remain upstream-owned and pass through unchanged; the wrapper only avoids re-emitting its own compatibility launch argument on an active attachment. A successful close clears the attachment marker. Update `docs/ARCHITECTURE.md`, `docs/TOOL_CONTRACT.md`, `docs/COMMAND_REFERENCE.md`, plus process and extension integration tests when changing this boundary.
+ - **Managed-session restore ownership** — automatic managed restore is a wrapper convenience, not an authorization boundary. Wrapper-owned implicit sessions receive a transcript- and checkout-scoped restore identity when compatible; explicit caller sessions, state/restore choices, profiles, config, file access, launch arguments, environment, and close arguments pass through unchanged. Do not reserve `piab-*` names, hide session/state rows, redact restore identifiers, pin an empty upstream config, clear caller launch environment, canonicalize caller close arguments, or reject local/cross-checkout paths. Keep only the automatic restore identity/storage checks needed to avoid mixing the wrapper's own restore pools, the daemon lifecycle coordination needed to avoid corrupting active managed sessions, and live page-target verification after ambiguous tab/attachment/history/script/state transitions. `extensions/agent-browser/lib/page-target-validation.ts` owns page-target correctness only; it must not grow resource-access policy. Update [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/TOOL_CONTRACT.md`](docs/TOOL_CONTRACT.md), `test/agent-browser.page-target-validation.test.ts`, managed-restore tests, planner coverage, and browser-run call sites together.
+-- **Upstream subprocess completion** — `runAgentBrowserProcess` spawns `agent-browser` with `stdio: ["pipe", "pipe", "pipe"]` and must not wait forever on `"close"` when a detached descendant inherits those streams. `watchSpawnedChildCompletion` listens for `exit` and `close`, leaves piped stdio intact for the short post-`exit` grace (`EXIT_STDIO_GRACE_MS`) so normal `close` can still win, then destroys those streams only if the fallback resolves with the observed `exit` code. Windows invocations use the public `cross-spawn.spawn` API without custom quoting, executable discovery or command reordering; POSIX keeps native Node `spawn`. Timeout/abort cleanup uses `taskkill /T /F` for the full Windows shell/agent-browser process tree before falling back to the direct child signal. `test/agent-browser.windows-argv.test.ts` runs the actual host transport with independent argv, stdin, PATH-shim and failure controls, including in `platform-target`; POSIX results are not native Windows proof. Exit-code precedence is `close` → wrapper timeout (`124`) → post-`exit` fallback → spawn failure (`127`), locked by `resolveSpawnedChildExitCode` and `test/agent-browser.process.test.ts`. Changing that window, precedence, or stream teardown order requires updating [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) subprocess bullets, [`docs/SUPPORT_MATRIX.md`](docs/SUPPORT_MATRIX.md) `RQ-0097`, and the stdio-linger regressions in `test/agent-browser.process.test.ts`.
++- **Upstream subprocess completion** — `runAgentBrowserProcess` spawns `agent-browser` with `stdio: ["pipe", "pipe", "pipe"]` and must not wait forever on `"close"` when a detached descendant inherits those streams. `watchSpawnedChildCompletion` listens for `exit` and `close`, leaves piped stdio intact for the short post-`exit` grace (`EXIT_STDIO_GRACE_MS`) so normal `close` can still win, then destroys those streams only if the fallback resolves with the observed `exit` code. Keep subprocess launching thin by reusing maintained libraries and native platform behavior; Windows uses public `cross-spawn.spawn`, with a narrowly recognized stock global npm CMD launcher routed to its own native executable through public `which`/`path-key`; POSIX uses Node `spawn`. Avoid rebuilding quoting or command resolution. Fix demonstrated launcher defects with the smallest verified change, preserving command-selection precedence, custom launchers, argv, stdin and lifecycle behavior. Timeout/abort cleanup uses `taskkill /T /F` for the full Windows shell/agent-browser process tree before falling back to the direct child signal. `test/agent-browser.windows-argv.test.ts` runs the actual host transport with independent argv, stdin, PATH-shim and failure controls, including in `platform-target`; POSIX results are not native Windows proof. Exit-code precedence is `close` → wrapper timeout (`124`) → post-`exit` fallback → spawn failure (`127`), locked by `resolveSpawnedChildExitCode` and `test/agent-browser.process.test.ts`. Changing that window, precedence, or stream teardown order requires updating [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) subprocess bullets, [`docs/SUPPORT_MATRIX.md`](docs/SUPPORT_MATRIX.md) `RQ-0097`, and the stdio-linger regressions in `test/agent-browser.process.test.ts`.
+ - **Sessionless inspection/local commands** — `isPlainTextInspectionArgs` recognizes `--help`, `-h`, `--version`, and `-V`: those calls keep caller argv, skip implicit `--session`, and are ignored during transcript restore. `needsManagedSession` in `command-policy.ts` gives the same no-implicit-session behavior to read-only skills, local auth/profile/setup commands, `session list`, and syntactically local state management. State/session rows and targets are not filtered or reserved. Browser-backed or context-dependent commands still receive normal managed-session injection when the caller did not choose an explicit session. Cover command-shape changes in `test/agent-browser.runtime.test.ts`.
+ - **Regression tests** — `test/agent-browser.runtime.test.ts` locks execution-plan injection, launch-scoped blocking, argv edge cases, and related helpers.
+ 
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index e757e08..d86aeb4 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -9,6 +9,15 @@
+ - Validate explicit Windows socket directories using native directory semantics instead of requiring POSIX ownership metadata.
+ - Start the config CLI correctly on Windows and encoded or symlinked paths using Node's native entrypoint identity, while keeping module imports silent.
+ - Redact bearer credentials followed by Windows path separators in diagnostic text.
++- Await Windows process-tree termination before returning from browser timeouts or cancellation.
++- Preserve literal newlines through agent-browser's recognized global npm Windows CMD launcher by invoking that installation's native executable directly; custom and unrecognized launchers retain their existing behavior.
++- Allow ten seconds for native Windows process-identity queries, including PowerShell startup, while preserving the identity format and five-second POSIX budget.
++- Await tracked Electron process exit before removing its profile and reporting cleanup complete.
++- Inspect native Windows process command lines when verifying ownership of restored Electron launches.
++- Recognize native Windows absolute checkout paths when checking for duplicate extension sources.
++- Recheck released managed-session policy claims after PID inspection so a completed owner does not leave a stale busy result.
++- Refresh transient choosing tickets so a later managed-session contender cannot block its predecessor after publishing its ticket.
++- Retry native Windows open-file rename conflicts during owned policy-claim cleanup, with token revalidation and a fresh one-second retry window even after long browser shutdowns.
+ 
+ ## 0.6.15 - 2026-09-18
+ 
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index bcefb3c..2913dd9 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -36,7 +36,8 @@ Why:
+ 
+ The extension should:
+ - resolve `agent-browser` from `PATH`
+-- invoke it with native Node `spawn` on POSIX and `cross-spawn` on Windows. The latter handles Windows `PATH`/`PATHEXT`, `.cmd` shims and argument escaping without PowerShell or wrapper-owned command reordering. Caller commands and helper probes retain empty operands, literal doublequotes, command/subcommand adjacency and explicit default `--namespace ""`; the selected shim still owns upstream architecture selection. Keep piped stdin/stdout/stderr and terminate the full Windows shell/agent-browser process tree with `taskkill /T /F` on timeout or abort before falling back to the direct child signal. Missing commands use the spawner's `ENOENT`, not a parsed shell-error string
++- invoke it with native Node `spawn` on POSIX and `cross-spawn` on Windows. For the recognized global npm CMD template, public `which`/`path-key` resolution selects the same launcher and Node invokes its exact adjacent native executable directly, preserving literal CR/LF. Recognition requires the stock template, package identity and executable; custom launchers, other layouts, ambiguous search environments and worker-thread calls retain `cross-spawn`. No later installation is substituted. Custom or unrecognized batch files can still truncate literal newlines. Caller commands and helper probes retain empty operands, literal doublequotes, command/subcommand adjacency and explicit default `--namespace ""`. Keep piped stdin/stdout/stderr and await full Windows process-tree termination with `taskkill /T /F` on timeout or abort before falling back to the direct child signal. Missing commands use the spawner's `ENOENT`
++- bound native process-identity queries at ten seconds on Windows, including PowerShell startup, and five seconds on POSIX. These probes preserve PID/start-time comparison and fail closed when identity is unavailable; their budget is separate from lock contention and browser command watchdogs
+ - inject `--json`; caller-requested JSON also uses the existing `buildJsonVisibleContent` envelope for early snapshot/network filters, scroll results, and preparation failures, retaining metadata in `details` and keeping output-file notices out of visible JSON. Help/version stays native text
+ - complete each upstream invocation when the direct `agent-browser` child exits even if Node delays `"close"`: piped stdio can stay referenced by longer-lived descendant processes, so `runAgentBrowserProcess` watches `exit` and `close` together, leaves stdio intact during a short post-`exit` grace so normal `close` can still win, destroys streams only when the post-`exit` fallback fires, and prefers `close` codes then wrapper timeout (`124`) over signal-shaped `exit` codes (`watchSpawnedChildCompletion` / `resolveSpawnedChildExitCode` in `extensions/agent-browser/lib/process.ts`) so the tool cannot hang after the CLI process has already terminated
+ - support optional stdin only for `eval --stdin`, `batch`, `auth save --password-stdin`, and wrapper-generated `batch` stdin from top-level `job`, `qa`, `sourceLookup`, or `networkSourceLookup`, rejecting other command/stdin combinations before launch; top-level `electron` never accepts caller `stdin` (see [`TOOL_CONTRACT.md`](TOOL_CONTRACT.md#electron))
+diff --git a/docs/ELECTRON.md b/docs/ELECTRON.md
+index 62d73ab..8657d10 100644
+--- a/docs/ELECTRON.md
++++ b/docs/ELECTRON.md
+@@ -184,7 +184,9 @@ Output appears under `details.electron.probe`: `title`, `url`, `focusedElement`,
+ 
+ ### `electron.cleanup` — wrapper-owned only
+ 
+-Closes the tracked managed session, stops only the wrapper-tracked process, verifies that the debug port no longer serves `/json/version`, and removes the wrapper-created `userDataDir`. Cleanup partial failures fail the tool result with `failureCategory: "cleanup-failed"` and the `retry-electron-cleanup` next action references the same `launchId` so retries are bounded.
++Closes the tracked managed session, stops only the wrapper-tracked process, verifies that the debug port no longer serves `/json/version`, and removes the wrapper-created `userDataDir`. Cleanup waits for actual exit when it has a tracked child handle. For a live restored PID without that handle, it first checks the native process command line for the recorded profile: `Win32_Process.CommandLine` through Windows PowerShell on Windows, or `ps` on POSIX. If inspection fails or the profile does not match, cleanup leaves the process and profile intact.
++
++Cleanup partial failures fail the tool result with `failureCategory: "cleanup-failed"` and the `retry-electron-cleanup` next action references the same `launchId` so retries are bounded.
+ 
+ ```json
+ { "electron": { "action": "cleanup", "launchId": "electron-…" } }
+@@ -313,7 +315,7 @@ Policy mismatches fail with `failureCategory: "policy-blocked"` and `details.ele
+ 
+ Failed startup diagnostics include `outputCaptured`, `stdoutTail` / `stderrTail`, and `stdoutTruncated` / `stderrTruncated`. Each tail reads at most the last **4096 source bytes** before UTF-8 decoding and normal credential redaction, and appears in both visible failure text and structured details. Empty output is reported explicitly; `stdoutError` / `stderrError` report capture-read or close errors without replacing the original startup reason, exit status, or cleanup warning.
+ 
+-The app writes to mode-0600 `stdout.log` and `stderr.log` inside its isolated profile. These are regular files, not pipes to Pi, so retained apps can keep writing after reload or host exit. Logs follow profile preservation and removal; **the read limit is not a lifetime disk limit**. If failed-startup process cleanup cannot finish, the profile and logs are protected from general temp cleanup. Any failure to persist that protection appears alongside the original `failure.cleanupError`; in-memory protection remains. Use the reported PID and profile path to resolve that failed cleanup before removing files.
++The app writes to mode-0600 `stdout.log` and `stderr.log` inside its isolated profile. Regular-file capture lets a retained app keep writing independently of Pi's output streams. POSIX launches are detached and can outlive the host; Windows launches remain host-owned and stop when the host exits. Preserved logs survive either outcome. Logs follow profile preservation and removal; **the read limit is not a lifetime disk limit**. If failed-startup process cleanup cannot finish, the profile and logs are protected from general temp cleanup. Any failure to persist that protection appears alongside the original `failure.cleanupError`; in-memory protection remains. Use the reported PID and profile path to resolve that failed cleanup before removing files.
+ 
+ Single-instance Electron behavior is a common cause of `timeout` and `upstream-error`. Many Electron apps enforce a single running instance and silently drop a second invocation's `--remote-debugging-port` flag. If the app is already running without a debug port, quit it first or use the manual host-launch path against the existing instance instead.
+ 
+diff --git a/docs/SUPPORT_MATRIX.md b/docs/SUPPORT_MATRIX.md
+index 9581205..38a32a9 100644
+--- a/docs/SUPPORT_MATRIX.md
++++ b/docs/SUPPORT_MATRIX.md
+@@ -77,7 +77,7 @@ Browser evidence (RQ-0152) is covered by `test/agent-browser.browser-evidence.te
+ 
+ Contributor fixes #133/#152 remove unused prompt suffix entries without changing runtime guidance and diagnose bare `--no-sandbox` only in the command slot or navigation option positions. Native `--args` values and literal operands remain intact; batch checks use raw effective rows without treating row-local `--args` as a launch setting. `test/agent-browser.chromium-args.test.ts` covers pre-dispatch rejection, literal/flag-value controls, inspection, raw/stdin batch precedence and dispatcher outcomes. Existing prompt/grammar checks remain; source checks do not replace native-product gates.
+ 
+-Electron diagnostics (RQ-0096, #128) keep list timeout rejection truthful, label explicit-ID cleaned records as historical without changing active selection or actions, and measure the tracked profile path with native `lstat` (`present` / ENOENT-only `absent` / `unknown`). Existing Electron discovery/lifecycle tests cover current liveness independently of cleanup history, native path errors and dangling symlinks, transcript replay, and unchanged cleanup ownership. Failed-startup diagnostics include redacted last-4096-byte stdout/stderr tails in visible text and structured details, using private profile-local regular files. Regression tests cover exact tails, empty output, capture/spawn errors and closed native file handles; a real spawned fixture with injected kill denial proves profile/log preservation through temp cleanup and host exit, including persistence failure reporting. The shared daemon policy verifies a restored Electron attachment's live browser endpoint and named upstream `get cdp-url` before ordinary calls, status, or probe reuse; `test/agent-browser.extension-ref-guards.test.ts` covers successful reuse and repeated rejection of replaced app, connection, and namespace identities without weakening generic restore-disabled rules. These checks do not replace native-app, Pi lifecycle, package, or live-site gates.
++Electron diagnostics (RQ-0096, #128) keep list timeout rejection truthful, label explicit-ID cleaned records as historical without changing active selection or actions, and measure the tracked profile path with native `lstat` (`present` / ENOENT-only `absent` / `unknown`). Existing Electron discovery/lifecycle tests cover current liveness independently of cleanup history, native path errors and dangling symlinks, transcript replay, and unchanged cleanup ownership. Failed-startup diagnostics include redacted last-4096-byte stdout/stderr tails in visible text and structured details, using private profile-local regular files. Regression tests cover exact tails, empty output, capture/spawn errors and closed native file handles; a real spawned fixture with injected kill denial proves live output through temp cleanup, retained logs through native host-exit behavior, and persistence failure reporting. Tracked-child cleanup regressions require actual exit before profile removal and immediate executable deletion. Restored-PID cleanup uses native process command-line evidence on Windows and POSIX; real-process regressions verify matching profiles with spaces/Unicode, refusal of unrelated or mismatched profiles, and shutdown after transcript restoration. The shared daemon policy verifies a restored Electron attachment's live browser endpoint and named upstream `get cdp-url` before ordinary calls, status, or probe reuse; `test/agent-browser.extension-ref-guards.test.ts` covers successful reuse and repeated rejection of replaced app, connection, and namespace identities without weakening generic restore-disabled rules. These checks do not replace native-app, Pi lifecycle, package, or live-site gates.
+ 
+ Artifact diagnostics (#124/#127) use a shared pre-dispatch mkdir-error boundary, preserve raw batch argv/precedence, recommend absolute raw artifact paths, recognize image headers rather than filename MIME guesses, retain known requested/reported paths, and warn once about conservative ref invalidation after dispatched recording starts and URL-bearing restarts, on success or failure, without claiming an observed page change. `test/agent-browser.artifact-diagnostics.test.ts` covers registered filesystem failures, real image bytes and misleading suffixes, the inline bound, native macOS path aliases, recording/ref continuity and unreached-row negatives; `test/agent-browser.presentation-artifacts-batch.test.ts` retains artifact/persistence coverage. These source regressions do not qualify daemon-cwd differences or affected-filesystem timestamp behavior (#118), or replace native/Pi/package/live-site gates.
+ 
+@@ -107,7 +107,7 @@ Re-run the gates below before each release. Dated outcomes in this table are his
+ | --- | --- | --- |
+ | Default local gate | `npm run verify` checks generated playbook drift, clean-builds generated `dist/`, runs `tsc --noEmit`, unit/fake tests, generated command-reference blocks, and live command-reference sampling. | **Earlier 0.36.0:** pass on 2026-09-01; 779 tests passed, two opt-in real-upstream tests skipped, and build/typecheck/docs/live command-reference gates passed. |
+ | Pre-PR local gate | `npm run verify -- pre-pr` composes the default gate with package-content verification. Use before larger local handoffs or PR-ready claims when lifecycle/platform/live dogfood cost is not warranted. | **Earlier 0.36.0 / package 0.6.2:** pass on 2026-09-01; 779 tests passed, two opt-in tests skipped, and the 127-file tarball verified. |
+-| Windows argument transport (#102/#131/#141) | `node --import tsx --test test/agent-browser.windows-argv.test.ts` exercises the actual host subprocess with independent expected argv, empty fill/launch/namespace values, literal quotes, Unicode/spaces, stdin, child-`PATH` custom shims and missing-command/nonzero-exit truth. It also runs in the default and `platform-target` gates. Windows uses `cross-spawn`; POSIX keeps native Node `spawn`. | The old PowerShell Legacy path dropped empty operands and split ordinary doublequoted fill text; the quoted-empty-only proposal fixed the former but left the latter broken. Native macOS and Ubuntu validate the unchanged POSIX subprocess path. Native Windows/`cmd.exe` and affected-host managed open → snapshot → close retests remain unrun under the task-specific waiver; neither Linux PowerShell diagnostics nor dependency tests are reported as native Windows proof. |
++| Windows argument transport (#102/#131/#141) | `test/agent-browser.windows-argv.test.ts` exercises actual host argv, empty values, quotes, Unicode/spaces, stdin, custom shims and failure outcomes. `test/agent-browser.windows-stock-launcher.test.ts` covers the recognized global npm CMD template's direct-native path, command selection, fallback, literal LF/CRLF and cancellation. Custom or unrecognized batch launchers retain their existing newline limitation. POSIX keeps Node `spawn`. | Native Windows focused qualification on 2026-09-21 passed all seven stock-launcher controls, all 29 Chromium cases and 33 process/argv cases (two existing platform skips). Actual upstream Rust received all 12 expected operands; the original CMD path lost all four newline-bearing operands. These focused results do not replace full-suite, managed-browser, package or release gates. |
+ | Real upstream contract | `npm run verify -- real-upstream` runs the localhost fixture matrix against a real stable `agent-browser` at or above the configured floor. | **Earlier recommended 0.36.0:** pass on 2026-09-01 (2/2 tests), including WebMCP and `--no-webmcp`; the 0.35.0 floor last passed on 2026-08-26 (2/2 tests). |
+ | Packaged Pi smoke | `npm run verify -- package-pi` validates package contents, installs the extracted tarball's runtime dependencies without lifecycle scripts or host peers, loads the packaged `agent_browser` tool without requiring optional Brave config, and executes fake-upstream `--version`. | **Earlier package 0.6.2 / Pi 0.84.4:** pass on 2026-09-01; the 127-file tarball loaded exactly one packaged `agent_browser` and executed `--version`. |
+ | Startup profile | `npm run verify -- startup-profile --samples <n>` clean-builds generated `dist/`, records direct package entrypoint import/factory timing in fresh Node processes, and writes `.artifacts/startup-profile/latest.json`. It must not launch Pi, tmux, mise, npm, browsers, or `agent-browser`; full Pi TUI ready-prompt profiling is intentionally excluded after it proved too invasive for routine verification. Run this opt-in evidence when package layout, the compiled entrypoint, top-level imports, schema registration, or prompt/config startup logic changes. | **Earlier compiled 0.6.2 entrypoint:** pass on 2026-09-01 with three samples; median 104.9 ms and max 114.5 ms, below the 250 ms budget. |
+diff --git a/extensions/agent-browser/lib/electron/cleanup.ts b/extensions/agent-browser/lib/electron/cleanup.ts
+index 35cffbd..a4e423e 100644
+--- a/extensions/agent-browser/lib/electron/cleanup.ts
++++ b/extensions/agent-browser/lib/electron/cleanup.ts
+@@ -1,5 +1,6 @@
+ import { execFile, type ChildProcess } from "node:child_process";
+ import { lstat, rm } from "node:fs/promises";
++import { win32 } from "node:path";
+ import { promisify } from "node:util";
+ 
+ import { fetchCdpJson, parseCdpTargets, parseCdpVersion } from "./cdp.js";
+@@ -84,19 +85,35 @@ export async function inspectElectronLaunchStatus(record: ElectronLaunchRecord,
+ 	};
+ }
+ 
++function hasProcessExited(child: ChildProcess | undefined, pid: number | undefined): boolean {
++	// A Windows PID probe can report ESRCH during termination, before the
++	// tracked process has exited and released its executable/resources.
++	return child ? child.exitCode !== null || child.signalCode !== null : isPidAlive(pid) === false;
++}
++
+ async function waitForProcessExit(child: ChildProcess | undefined, pid: number | undefined, deadlineMs: number): Promise<boolean> {
+ 	while (Date.now() <= deadlineMs) {
+-		if (child && (child.exitCode !== null || child.signalCode !== null)) return true;
+-		if (isPidAlive(pid) === false) return true;
++		if (hasProcessExited(child, pid)) return true;
+ 		await sleep(ELECTRON_CLEANUP_POLL_INTERVAL_MS);
+ 	}
+-	return isPidAlive(pid) === false;
++	return hasProcessExited(child, pid);
+ }
+ 
+ async function readPidCommandLine(pid: number | undefined): Promise<string | undefined> {
+ 	if (!pid || !Number.isSafeInteger(pid) || pid <= 0) return undefined;
+ 	try {
+-		const { stdout } = await execFileAsync("ps", ["-ww", "-p", String(pid), "-o", "command="], {
++		// Win32_Process.CommandLine is the native ownership evidence; process
++		// start time (used by daemon-policy locks) cannot prove profile ownership.
++		const systemRoot = process.env.SystemRoot;
++		const windowsRoot = systemRoot && win32.isAbsolute(systemRoot) ? systemRoot : "C:\\Windows";
++		const file = process.platform === "win32"
++			? win32.join(windowsRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
++			: "ps";
++		const args = process.platform === "win32"
++			? ["-NoProfile", "-NonInteractive", "-Command",
++				`[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $p = [wmi]"Win32_Process.Handle='${pid}'"; [Console]::WriteLine($p.CommandLine)`]
++			: ["-ww", "-p", String(pid), "-o", "command="];
++		const { stdout } = await execFileAsync(file, args, {
+ 			timeout: RESTORED_PROCESS_COMMAND_TIMEOUT_MS,
+ 		});
+ 		return stdout.trim() || undefined;
+@@ -146,7 +163,7 @@ function signalRestoredLaunchProcess(record: ElectronLaunchRecord, signal: NodeJ
+ 
+ async function cleanupProcess(record: ElectronLaunchRecord, child: ChildProcess | undefined, deadlineMs: number): Promise<ElectronCleanupStep> {
+ 	if (!record.pid) return { resource: "process", state: "skipped" };
+-	if (isPidAlive(record.pid) === false) return { resource: "process", state: "already-gone" };
++	if (hasProcessExited(child, record.pid)) return { resource: "process", state: "already-gone" };
+ 	if (!child) {
+ 		const verificationError = await getRestoredProcessVerificationError(record);
+ 		if (verificationError) return { error: verificationError, resource: "process", state: "failed" };
+diff --git a/extensions/agent-browser/lib/managed-session-policy-lock.ts b/extensions/agent-browser/lib/managed-session-policy-lock.ts
+index 91991f8..c0d31a6 100644
+--- a/extensions/agent-browser/lib/managed-session-policy-lock.ts
++++ b/extensions/agent-browser/lib/managed-session-policy-lock.ts
+@@ -169,14 +169,24 @@ async function ownerAlive(owner: PolicyLockOwner): Promise<boolean | undefined>
+ 	return current === undefined ? undefined : processStartIdentitiesMatch(owner.startIdentity, current);
+ }
+ 
+-async function removeClaimOwnedBy(path: string, token: string): Promise<boolean> {
+-	const current = await readClaim(path);
+-	if (current?.owner.token !== token) return false;
++async function removeClaimOwnedBy(path: string, token: string, deadline = 0): Promise<boolean> {
+ 	const movedPath = join(dirname(path), `.pi-agent-browser-policy-remove-${token}-${randomUUID()}`);
+-	try {
+-		await rename(path, movedPath);
+-	} catch (error) {
+-		return (error as NodeJS.ErrnoException).code === "ENOENT";
++	while (true) {
++		const current = await readClaim(path);
++		if (current?.owner.token !== token) return false;
++		try {
++			await rename(path, movedPath);
++			break;
++		} catch (error) {
++			const code = (error as NodeJS.ErrnoException).code;
++			if (code === "ENOENT") return true;
++			// Windows may refuse a directory move while a contender reads its
++			// metadata. Revalidate before retrying. Owned-claim cleanup gets
++			// its own bounded window, independent of the acquisition wait.
++			if (process.platform !== "win32" || code !== "EPERM" || Date.now() >= deadline) return false;
++			await waitForRetry();
++			if (Date.now() >= deadline) return false;
++		}
+ 	}
+ 	const moved = await readClaim(movedPath);
+ 	if (moved?.owner.token !== token) {
+@@ -205,6 +215,12 @@ function claimPrecedes(left: PolicyLockClaim, right: PolicyLockClaim): boolean {
+ 	return left.ticket < right.ticket || (left.ticket === right.ticket && left.owner.token < right.owner.token);
+ }
+ 
++async function hasPublishedLaterTicket(claim: PolicyLockClaim, ownClaim: PolicyLockClaim): Promise<boolean> {
++	if (claim.ticket !== null) return false;
++	const current = await readClaim(claim.path);
++	return current?.owner.token === claim.owner.token && !claimPrecedes(current, ownClaim);
++}
++
+ function waitForRetry(signal?: AbortSignal): Promise<void> {
+ 	return new Promise((resolve) => {
+ 		if (signal?.aborted) return resolve();
+@@ -238,6 +254,9 @@ export async function acquireManagedSessionPolicyLock(options: {
+ 	let claimPublished = false;
+ 	let lockAcquired = false;
+ 	try {
++		// Garbage collection may query unrelated live processes. Do it before
++		// publishing a claim so it cannot consume another contender's lock wait.
++		await cleanDeadPolicyArtifacts(directory);
+ 		await mkdir(candidatePath, { mode: 0o700 });
+ 		await writeFile(join(candidatePath, LOCK_OWNER_FILE), JSON.stringify(owner), { encoding: "utf8", flag: "wx", mode: 0o600 });
+ 		await rename(candidatePath, claimPath);
+@@ -261,18 +280,28 @@ export async function acquireManagedSessionPolicyLock(options: {
+ 			let blocked = false;
+ 			for (const claim of claims) {
+ 				if (claim.owner.token === token || !claimPrecedes(claim, ownClaim)) continue;
++				// Choosing is transient: a later published ticket must not make
++				// its predecessor wait on it using an earlier null snapshot.
++				if (await hasPublishedLaterTicket(claim, ownClaim)) continue;
+ 				const alive = await ownerAlive(claim.owner);
+ 				if (alive === false) {
+ 					await removeClaimOwnedBy(claim.path, claim.owner.token);
+ 					continue;
+ 				}
++				// A native identity query can outlive the owner's entire critical
++				// section. Its result (including unknown after exit) does not make
++				// an already released immutable claim a current blocker.
++				try { await lstat(claim.path); } catch (error) {
++					if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
++				}
++				// Publication can also complete during the native identity query.
++				if (await hasPublishedLaterTicket(claim, ownClaim)) continue;
+ 				blocked = true;
+ 				break;
+ 			}
+ 			if (!blocked) {
+-				await cleanDeadPolicyArtifacts(directory);
+ 				lockAcquired = true;
+-				return { release: async () => { await removeClaimOwnedBy(claimPath, token); } };
++				return { release: async () => { await removeClaimOwnedBy(claimPath, token, Date.now() + POLICY_LOCK_WAIT_MS); } };
+ 			}
+ 			if (Date.now() >= deadline) return undefined;
+ 			await waitForRetry(options.signal);
+@@ -282,6 +311,6 @@ export async function acquireManagedSessionPolicyLock(options: {
+ 		return undefined;
+ 	} finally {
+ 		await rm(candidatePath, { force: true, recursive: true }).catch(() => undefined);
+-		if (claimPublished && !lockAcquired) await removeClaimOwnedBy(claimPath, token);
++		if (claimPublished && !lockAcquired) await removeClaimOwnedBy(claimPath, token, Date.now() + POLICY_LOCK_WAIT_MS);
+ 	}
+ }
+diff --git a/extensions/agent-browser/lib/process-identity.ts b/extensions/agent-browser/lib/process-identity.ts
+index 5879a14..9258e20 100644
+--- a/extensions/agent-browser/lib/process-identity.ts
++++ b/extensions/agent-browser/lib/process-identity.ts
+@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
+ import { dirname, join, win32 } from "node:path";
+ 
+ const WINDOWS_PROCESS_START_IDENTITY_PREFIX = "win32-powershell-ticks-v1:";
+-const PROCESS_START_IDENTITY_TIMEOUT_MS = 5_000;
++// Native Windows PowerShell startup can exhaust the former five-second probe budget.
++const PROCESS_START_IDENTITY_TIMEOUT_MS = process.platform === "win32" ? 10_000 : 5_000;
+ const DEFAULT_WINDOWS_SYSTEM_ROOT = "C:\\Windows";
+ 
+ export interface ProcessStartIdentityCommand {
+@@ -25,7 +26,7 @@ export function buildProcessStartIdentityCommand(
+ 				"-NoProfile",
+ 				"-NonInteractive",
+ 				"-Command",
+-				`$p = Get-Process -Id ${pid} -ErrorAction Stop; Write-Output ("${WINDOWS_PROCESS_START_IDENTITY_PREFIX}" + $p.StartTime.ToUniversalTime().Ticks)`,
++				`$ErrorActionPreference = 'Stop'; $p = [System.Diagnostics.Process]::GetProcessById(${pid}); [Console]::Out.WriteLine("${WINDOWS_PROCESS_START_IDENTITY_PREFIX}" + $p.StartTime.ToUniversalTime().Ticks)`,
+ 			],
+ 			file: win32.join(windowsSystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+ 		}
+diff --git a/extensions/agent-browser/lib/process.ts b/extensions/agent-browser/lib/process.ts
+index 65bf1f2..ffe249f 100644
+--- a/extensions/agent-browser/lib/process.ts
++++ b/extensions/agent-browser/lib/process.ts
+@@ -25,6 +25,7 @@ import {
+ import { getImplicitSessionIdleTimeoutMs } from "./runtime.js";
+ import { getAgentBrowserProcessEnvironment } from "./process-environment.js";
+ import { openSecureTempFile, writeSecureTempChunk } from "./temp.js";
++import { resolveWindowsStockLauncher } from "./windows-stock-launcher.js";
+ 
+ const MAX_BUFFERED_STDOUT_BYTES = 512 * 1_024;
+ const MAX_BUFFERED_STDERR_CHARS = 32_000;
+@@ -82,11 +83,16 @@ export function prepareAgentBrowserSpawnArgs(args: string[], wrapperCompatibilit
+ 	return normalized;
+ }
+ 
+-function terminateSpawnedChild(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): void {
++async function terminateSpawnedChild(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): Promise<void> {
+ 	if (processPlatform === "win32" && child.pid) {
+-		const killer = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+-		killer.on("error", () => undefined);
+-		killer.unref();
++		// Keep the shell alive until taskkill has traversed its descendants, and
++		// observe the killer before allowing the browser call to finish.
++		const killed = await new Promise<boolean>((resolve) => {
++			const killer = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
++			killer.once("error", () => resolve(false));
++			killer.once("close", (code) => resolve(code === 0));
++		});
++		if (killed) return;
+ 	}
+ 	child.kill(signal);
+ }
+@@ -470,6 +476,8 @@ export async function runAgentBrowserProcess(options: {
+ 		}
+ 		effectiveEnv = { ...effectiveEnv, [AGENT_BROWSER_SOCKET_DIR_ENV]: requestedSocketDir };
+ 	}
++	const childEnv = buildAgentBrowserProcessEnv(parentEnv, effectiveEnv);
++	const stockLauncher = resolveWindowsStockLauncher(cwd, childEnv);
+ 	if (signal?.aborted) {
+ 		return { aborted: true, agentBrowserStarted: false, exitCode: 1, stderr: "", stdout: "", timedOut: false };
+ 	}
+@@ -487,6 +495,7 @@ export async function runAgentBrowserProcess(options: {
+ 		let stdoutSpillPending = false;
+ 		let pendingStdoutWrite = Promise.resolve();
+ 		let stdoutSpillError: Error | undefined;
++		let pendingTermination: Promise<void> | undefined;
+ 		let killTimer: NodeJS.Timeout | undefined;
+ 		let timeoutTimer: NodeJS.Timeout | undefined;
+ 		let abortListener: (() => void) | undefined;
+@@ -536,15 +545,16 @@ export async function runAgentBrowserProcess(options: {
+ 		const finish = (exitCode: number) => {
+ 			if (settled) return;
+ 			settled = true;
++			removeAbortListener();
++			if (killTimer) {
++				clearTimeout(killTimer);
++			}
++			if (timeoutTimer) {
++				clearTimeout(timeoutTimer);
++			}
++			completionWatcher?.clear();
+ 			void pendingStdoutWrite.finally(async () => {
+-				removeAbortListener();
+-				if (killTimer) {
+-					clearTimeout(killTimer);
+-				}
+-				if (timeoutTimer) {
+-					clearTimeout(timeoutTimer);
+-				}
+-				completionWatcher?.clear();
++				await pendingTermination;
+ 				if (stdoutSpillHandle) {
+ 					await stdoutSpillHandle.close().catch(() => undefined);
+ 				}
+@@ -571,14 +581,13 @@ export async function runAgentBrowserProcess(options: {
+ 			});
+ 		};
+ 
+-		const childEnv = buildAgentBrowserProcessEnv(parentEnv, effectiveEnv);
+ 		const spawnPolicyError = getManagedPreSpawnPolicyError(managedSessionRestoreOptions, managedStateCurrentPageUrl, managedStatePageUrlUnknown, options.browserIndependentReadConfirmation);
+ 		if (spawnPolicyError) {
+ 			resolve({ aborted: false, agentBrowserStarted: false, exitCode: 1, spawnError: new Error(spawnPolicyError), stderr: "", stdout: "", timedOut: false });
+ 			return;
+ 		}
+-		const spawnBrowser = processPlatform === "win32" ? crossSpawn : spawn;
+-		const child = spawnBrowser("agent-browser", prepareAgentBrowserSpawnArgs(args, ownedManagedSessionCompatibilityEnv.AGENT_BROWSER_USER_AGENT, preserveAttachedBrowserSession, chromeStartupArgsContext.getStore()), {
++		const spawnBrowser = processPlatform === "win32" && !stockLauncher ? crossSpawn : spawn;
++		const child = spawnBrowser(stockLauncher ?? "agent-browser", prepareAgentBrowserSpawnArgs(args, ownedManagedSessionCompatibilityEnv.AGENT_BROWSER_USER_AGENT, preserveAttachedBrowserSession, chromeStartupArgsContext.getStore()), {
+ 			cwd,
+ 			env: childEnv,
+ 			stdio: ["pipe", "pipe", "pipe"],
+@@ -597,10 +606,15 @@ export async function runAgentBrowserProcess(options: {
+ 			} else {
+ 				timedOut = true;
+ 			}
+-			terminateSpawnedChild(child, "SIGTERM");
+-			killTimer = setTimeout(() => {
+-				terminateSpawnedChild(child, "SIGKILL");
+-			}, 2_000);
++			if (pendingTermination) return;
++			pendingTermination = terminateSpawnedChild(child, "SIGTERM");
++			// Windows taskkill already forces the entire tree. A concurrent direct
++			// kill would remove its root before traversal finishes.
++			if (processPlatform !== "win32") {
++				killTimer = setTimeout(() => {
++					pendingTermination = terminateSpawnedChild(child, "SIGKILL");
++				}, 2_000);
++			}
+ 		};
+ 		const recordStdinError = (error: unknown) => {
+ 			const stdinError = error instanceof Error ? error : new Error(String(error));
+diff --git a/Users/mitchfultz/Library/Caches/pi-runs/atb-harness/extension-compatibility-20260920/implementation/logs/browser-two-policy-failures/candidate/extensions/agent-browser/lib/windows-stock-launcher.ts b/extensions/agent-browser/lib/windows-stock-launcher.ts
+new file mode 100644
+index 0000000..444fffa
+--- /dev/null
++++ b/extensions/agent-browser/lib/windows-stock-launcher.ts
+@@ -0,0 +1,57 @@
++import { readFileSync, statSync } from "node:fs";
++import { dirname, isAbsolute, join, resolve } from "node:path";
++import { isMainThread } from "node:worker_threads";
++import pathKey from "path-key";
++import which from "which";
++
++/** Bypass only upstream's optimized npm CMD shim: cmd.exe loses literal CR/LF.
++ * Keep which/path-key aligned with cross-spawn's public dependency versions.
++ * Unknown/custom launchers (including other npm layouts) stay on cross-spawn.
++ */
++export function resolveWindowsStockLauncher(cwd: string, env: NodeJS.ProcessEnv): string | undefined {
++	if (process.platform !== "win32" || !isMainThread) return undefined;
++	// which reads parent PATHEXT; cmd.exe reads the child's. Node also handles
++	// duplicate case-insensitive environment keys differently from path-key.
++	// In those ambiguous cases, keep the original transport and its selection.
++	const values = (name: string) => Object.entries(env)
++		.filter(([key, value]) => key.toUpperCase() === name && value !== undefined).map(([, value]) => value);
++	const paths = values("PATH"), extensions = values("PATHEXT");
++	if (paths.length !== 1 || !paths[0] || extensions.length !== 1 || extensions[0] !== process.env.PATHEXT
++		|| values("NODEFAULTCURRENTDIRECTORYINEXEPATH").length) return undefined;
++	// A custom COMSPEC can implement different command selection/semantics.
++	// Compare filesystem identity, not short/long Windows path spellings.
++	try {
++		if (!process.env.comspec || !isAbsolute(process.env.comspec) || !process.env.SystemRoot) return undefined;
++		const shell = statSync(process.env.comspec, { bigint: true });
++		const native = statSync(join(process.env.SystemRoot, "System32", "cmd.exe"), { bigint: true });
++		if (shell.dev !== native.dev || shell.ino !== native.ino) return undefined;
++	} catch { return undefined; }
++	const previousCwd = process.cwd();
++	let selected: string | null;
++	try {
++		// which 2 has no cwd option. Like cross-spawn, change cwd only during
++		// synchronous resolution, restoring it before any caller can await.
++		process.chdir(cwd);
++		selected = which.sync("agent-browser", { path: env[pathKey({ env })], nothrow: true });
++	} catch {
++		return undefined;
++	} finally {
++		process.chdir(previousCwd);
++	}
++	// cross-spawn's second (extensionless) lookup cannot select this CMD shim.
++	if (!selected || !selected.toLowerCase().endsWith(".cmd")) return undefined;
++	try {
++		// which can return a relative PATH result; interpret it in the child cwd.
++		const absoluteShim = resolve(cwd, selected);
++		if (statSync(absoluteShim).size > 512) return undefined;
++		const text = readFileSync(absoluteShim, "utf8");
++		if (!/^@ECHO off\r?\n"%~dp0node_modules\\agent-browser\\bin\\agent-browser-win32-x64\.exe" %\*(?:\r?\n)?(?![\s\S])/.test(text)) return undefined;
++		const packageRoot = join(dirname(absoluteShim), "node_modules", "agent-browser");
++		const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
++		if (manifest.name !== "agent-browser" || !["bin/agent-browser.js", "./bin/agent-browser.js"].includes(manifest.bin?.["agent-browser"])) return undefined;
++		const binary = join(packageRoot, "bin", "agent-browser-win32-x64.exe");
++		return statSync(binary).isFile() ? binary : undefined;
++	} catch {
++		return undefined;
++	}
++}
+diff --git a/package-lock.json b/package-lock.json
+index 52d1ce5..6fe949b 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -9,7 +9,9 @@
+       "version": "0.6.16",
+       "license": "MIT",
+       "dependencies": {
+-        "cross-spawn": "7.0.6"
++        "cross-spawn": "7.0.6",
++        "path-key": "3.1.1",
++        "which": "2.0.2"
+       },
+       "bin": {
+         "pi-agent-browser-config": "scripts/config.mjs",
+@@ -21,6 +23,7 @@
+         "@earendil-works/pi-tui": "0.86.1",
+         "@types/cross-spawn": "6.0.6",
+         "@types/node": "^25.9.3",
++        "@types/which": "2.0.2",
+         "tsx": "^4.21.0",
+         "typebox": "^1.1.38",
+         "typescript": "^6.0.3"
+@@ -3190,6 +3193,13 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/@types/which": {
++      "version": "2.0.2",
++      "resolved": "https://registry.npmjs.org/@types/which/-/which-2.0.2.tgz",
++      "integrity": "sha512-113D3mDkZDjo+EeUEHCFy0qniNc1ZpecGiAU7WSo7YDoSzolZIQKpYFHrPpjkB2nuyahcKfrmLXeQlh7gqJYdw==",
++      "dev": true,
++      "license": "MIT"
++    },
+     "node_modules/agent-base": {
+       "version": "9.0.0",
+       "resolved": "https://registry.npmjs.org/agent-base/-/agent-base-9.0.0.tgz",
+diff --git a/package.json b/package.json
+index 8370bd0..210a7b4 100644
+--- a/package.json
++++ b/package.json
+@@ -70,6 +70,7 @@
+     "@earendil-works/pi-tui": "0.86.1",
+     "@types/cross-spawn": "6.0.6",
+     "@types/node": "^25.9.3",
++    "@types/which": "2.0.2",
+     "tsx": "^4.21.0",
+     "typebox": "^1.1.38",
+     "typescript": "^6.0.3"
+@@ -115,6 +116,8 @@
+     }
+   },
+   "dependencies": {
+-    "cross-spawn": "7.0.6"
++    "cross-spawn": "7.0.6",
++    "path-key": "3.1.1",
++    "which": "2.0.2"
+   }
+ }
+diff --git a/scripts/doctor.mjs b/scripts/doctor.mjs
+index 453525e..3ae0141 100755
+--- a/scripts/doctor.mjs
++++ b/scripts/doctor.mjs
+@@ -11,7 +11,7 @@ import { execFile as execFileCallback } from "node:child_process";
+ import { realpathSync } from "node:fs";
+ import { access, readFile } from "node:fs/promises";
+ import { homedir } from "node:os";
+-import { dirname, resolve, sep } from "node:path";
++import { dirname, isAbsolute, resolve, sep } from "node:path";
+ import { fileURLToPath } from "node:url";
+ import { promisify } from "node:util";
+ 
+@@ -155,7 +155,7 @@ function expandUserPath(path) {
+ }
+ 
+ function isPathLikeSource(source) {
+-	return source.startsWith("/") || source.startsWith("./") || source.startsWith("../") || source.startsWith("~");
++	return isAbsolute(source) || source.startsWith("./") || source.startsWith("../") || source.startsWith("~");
+ }
+ 
+ function sourceLooksLikeThisPackage(source, cwd, sourceBaseDir = cwd) {
+diff --git a/test/agent-browser.artifact-diagnostics.test.ts b/test/agent-browser.artifact-diagnostics.test.ts
+index afe73e3..18f5cad 100644
+--- a/test/agent-browser.artifact-diagnostics.test.ts
++++ b/test/agent-browser.artifact-diagnostics.test.ts
+@@ -42,9 +42,9 @@ function execute(row) {
+     return { path: row[2], restarted: subcommand === 'restart' };
+   }
+   if (command === 'screenshot' || command === 'download' || command === 'network') {
+-    const output = command === 'download' ? row[2] : command === 'network' ? row[3] : row[1];
++    const output = command === 'download' ? row[2] : command === 'network' ? row[3] : row[2] ?? row[1];
+     fs.writeFileSync(output, command === 'screenshot' ? Buffer.from(${JSON.stringify(png.toString("base64"))}, 'base64') : '{}');
+-    return { path: command === 'download' || output.includes('canonical') ? fs.realpathSync(output) : output };
++    return { path: command === 'download' || output.includes('canonical') ? fs.realpathSync.native(output) : output };
+   }
+   if (command === 'snapshot') return { origin: ${JSON.stringify(pageUrl)}, snapshot: '- textbox "Name" [ref=e1]', refs: { e1: { role: 'textbox', name: 'Name' } } };
+   if (command === 'eval') return { result: { status: 'no-anchor' } };
+@@ -285,7 +285,8 @@ test("registered artifacts retain requested and reported paths without new argv
+ 		const canonicalRoot = await realpath(root);
+ 		const lexicalRoot = process.platform === "darwin" ? canonicalRoot.replace(/^\/private\/tmp\//, "/tmp/") : root;
+ 		if (process.platform === "darwin") assert.notEqual(lexicalRoot, canonicalRoot, "exercise the native /tmp alias");
+-		for (const step of [["screenshot", "screen.png"], ["screenshot", "canonical.png"], ["screenshot", "png.webm"], ["download", "#download", "download.txt"], ["network", "har", "stop", "network.har"]]) {
++		// Native screenshot's two-operand form disambiguates a non-image extension on Windows.
++		for (const step of [["screenshot", "screen.png"], ["screenshot", "canonical.png"], ["screenshot", "body", "png.webm"], ["download", "#download", "download.txt"], ["network", "har", "stop", "network.har"]]) {
+ 			const requestedPath = join(lexicalRoot, step.at(-1)!);
+ 			const args = [...step.slice(0, -1), requestedPath];
+ 			const result = await executeRegisteredTool(harness.tool, harness.ctx, { args });
+diff --git a/test/agent-browser.chromium-args.test.ts b/test/agent-browser.chromium-args.test.ts
+index eb4108f..1b0a8b7 100644
+--- a/test/agent-browser.chromium-args.test.ts
++++ b/test/agent-browser.chromium-args.test.ts
+@@ -40,7 +40,7 @@ if (tokens[0] === 'batch') {
+ } else if (tokens[0] === 'eval' && tokens[1] === '--no-sandbox') {
+   process.stdout.write(JSON.stringify({ success: false, error: 'Native fixture evaluation error' }));
+   process.exitCode = 1;
+-} else process.stdout.write(JSON.stringify({ success: true, data: data(tokens) }));`);
++} else process.stdout.write(JSON.stringify({ success: true, data: data(tokens) }));`, "linux"); // Intentional shell-free shebang fixture; stock CMD transport has separate native coverage.
+ 	try {
+ 		await withPatchedEnv({ PATH: `${root}${delimiter}${process.env.PATH ?? ""}`, PI_AGENT_BROWSER_TEST_CUSTOM_VERSION: "1" }, async () => {
+ 			const harness = createExtensionHarness({ cwd: root });
+diff --git a/test/agent-browser.cold-boundaries.test.ts b/test/agent-browser.cold-boundaries.test.ts
+index 44584d1..4c1025d 100644
+--- a/test/agent-browser.cold-boundaries.test.ts
++++ b/test/agent-browser.cold-boundaries.test.ts
+@@ -111,6 +111,8 @@ process.exitCode = failed ? 1 : 0;
+ 		await withPatchedEnv({
+ 			PATH: `${root}${delimiter}${process.env.PATH ?? ""}`,
+ 			HOME: home, USERPROFILE: home, AGENT_BROWSER_NAMESPACE: "",
++			// Automatic restore requires upstream encryption on Windows; this is fixture data only.
++			AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
+ 			PI_AGENT_BROWSER_SOCKET_DIR: join(root, "s"),
+ 			PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: options.restoreDisabled ? "0" : undefined,
+ 			PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1",
+@@ -173,7 +175,7 @@ for (const state of ["cold", "known", "unknown", "reopen"]) {
+ 			try { timedOut = await page.call({ args, timeoutMs: 800 }); }
+ 			finally { await page.patch({ timeoutInfo: false }); }
+ 			assert.equal(timedOut.isError, true);
+-			assert.equal(timedOut.details?.exitCode, 124);
++			assert.equal(timedOut.details?.exitCode, process.platform === "win32" ? 1 : 124);
+ 			assert.equal(timedOut.details?.timedOut, true);
+ 			assert.equal(timedOut.details?.failureCategory, "timeout");
+ 			assert.deepEqual((await page.calls()).slice(offset).map(row => row.args), [["--json", ...args]]);
+diff --git a/test/agent-browser.cold-resume.test.ts b/test/agent-browser.cold-resume.test.ts
+index 1184c78..ba7c3c9 100644
+--- a/test/agent-browser.cold-resume.test.ts
++++ b/test/agent-browser.cold-resume.test.ts
+@@ -65,6 +65,8 @@ process.stdout.write(JSON.stringify({ success: true, data }));`);
+ 			PATH: `${root}${delimiter}${process.env.PATH ?? ""}`,
+ 			HOME: home,
+ 			USERPROFILE: home,
++			// Exercise enabled automatic restore on Windows as well as POSIX.
++			AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
+ 			AGENT_BROWSER_NAMESPACE: "",
+ 			AGENT_BROWSER_CONFIG: undefined,
+ 			PI_AGENT_BROWSER_SOCKET_DIR: join(root, "s"),
+diff --git a/test/agent-browser.destination-cancel.test.ts b/test/agent-browser.destination-cancel.test.ts
+index a8224b7..cfe9f00 100644
+--- a/test/agent-browser.destination-cancel.test.ts
++++ b/test/agent-browser.destination-cancel.test.ts
+@@ -116,6 +116,8 @@ save(); process.stdout.write(JSON.stringify(output)); process.exitCode = failed
+ 	try {
+ 		await withPatchedEnv({
+ 			PATH: `${root}${delimiter}${process.env.PATH ?? ""}`, HOME: home, USERPROFILE: home,
++			// Enabled-restore scenarios need the native Windows storage prerequisite too.
++			AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
+ 			PI_CODING_AGENT_DIR: join(root, "pi"), PI_AGENT_BROWSER_SOCKET_DIR: join(root, "s"),
+ 			AGENT_BROWSER_NAMESPACE: "", PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1",
+ 		}, async () => {
+diff --git a/test/agent-browser.extension-electron-discovery.test.ts b/test/agent-browser.extension-electron-discovery.test.ts
+index 3ce86a7..2e12569 100644
+--- a/test/agent-browser.extension-electron-discovery.test.ts
++++ b/test/agent-browser.extension-electron-discovery.test.ts
+@@ -12,7 +12,7 @@ import { once } from "node:events";
+ import fsPromises, { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, symlink, writeFile, type FileHandle } from "node:fs/promises";
+ import { syncBuiltinESMExports } from "node:module";
+ import { tmpdir } from "node:os";
+-import { basename, dirname, join } from "node:path";
++import { basename, dirname, join, sep } from "node:path";
+ import test from "node:test";
+ import { setTimeout as delay } from "node:timers/promises";
+ 
+@@ -202,7 +202,7 @@ test("agentBrowserExtension blocks Electron launch by caller policy without spaw
+ 	}
+ });
+ 
+-test("agentBrowserExtension cleans Electron resources when launch fails before upstream attach", { concurrency: false }, async () => {
++test("agentBrowserExtension cleans Electron resources when launch fails before upstream attach", { concurrency: false }, async (t) => {
+ 	for (const { expectedCategory, mode, timeoutMs, writeLaunchLog } of [
+ 		{ expectedCategory: "timeout", mode: "no-port-file", timeoutMs: 500, writeLaunchLog: false },
+ 		{ expectedCategory: "upstream-error", mode: "invalid-cdp", timeoutMs: 5_000, writeLaunchLog: true },
+@@ -213,6 +213,19 @@ test("agentBrowserExtension cleans Electron resources when launch fails before u
+ 		try {
+ 			await mkdir(applicationsDir, { recursive: true });
+ 			const app = await writeFakeLaunchableElectronApp({ applicationsDir, bundleId: `com.example.${mode}`, launchLogPath, mode, name: `Failed ${mode}`, writeLaunchLog });
++			if (mode === "no-port-file") {
++				// This case tests a missing port file, not how quickly native spawn/capture
++				// setup completes. Expire the unchanged budget after the first real read.
++				t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
++				const nativeReadFile = fsPromises.readFile;
++				t.mock.method(fsPromises, "readFile", async (...args: Parameters<typeof readFile>) => {
++					try { return await nativeReadFile(...args); }
++					finally {
++						if (basename(String(args[0])) === "DevToolsActivePort") t.mock.timers.tick(timeoutMs + 1);
++					}
++				});
++				syncBuiltinESMExports();
++			}
+ 			await withPatchedEnv({ PATH: dirname(process.execPath) }, async () => {
+ 				const harness = createExtensionHarness({ cwd: tempDir });
+ 				await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
+@@ -248,6 +261,9 @@ test("agentBrowserExtension cleans Electron resources when launch fails before u
+ 				assert.equal(isTestPidAlive(diagnosticPid), false, mode);
+ 			});
+ 		} finally {
++			t.mock.restoreAll();
++			t.mock.timers.reset();
++			syncBuiltinESMExports();
+ 			await rm(tempDir, { force: true, recursive: true });
+ 		}
+ 	}
+@@ -304,10 +320,12 @@ process.exit(42);
+ 	}
+ });
+ 
+-test("failed Electron startup preserves a live writer after injected kill denial, temp cleanup, and host exit", { concurrency: false }, async () => {
++test("failed Electron startup preserves a live writer after kill denial and temp cleanup, with native host-exit lifetime", { concurrency: false }, async () => {
+ 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-electron-live-output-"));
+ 	const launchLogPath = join(tempDir, "launch.json");
+ 	const app = await writeFakeElectronProcessApp({ applicationsDir: tempDir, bundleId: "com.example.LiveOutput", name: "Live Output" });
++	// Windows executable discovery canonicalizes short temp ancestry; macOS bundle discovery may retain it.
++	const launchedExecutablePath = await realpath(app.executablePath);
+ 	await writeFile(app.scriptPath, `#!/usr/bin/env node
+ const fs = require("node:fs");
+ const path = require("node:path");
+@@ -327,11 +345,13 @@ setInterval(() => { fs.writeSync(1, "stdout-live\\n"); fs.writeSync(2, "stderr-l
+ 				import { stat } from "node:fs/promises";
+ 				import { launchElectronApp } from "./extensions/agent-browser/lib/electron/launch.ts";
+ 				import { cleanupSecureTempArtifacts, writeSecureTempFile } from "./extensions/agent-browser/lib/temp.ts";
++				// Keep the host alive until the parent verifies the denied-kill writer.
++				process.once("message", () => process.disconnect());
+ 				const sibling = await writeSecureTempFile({ content: "keep until sweep", prefix: "sibling", suffix: ".txt" });
+ 				const kill = ChildProcess.prototype.kill;
+ 				// The process is real; only its kill request is denied at the OS boundary.
+ 				ChildProcess.prototype.kill = function (signal) {
+-					if (this.spawnfile === ${JSON.stringify(app.executablePath)}) throw new Error("fixture: child.kill denied");
++					if ([${JSON.stringify(app.executablePath)}, ${JSON.stringify(launchedExecutablePath)}].includes(this.spawnfile)) throw new Error("fixture: child.kill denied");
+ 					return kill.call(this, signal);
+ 				};
+ 				const result = await launchElectronApp({ appPath: ${JSON.stringify(app.appPath)}, appArgs: ${JSON.stringify([...app.appArgs, ...(breakMarker ? ["--break-marker"] : [])])}, timeoutMs: 500 });
+@@ -340,9 +360,9 @@ setInterval(() => { fs.writeSync(1, "stdout-live\\n"); fs.writeSync(2, "stderr-l
+ 				await cleanupSecureTempArtifacts();
+ 				console.log(JSON.stringify({ result, siblingKept, sibling }));
+ 			`;
+-			const host = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
++			const host = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe", "ipc"] });
+ 			let launch: { pid: number; userDataDir: string } | undefined;
+-			// The detached app writes its own receipt independently of the short launch timeout.
++			// The app writes its own receipt independently of the short launch timeout.
+ 			const readLaunchReceipt = async () => {
+ 				for (let attempt = 0; attempt < 100; attempt++) {
+ 					const receipt = await readFile(launchLogPath, "utf8").then(JSON.parse, () => undefined);
+@@ -352,11 +372,9 @@ setInterval(() => { fs.writeSync(1, "stdout-live\\n"); fs.writeSync(2, "stderr-l
+ 				return undefined;
+ 			};
+ 			try {
+-				const exited = once(host, "exit");
+ 				const receipt = await readChildStdoutJsonLine<{ result: { ok: false; failure: ElectronLaunchFailure }; siblingKept: boolean; sibling: string }>(host);
+-				assert.equal((await exited)[0], 0);
+ 				launch = await readLaunchReceipt();
+-				assert.ok(launch, "fixture app must record its pid and profile");
++				assert.ok(launch, `fixture app must record its pid and profile: ${JSON.stringify(receipt)}`);
+ 				assert.equal(receipt.result.ok, false);
+ 				assert.equal(receipt.result.failure.reason, "timeout");
+ 				assert.match(receipt.result.failure.cleanupError ?? "", /fixture: child\.kill denied/);
+@@ -366,7 +384,22 @@ setInterval(() => { fs.writeSync(1, "stdout-live\\n"); fs.writeSync(2, "stderr-l
+ 					const path = join(launch.userDataDir, `${stream}.log`);
+ 					const before = await stat(path);
+ 					await delay(60);
+-					assert.ok((await stat(path)).size > before.size, "detached app must still write after the host exits");
++					assert.ok((await stat(path)).size > before.size, "live app must still write after kill denial and temp cleanup");
++				}
++				const exited = once(host, "exit", { signal: AbortSignal.timeout(5_000) });
++				host.send("exit");
++				assert.equal((await exited)[0], 0, "preserved output must not wedge host exit");
++				// Node/libuv puts non-detached Windows children in a kill-on-host-exit job.
++				// POSIX launches are detached; neither lifetime is an output-pipe contract.
++				if (process.platform === "win32") assert.equal(await waitForTestPidExit(launch.pid), true);
++				else assert.equal(isTestPidAlive(launch.pid), true);
++				for (const stream of ["stdout", "stderr"]) {
++					const path = join(launch.userDataDir, `${stream}.log`);
++					const before = await stat(path);
++					await delay(60);
++					const after = await stat(path);
++					if (process.platform === "win32") assert.equal(after.size, before.size, "host-owned app has stopped, but its protected logs remain");
++					else assert.ok(after.size > before.size, "detached app must still write after the host exits");
+ 				}
+ 				const markerPath = join(dirname(launch.userDataDir), ".pi-agent-browser-owner.json");
+ 				if (breakMarker) assert.match(receipt.result.failure.cleanupError ?? "", /preserv/i);
+@@ -540,6 +573,7 @@ test("agentBrowserExtension keeps restored Electron profile when process ownersh
+ 		});
+ 		assert.equal(cleanupResult.partial, true);
+ 		assert.equal(cleanupResult.steps.find((step) => step.resource === "process")?.state, "failed");
++		assert.match(cleanupResult.steps.find((step) => step.resource === "process")?.error ?? "", /command line does not include wrapper-owned user data dir/);
+ 		assert.equal(cleanupResult.steps.find((step) => step.resource === "user-data-dir")?.state, "skipped");
+ 		assert.deepEqual(cleanupResult.remainingResources.sort(), ["process", "user-data-dir"]);
+ 		await stat(userDataDir);
+@@ -549,6 +583,43 @@ test("agentBrowserExtension keeps restored Electron profile when process ownersh
+ });
+ 
+ 
++test("restored Electron cleanup verifies native command-line profile ownership with spaces and Unicode", { concurrency: false }, async () => withPatchedEnv({
++	// macOS ps renders non-ASCII bytes as M-… in the isolated runner's C locale.
++	LC_ALL: process.platform === "darwin" ? "en_US.UTF-8" : "C.UTF-8",
++}, async () => {
++	const userDataDir = await createSecureTempDirectory("electron-profile-space é-");
++	const otherProfile = await createSecureTempDirectory("electron-profile-other-");
++	const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "--", `--user-data-dir=${userDataDir}`], { stdio: "ignore" });
++	try {
++		await once(child, "spawn");
++		assert.ok(child.pid);
++		const record: ElectronLaunchRecord = {
++			appName: "Native ownership", cleanupState: "active", createdAtMs: Date.now(),
++			executablePath: process.execPath, launchId: "electron-native-ownership", launchedByWrapper: true,
++			pid: child.pid, port: 9, userDataDir, version: 1,
++		};
++		// No child handle is supplied: both decisions must inspect the real OS command line.
++		const refused = await cleanupElectronLaunchResources({ record: { ...record, userDataDir: otherProfile } });
++		assert.equal(refused.partial, true, JSON.stringify(refused));
++		assert.match(refused.steps.find((step) => step.resource === "process")?.error ?? "", /command line does not include wrapper-owned user data dir/);
++		assert.equal(refused.steps.find((step) => step.resource === "user-data-dir")?.state, "skipped");
++		assert.equal(isTestPidAlive(child.pid), true);
++		await stat(userDataDir);
++		await stat(otherProfile);
++
++		const cleaned = await cleanupElectronLaunchResources({ record });
++		assert.equal(cleaned.partial, false, JSON.stringify(cleaned));
++		assert.equal(cleaned.steps.find((step) => step.resource === "process")?.state, "removed");
++		assert.equal(await waitForTestPidExit(child.pid), true);
++		await assert.rejects(stat(userDataDir), { code: "ENOENT" });
++		await stat(otherProfile);
++	} finally {
++		await stopChildProcess(child);
++		await rm(userDataDir, { force: true, recursive: true });
++		await rm(otherProfile, { force: true, recursive: true });
++	}
++}));
++
+ test("agentBrowserExtension restores Electron launch records and cleans them on shutdown", { concurrency: false }, async () => {
+ 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-electron-restore-"));
+ 	const applicationsDir = join(tempDir, "Applications");
+@@ -556,16 +627,17 @@ test("agentBrowserExtension restores Electron launch records and cleans them on
+ 	const launchLogPath = join(tempDir, "electron-launch.log");
+ 	const basePath = process.env.PATH ?? "";
+ 	let launchedPid: number | undefined;
++	let firstHarness: ReturnType<typeof createExtensionHarness> | undefined;
+ 	try {
+ 		await mkdir(applicationsDir, { recursive: true });
+ 		const app = await writeFakeLaunchableElectronApp({ applicationsDir, bundleId: "com.example.RestoreElectron", launchLogPath, name: "Restore Electron" });
+ 		await writeFakeAgentBrowserBinary(tempDir, fakeAgentBrowserLifecycleScript(upstreamLogPath));
+ 		await withPatchedEnv({ PATH: `${tempDir}:${basePath}` }, async () => {
+-			const firstHarness = createExtensionHarness({ cwd: tempDir });
++			firstHarness = createExtensionHarness({ cwd: tempDir });
+ 			await runExtensionEvent(firstHarness.handlers, "session_start", { reason: "new" }, firstHarness.ctx);
+ 			const launchResult = await executeRegisteredTool(firstHarness.tool, firstHarness.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs, handoff: "connect" } });
+ 			assert.equal(launchResult.isError, false);
+-			const launch = (launchResult.details?.electron as { launch: { launchId: string; pid: number; userDataDir: string } }).launch;
++			const launch = (launchResult.details?.electron as { launch: ElectronLaunchRecord }).launch;
+ 			launchedPid = launch.pid;
+ 
+ 			const restoredHarness = createExtensionHarness({ cwd: tempDir, branch: [createToolBranchEntry({ details: launchResult.details as Record<string, unknown> })] });
+@@ -577,8 +649,21 @@ test("agentBrowserExtension restores Electron launch records and cleans them on
+ 			await runExtensionEvent(restoredHarness.handlers, "session_shutdown", { reason: "quit" }, restoredHarness.ctx);
+ 			await assert.rejects(stat(launch.userDataDir));
+ 			assert.equal(await waitForTestPidExit(launch.pid), true, "restored shutdown cleanup should terminate the wrapper-owned Electron process");
++			const stopped = await inspectElectronLaunchStatus(launch);
++			assert.equal(stopped.pidAlive, false);
++			assert.equal(stopped.portAlive, false);
++			assert.equal(stopped.userDataDirState, "absent");
+ 		});
+ 	} finally {
++		// The assertions above use only the restored harness. Before deleting the
++		// fixture executable, also reap the original tracked child's actual exit:
++		// Windows kill(pid, 0) can report ESRCH while its image is still in use.
++		const originalHarness = firstHarness;
++		if (originalHarness) {
++			await withPatchedEnv({ PATH: `${tempDir}:${basePath}` }, async () => {
++				await runExtensionEvent(originalHarness.handlers, "session_shutdown", { reason: "quit" }, originalHarness.ctx);
++			});
++		}
+ 		await stopTestPid(launchedPid);
+ 		await rm(tempDir, { force: true, recursive: true });
+ 	}
+@@ -680,11 +765,18 @@ test("electron discovery annotates likely sensitive apps without blocking discov
+ 	}
+ });
+ 
++// Use Linux separators for simulated desktop entries, then escape both the
++// Exec token and desktop string layers. Keep actual filesystem assertions native.
++function quoteDesktopExecPath(path: string): string {
++	return JSON.stringify(path.split(sep).join("/")).replaceAll("\\", "\\\\");
++}
++
+ test("electron discovery scans Linux desktop files and applies Electron evidence gates", async () => {
+ 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-electron-linux-"));
+ 	try {
+ 		const desktopDir = join(tempDir, "applications");
+-		const appRoot = join(tempDir, "opt");
++		// Backslashes exercise both desktop-string and Exec-token escaping even on POSIX.
++		const appRoot = join(tempDir, "opt with space\\literal");
+ 		await mkdir(desktopDir, { recursive: true });
+ 		const electronExecutable = await writeFakeLinuxElectronBinary(appRoot, "demo-electron");
+ 		const realElectronExecutable = await realpath(electronExecutable);
+@@ -697,30 +789,30 @@ test("electron discovery scans Linux desktop files and applies Electron evidence
+ Type=Application
+ Name=Demo Electron
+ Comment=Demo comment
+-Exec=${JSON.stringify(electronExecutable)} %U --ignored-field-code %F
++Exec=${quoteDesktopExecPath(electronExecutable)} %U --ignored-field-code %F
+ Icon=demo-icon
+ `, "utf8");
+ 		await writeFile(join(desktopDir, "plain.desktop"), `[Desktop Entry]
+ Type=Application
+ Name=Plain Binary
+-Exec=${JSON.stringify(plainExecutable)} %U
++Exec=${quoteDesktopExecPath(plainExecutable)} %U
+ `, "utf8");
+ 		await writeFile(join(desktopDir, "hidden.desktop"), `[Desktop Entry]
+ Type=Application
+ Name=Hidden Electron
+ Hidden=true
+-Exec=${JSON.stringify(electronExecutable)}
++Exec=${quoteDesktopExecPath(electronExecutable)}
+ `, "utf8");
+ 		await writeFile(join(desktopDir, "nodisplay.desktop"), `[Desktop Entry]
+ Type=Application
+ Name=No Display Electron
+ NoDisplay=true
+-Exec=${JSON.stringify(electronExecutable)}
++Exec=${quoteDesktopExecPath(electronExecutable)}
+ `, "utf8");
+ 		await writeFile(join(desktopDir, "link.desktop"), `[Desktop Entry]
+ Type=Link
+ Name=Link Electron
+-Exec=${JSON.stringify(electronExecutable)}
++Exec=${quoteDesktopExecPath(electronExecutable)}
+ `, "utf8");
+ 
+ 		const result = await discoverElectronApps({
+@@ -743,7 +835,7 @@ Exec=${JSON.stringify(electronExecutable)}
+ 		await writeFile(join(desktopDir, "symlink.desktop"), `[Desktop Entry]
+ Type=Application
+ Name=Symlink Electron
+-Exec=${JSON.stringify(symlinkPath)}
++Exec=${quoteDesktopExecPath(symlinkPath)}
+ `, "utf8");
+ 		const symlinkResult = await discoverElectronApps({
+ 			locations: { linuxDesktopDirectories: [desktopDir], pathEnv: "" },
+diff --git a/test/agent-browser.extension-electron-lifecycle.test.ts b/test/agent-browser.extension-electron-lifecycle.test.ts
+index 7bd4a6c..80627e7 100644
+--- a/test/agent-browser.extension-electron-lifecycle.test.ts
++++ b/test/agent-browser.extension-electron-lifecycle.test.ts
+@@ -7,7 +7,8 @@
+  */
+ 
+ import assert from "node:assert/strict";
+-import { execFileSync } from "node:child_process";
++import { execFileSync, type ChildProcess } from "node:child_process";
++import { once } from "node:events";
+ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+@@ -16,8 +17,8 @@ import test from "node:test";
+ import { Check } from "typebox/value";
+ 
+ import { compileAgentBrowserElectron } from "../extensions/agent-browser/lib/input-modes/electron.js";
+-import type { ElectronLaunchStatus } from "../extensions/agent-browser/lib/electron/cleanup.js";
+-import type { ElectronLaunchRecord } from "../extensions/agent-browser/lib/electron/launch.js";
++import { cleanupElectronLaunchResources, type ElectronLaunchStatus } from "../extensions/agent-browser/lib/electron/cleanup.js";
++import { launchElectronApp, type ElectronLaunchRecord } from "../extensions/agent-browser/lib/electron/launch.js";
+ 
+ import { createManagedSessionRestoreKey, getManagedSessionRestoreScope } from "../extensions/agent-browser/lib/managed-session-restore.js";
+ import { getSessionPageStateKey, SessionPageState } from "../extensions/agent-browser/lib/session-page-state.js";
+@@ -595,6 +596,37 @@ test("agentBrowserExtension launches Electron with isolated profile, snapshot ha
+ 	}
+ });
+ 
++for (const terminateBeforeCleanup of [false, true]) {
++	test(`Electron cleanup awaits tracked child exit before removing owned resources (already signaled: ${terminateBeforeCleanup})`, { concurrency: false }, async () => {
++		const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-electron-exit-"));
++		let child: ChildProcess | undefined;
++		try {
++			const app = await writeFakeLaunchableElectronApp({ applicationsDir: tempDir, bundleId: "com.example.CleanupExit", launchLogPath: join(tempDir, "launch.json"), name: "Cleanup Exit" });
++			const launched = await launchElectronApp({ appPath: app.appPath, appArgs: app.appArgs });
++			assert.equal(launched.ok, true, launched.ok ? undefined : JSON.stringify(launched.failure));
++			if (!launched.ok) return;
++			child = launched.value.child;
++			let exited = false;
++			child.once("exit", () => { exited = true; });
++			if (terminateBeforeCleanup) child.kill("SIGTERM");
++			const cleanup = await cleanupElectronLaunchResources({ child, record: launched.value.record });
++			assert.equal(cleanup.partial, false, JSON.stringify(cleanup));
++			assert.equal(exited, true, "tracked process must exit before cleanup returns, not merely stop responding to PID probes");
++			assert.throws(() => process.kill(launched.value.record.pid!, 0), { code: "ESRCH" });
++			await assert.rejects(stat(launched.value.record.userDataDir), { code: "ENOENT" });
++			// In particular, Windows must release the running executable without rm retries.
++			await rm(app.executablePath);
++		} finally {
++			if (child && child.exitCode === null && child.signalCode === null) {
++				const exited = once(child, "exit", { signal: AbortSignal.timeout(2_000) });
++				child.kill("SIGKILL");
++				await exited;
++			}
++			await rm(tempDir, { force: true, recursive: true });
++		}
++	});
++}
++
+ test("agentBrowserExtension retains headed autosave policy for Electron cleanup close", { concurrency: false }, async () => {
+ 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-electron-headed-cleanup-"));
+ 	const applicationsDir = join(tempDir, "Applications");
+@@ -654,6 +686,8 @@ test("agentBrowserExtension applies managed restore policy to every current-sess
+ 	await writeFakeAgentBrowserBinary(tempDir, fakeAgentBrowserLifecycleScript(upstreamLogPath));
+ 	try {
+ 		await withPatchedEnv({
++			AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
++			USERPROFILE: tempDir,
+ 			ALL_PROXY: undefined,
+ 			HTTP_PROXY: undefined,
+ 			HTTPS_PROXY: undefined,
+diff --git a/test/agent-browser.extension-errors-artifacts.test.ts b/test/agent-browser.extension-errors-artifacts.test.ts
+index f542c4b..e04e367 100644
+--- a/test/agent-browser.extension-errors-artifacts.test.ts
++++ b/test/agent-browser.extension-errors-artifacts.test.ts
+@@ -11,7 +11,7 @@ import { withAgentBrowserProcessEnvironment } from "../extensions/agent-browser/
+ import { execFileSync } from "node:child_process";
+ import { access, link, mkdir, mkdtemp, readFile, readdir, rm, utimes, watch, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+-import { dirname, join } from "node:path";
++import { delimiter, dirname, join, resolve } from "node:path";
+ import test from "node:test";
+ import { pathToFileURL } from "node:url";
+ 
+@@ -576,7 +576,7 @@ if (args.includes("session") && args.includes("info")) {
+   process.stdout.write(JSON.stringify({ success: true, data: { title: "safe", url: "https://example.com/safe" } }));
+ }`);
+ 	try {
+-		await withPatchedEnv({ HOME: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
++		await withPatchedEnv({ AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), HOME: tempDir, USERPROFILE: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
+ 			const first = createExtensionHarness({ cwd: tempDir });
+ 			await runExtensionEvent(first.handlers, "session_start", { reason: "new" }, first.ctx);
+ 			const seeded = await executeRegisteredTool(first.tool, first.ctx, { args: ["get", "url"], sessionMode: "fresh" });
+@@ -628,7 +628,7 @@ if (args.includes("session") && args.includes("info")) {
+   process.stdout.write(JSON.stringify({ success: true, data: { title: "safe", url: "https://example.com/safe" } }));
+ }`);
+ 	try {
+-		await withPatchedEnv({ HOME: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
++		await withPatchedEnv({ AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), HOME: tempDir, USERPROFILE: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
+ 			const harness = createExtensionHarness({ cwd: tempDir });
+ 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
+ 			const initial = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["open", "https://example.com/safe"], sessionMode: "fresh" });
+@@ -813,7 +813,7 @@ if (args.includes("session") && args.includes("info")) {
+   process.stdout.write(JSON.stringify({ success: true, data: { title: "Example", url: "https://example.com" } }));
+ }`);
+ 	try {
+-		await withPatchedEnv({ HOME: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
++		await withPatchedEnv({ AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), HOME: tempDir, USERPROFILE: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
+ 			const first = createExtensionHarness({ cwd: tempDir });
+ 			await runExtensionEvent(first.handlers, "session_start", { reason: "new" }, first.ctx);
+ 			const opened = await executeRegisteredTool(first.tool, first.ctx, { args: ["open", "https://example.com"], sessionMode: "fresh" });
+@@ -957,14 +957,15 @@ if (args.includes("session") && args.includes("info")) {
+ 		try {
+ 			await withPatchedEnv({
+ 				AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
++				// Clear case aliases before applying the selected uppercase value on Windows.
++				all_proxy: undefined,
++				http_proxy: undefined,
++				https_proxy: undefined,
+ 				ALL_PROXY: undefined,
+ 				HTTP_PROXY: undefined,
+ 				HTTPS_PROXY: undefined,
+ 				PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: undefined,
+ 				PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1",
+-				all_proxy: undefined,
+-				http_proxy: undefined,
+-				https_proxy: undefined,
+ 				...testCase.env,
+ 				HOME: tempDir,
+ 				PATH: `${tempDir}:${basePath}`,
+@@ -1019,13 +1020,15 @@ test("agentBrowserExtension does not sticky-disable restore when a suppressed sp
+ 	const basePath = process.env.PATH ?? "";
+ 	try {
+ 		await withPatchedEnv({
+-			ALL_PROXY: undefined,
+-			HTTP_PROXY: undefined,
+-			HTTPS_PROXY: "http://127.0.0.1:8080",
+-			PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: undefined,
+ 			all_proxy: undefined,
+ 			http_proxy: undefined,
+ 			https_proxy: undefined,
++			ALL_PROXY: undefined,
++			HTTP_PROXY: undefined,
++			HTTPS_PROXY: "http://127.0.0.1:8080",
++			AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
++			USERPROFILE: tempDir,
++			PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: undefined,
+ 			HOME: tempDir,
+ 			PATH: "",
+ 		}, async () => {
+@@ -1036,7 +1039,7 @@ test("agentBrowserExtension does not sticky-disable restore when a suppressed sp
+ 			assert.notEqual(failed.details?.managedSessionRestoreDisabled, true);
+ 
+ 			delete process.env.HTTPS_PROXY;
+-			process.env.PATH = `${tempDir}:${basePath}`;
++			process.env.PATH = `${tempDir}${delimiter}${basePath}`;
+ 			await writeFakeAgentBrowserBinary(
+ 				tempDir,
+ 				`const fs = require("node:fs");
+@@ -1365,8 +1368,11 @@ test("agentBrowserExtension reports managed-session outcomes after failed fresh
+ 	});
+ 	initializeGitProject(tempDir);
+ 	const basePath = process.env.PATH ?? "";
++	// Windows searches cwd even with an empty PATH: keep the fixture shim only on PATH.
++	const binaryDir = join(tempDir, "bin");
++	await mkdir(binaryDir);
+ 	await writeFakeAgentBrowserBinary(
+-		tempDir,
++		binaryDir,
+ 		`const args = process.argv.slice(2);
+ if (args.includes("session") && args.includes("info")) {
+   process.stdout.write(JSON.stringify({ success: true, data: { active: false, runtime: null } }));
+@@ -1380,7 +1386,7 @@ process.stdout.write(JSON.stringify({ success: true, data: { title: "ok", url: a
+ 
+ 	try {
+ 		const missingBinaryDir = await mkdtemp(join(tempDir, "missing-agent-browser-"));
+-		await withPatchedEnv({ PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_SOCKET_DIR: socketDir }, async () => {
++		await withPatchedEnv({ PATH: `${binaryDir}${delimiter}${basePath}`, PI_AGENT_BROWSER_SOCKET_DIR: socketDir }, async () => {
+ 			const harness = createExtensionHarness({ cwd: tempDir });
+ 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
+ 
+@@ -2126,7 +2132,7 @@ test("agentBrowserExtension forwards wait --download saved-file metadata in deta
+ 
+ 			assert.equal(result.isError, true);
+ 			assert.equal(result.content[0]?.type, "text");
+-			assert.match((result.content[0] as { text: string }).text, /Artifact verification failed: requested download was not found at \/tmp\/export\.csv/);
++			assert.ok((result.content[0] as { text: string }).text.includes(`Artifact verification failed: requested download was not found at ${resolve(tempDir, "/tmp/export.csv")}.`));
+ 			assert.match((result.content[0] as { text: string }).text, /Download event reported; file not verified: \/tmp\/export\.csv/);
+ 			assert.equal(result.details?.savedFilePath, "/tmp/export.csv");
+ 			assert.deepEqual(result.details?.savedFile, {
+diff --git a/test/agent-browser.extension-ref-guards.test.ts b/test/agent-browser.extension-ref-guards.test.ts
+index db7e273..ab6f19d 100644
+--- a/test/agent-browser.extension-ref-guards.test.ts
++++ b/test/agent-browser.extension-ref-guards.test.ts
+@@ -45,7 +45,7 @@ function pidIsAlive(pid: number | undefined): boolean {
+ }
+ 
+ function spawnElectronFixtureProcess(userDataDir: string): ChildProcess {
+-	const child = spawn("/bin/sh", ["-c", "while true; do sleep 1; done", "pi-agent-browser-electron-fixture", `--user-data-dir=${userDataDir}`], { detached: true, stdio: "ignore" });
++	const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "--", `--user-data-dir=${userDataDir}`], { detached: process.platform !== "win32", stdio: "ignore" });
+ 	child.unref();
+ 	return child;
+ }
+@@ -1368,7 +1368,7 @@ process.stdout.write(JSON.stringify({ success: true, data }));`);
+ 	} finally {
+ 		if (child?.pid && child.exitCode === null && child.signalCode === null) {
+ 			const exited = once(child, "exit");
+-			process.kill(-child.pid, "SIGKILL");
++			child.kill("SIGKILL");
+ 			await exited;
+ 		}
+ 		await new Promise<void>((resolve) => server.close(() => resolve()));
+@@ -2979,7 +2979,9 @@ if (args.includes("snapshot")) {
+ 
+ 			// Upstream-effective raw artifact rows get parent directories prepared.
+ 			const rawScreenshot = await executeRegisteredTool(harness.tool, harness.ctx, {
+-				args: ["batch", `screenshot ${join(tempDir, "raw", "dir", "shot.png")}`, "wait 10"],
++				// Native batch raw rows use shell-word syntax on every OS: quote
++				// backslashes/spaces rather than passing an unquoted Windows path.
++				args: ["batch", `screenshot '${join(tempDir, "raw", "dir", "shot.png").replaceAll("'", "'\\''")}'`, "wait 10"],
+ 			});
+ 			assert.equal(rawScreenshot.isError, false, JSON.stringify(rawScreenshot));
+ 			assert.equal(await directoryExists(join(tempDir, "raw", "dir")), true);
+diff --git a/test/agent-browser.extension-source-lookup.test.ts b/test/agent-browser.extension-source-lookup.test.ts
+index 31d412f..9adbe31 100644
+--- a/test/agent-browser.extension-source-lookup.test.ts
++++ b/test/agent-browser.extension-source-lookup.test.ts
+@@ -80,7 +80,7 @@ process.stdin.on("end", () => {
+ 			assert.equal(sourceLookup?.status, "candidates-found");
+ 			assert.ok(sourceLookup?.candidates?.some((candidate) => candidate.source === "react-inspect" && candidate.file === "src/Button.tsx" && candidate.line === 17 && candidate.confidence === "high"));
+ 			assert.ok(sourceLookup?.candidates?.some((candidate) => candidate.source === "dom-attribute" && candidate.file === "src/Button.tsx" && candidate.line === 17 && candidate.column === 5));
+-			assert.ok(sourceLookup?.candidates?.some((candidate) => candidate.source === "workspace-search" && candidate.componentName === "Panel" && candidate.file?.endsWith("src/Panel.tsx")));
++			assert.ok(sourceLookup?.candidates?.some((candidate) => candidate.source === "workspace-search" && candidate.componentName === "Panel" && candidate.file?.endsWith(join("src", "Panel.tsx"))));
+ 			const invocations = await readInvocationLog(logPath);
+ 			assert.deepEqual(invocations[0]?.args.slice(-1), ["batch"]);
+ 		});
+@@ -320,8 +320,8 @@ process.stdin.on("end", () => {
+ 			assert.doesNotMatch(JSON.stringify(lookup), /secret|user:pass|ok=1/);
+ 			assert.doesNotMatch(JSON.stringify(result), /secret|user:pass|ok=1/);
+ 			assert.ok(lookup?.candidates?.some((candidate) => candidate.source === "initiator" && candidate.file === "src/api.ts" && candidate.line === 1));
+-			assert.ok(lookup?.candidates?.some((candidate) => candidate.source === "workspace-search" && candidate.file?.endsWith("src/api.ts") && candidate.line === 1));
+-			assert.equal(lookup?.candidates?.some((candidate) => candidate.file === "src/ok.ts" || candidate.file?.endsWith("src/ok.ts")), false);
++			assert.ok(lookup?.candidates?.some((candidate) => candidate.source === "workspace-search" && candidate.file?.endsWith(join("src", "api.ts")) && candidate.line === 1));
++			assert.equal(lookup?.candidates?.some((candidate) => candidate.file === "src/ok.ts" || candidate.file?.endsWith(join("src", "ok.ts"))), false);
+ 
+ 			const requestOnlyResult = await executeRegisteredTool(harness.tool, harness.ctx, {
+ 				networkSourceLookup: { requestId: "req-1" },
+diff --git a/test/agent-browser.extension-validation.test.ts b/test/agent-browser.extension-validation.test.ts
+index 3771c91..6054431 100644
+--- a/test/agent-browser.extension-validation.test.ts
++++ b/test/agent-browser.extension-validation.test.ts
+@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
+ import { existsSync } from "node:fs";
+ import { chmod, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+-import { dirname, join, resolve } from "node:path";
++import { delimiter, dirname, join, resolve } from "node:path";
+ import { pathToFileURL } from "node:url";
+ import test from "node:test";
+ 
+@@ -1375,7 +1375,7 @@ const data = command === "get" && subcommand === "url"
+ process.stdout.write(JSON.stringify({ success: true, data }));`);
+ 
+ 	try {
+-		await withPatchedEnv({ PATH: `${tempDir}:${nodeBinDir}` }, async () => {
++		await withPatchedEnv({ PATH: `${tempDir}${delimiter}${nodeBinDir}` }, async () => {
+ 			const sessionName = "restart-session";
+ 			const harness = createExtensionHarness({ cwd: tempDir, prompt: "Restart a browser recording." });
+ 			const started = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--session", sessionName, "record", "start", "z-previous.webm"] });
+@@ -1474,7 +1474,7 @@ process.stdout.write(JSON.stringify(command === "batch"
+ 			assert.fail(`${scenario.label}: ${event} did not dispatch`);
+ 		};
+ 		try {
+-			await withPatchedEnv({ AGENT_BROWSER_NAMESPACE: scenario.ambient, AGENT_BROWSER_SESSION: undefined, PATH: `${tempDir}:${nodeBinDir}` }, async () => {
++			await withPatchedEnv({ AGENT_BROWSER_NAMESPACE: scenario.ambient, AGENT_BROWSER_SESSION: undefined, PATH: `${tempDir}${delimiter}${nodeBinDir}` }, async () => {
+ 				const harness = createExtensionHarness({ cwd, prompt: "Exercise global close ordering." });
+ 				await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
+ 				const pending: Array<ReturnType<typeof executeRegisteredTool>> = [];
+@@ -1626,7 +1626,7 @@ if (firstCallFailure) process.exit(1);`,
+ 	);
+ 
+ 	try {
+-		await withPatchedEnv({ PATH: `${tempDir}:${missingFfmpegPath}`, PI_AGENT_BROWSER_SESSION_ARTIFACT_MANIFEST_MAX_ENTRIES: "1" }, async () => {
++		await withPatchedEnv({ PATH: `${tempDir}${delimiter}${missingFfmpegPath}`, PI_AGENT_BROWSER_SESSION_ARTIFACT_MANIFEST_MAX_ENTRIES: "1" }, async () => {
+ 			const firstCallHarness = createExtensionHarness({ cwd: tempDir, prompt: "Test failed post-close launch ownership.", sessionFile: join(tempDir, "first-call-session.jsonl") });
+ 			const failedFirstCall = await executeRegisteredTool(firstCallHarness.tool, firstCallHarness.ctx, {
+ 				sessionMode: "fresh",
+@@ -1923,8 +1923,9 @@ if (firstCallFailure) process.exit(1);`,
+ 			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["close"] })).isError, false);
+ 
+ 			await rm(join(tempDir, "ffmpeg"), { recursive: true, force: true });
+-			await writeFile(join(tempDir, "ffmpeg"), "#!/bin/sh\nexit 0\n", "utf8");
+-			await chmod(join(tempDir, "ffmpeg"), 0o755);
++			const ffmpeg = join(tempDir, process.platform === "win32" ? "ffmpeg.cmd" : "ffmpeg");
++			await writeFile(ffmpeg, process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n", "utf8");
++			if (process.platform !== "win32") await chmod(ffmpeg, 0o755);
+ 			const presentResult = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["record", "start", "present.webm"], sessionMode: "fresh" });
+ 			assert.equal(presentResult.isError, false);
+ 			assert.equal((presentResult.details as { recordingDependencyWarning?: unknown }).recordingDependencyWarning, undefined);
+@@ -1970,7 +1971,7 @@ const data = command === "open" ? { title: "Example", url: subcommand }
+   : { command, subcommand, path };
+ process.stdout.write(JSON.stringify({ success: true, data }));`);
+ 	try {
+-		await withPatchedEnv({ PATH: `${tempDir}:${nodeBinDir}` }, async () => {
++		await withPatchedEnv({ PATH: `${tempDir}${delimiter}${nodeBinDir}` }, async () => {
+ 			const harness = createExtensionHarness({ cwd: tempDir, prompt: "Keep recording identities isolated." });
+ 			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--namespace", "one", "--session", "shared", "open", "https://example.test/"] })).isError, false);
+ 			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--namespace", "two", "--session", "shared", "open", "https://example.test/"] })).isError, false);
+@@ -2015,7 +2016,7 @@ const data = command === "open" ? { title: "Example", url: subcommand }
+   : { command, subcommand, path };
+ process.stdout.write(JSON.stringify({ success: true, data }));`);
+ 	try {
+-		await withPatchedEnv({ PATH: `${tempDir}:${nodeBinDir}` }, async () => {
++		await withPatchedEnv({ PATH: `${tempDir}${delimiter}${nodeBinDir}` }, async () => {
+ 			const harness = createExtensionHarness({ cwd: tempDir, prompt: "Keep cross-branch recording state safe." });
+ 			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--session", "shared", "open", "https://example.test/"] })).isError, false);
+ 			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--session", "shared", "record", "start", "branch.webm"] })).isError, false);
+diff --git a/test/agent-browser.managed-session-policy-lock.test.ts b/test/agent-browser.managed-session-policy-lock.test.ts
+index 1176a6b..1e12463 100644
+--- a/test/agent-browser.managed-session-policy-lock.test.ts
++++ b/test/agent-browser.managed-session-policy-lock.test.ts
+@@ -6,7 +6,10 @@
+ 
+ import assert from "node:assert/strict";
+ import { spawn } from "node:child_process";
++import { randomUUID } from "node:crypto";
+ import { once } from "node:events";
++import fs from "node:fs/promises";
++import { syncBuiltinESMExports } from "node:module";
+ import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+ import { basename, dirname, join } from "node:path";
+ import test from "node:test";
+@@ -42,6 +45,57 @@ test.afterEach(async () => {
+ 	await rm(testOrphanPath, { force: true, recursive: true });
+ });
+ 
++test("managed session policy artifact cleanup does not publish a blocking claim", async (t) => {
++	const seed = await acquireManagedSessionPolicyLock({ sessionName });
++	assert.ok(seed);
++	const owner = await readFile(join(await onlyClaimPath(), "owner.json"), "utf8");
++	await seed.release();
++	await mkdir(testOrphanPath, { mode: 0o700 });
++	await writeFile(join(testOrphanPath, "owner.json"), owner, { mode: 0o600 });
++	const nativeReadFile = fs.readFile;
++	let entered!: () => void;
++	let resume!: () => void;
++	const enteredCleanup = new Promise<void>((resolve) => { entered = resolve; });
++	const resumeCleanup = new Promise<void>((resolve) => { resume = resolve; });
++	let intercepted = false;
++	t.mock.method(fs, "readFile", async (...args: Parameters<typeof fs.readFile>) => {
++		const result = await nativeReadFile(...args);
++		if (!intercepted && String(args[0]) === join(testOrphanPath, "owner.json")) {
++			intercepted = true;
++			entered();
++			await resumeCleanup;
++		}
++		return result;
++	});
++	syncBuiltinESMExports();
++	let first: Awaited<ReturnType<typeof acquireManagedSessionPolicyLock>>;
++	let second: typeof first;
++	const pending = acquireManagedSessionPolicyLock({ sessionName });
++	try {
++		await enteredCleanup;
++		// Hold only one real cleanup read, not the lock or native identity.
++		second = await acquireManagedSessionPolicyLock({ sessionName });
++		if (second) {
++			assert.equal(await acquireManagedSessionPolicyLock({ sessionName, timeoutMs: 50 }), undefined);
++			await second.release();
++		}
++		resume();
++		first = await pending;
++		assert.ok(first);
++		assert.ok(second, "unrelated artifact cleanup must not spend a contender's lock wait");
++		assert.equal(await readFile(join(testOrphanPath, "owner.json"), "utf8"), owner, "live cleanup artifact is retained");
++		await first.release();
++		assert.deepEqual(await claimPaths(), []);
++	} finally {
++		resume();
++		first ??= await pending;
++		await first?.release();
++		await second?.release();
++		t.mock.restoreAll();
++		syncBuiltinESMExports();
++	}
++});
++
+ test("managed session policy lock waits asynchronously and releases only its immutable claim", async () => {
+ 	const first = await acquireManagedSessionPolicyLock({ sessionName });
+ 	assert.ok(first);
+@@ -75,14 +129,23 @@ test("managed session policy lock cleans dead removal artifacts", async () => {
+ 	await lock.release();
+ });
+ 
+-test("managed session policy lock fails closed without repairing unsafe owner permissions", async () => {
++test("managed session policy lock fails closed without repairing unsafe owner metadata or POSIX permissions", async () => {
+ 	const first = await acquireManagedSessionPolicyLock({ sessionName });
+ 	assert.ok(first);
+ 	const claimPath = await onlyClaimPath();
+ 	const ownerPath = join(claimPath, "owner.json");
+-	await chmod(ownerPath, 0o644);
++	if (process.platform === "win32") {
++		// chmod cannot express POSIX group/world access on Windows. Corrupt
++		// the required identity instead and retain the same fail-closed contract.
++		const owner = JSON.parse(await readFile(ownerPath, "utf8"));
++		await writeFile(ownerPath, JSON.stringify({ ...owner, startIdentity: "" }));
++	} else {
++		await chmod(ownerPath, 0o644);
++	}
++	const unsafeOwner = await readFile(ownerPath, "utf8");
+ 	assert.equal(await acquireManagedSessionPolicyLock({ sessionName, timeoutMs: 25 }), undefined);
+-	assert.equal((await stat(ownerPath)).mode & 0o777, 0o644);
++	assert.equal(await readFile(ownerPath, "utf8"), unsafeOwner);
++	if (process.platform !== "win32") assert.equal((await stat(ownerPath)).mode & 0o777, 0o644);
+ 	await first.release();
+ 	await stat(claimPath);
+ });
+@@ -102,6 +165,90 @@ test("managed session policy lock serializes concurrent contenders", async () =>
+ 	assert.equal(maxActive, 1);
+ });
+ 
++for (const publicationRead of [1, 2]) {
++	test(`managed session policy lock refreshes a choosing ticket published after missing read ${publicationRead}`, async (t) => {
++		// Obtain real native owner identity, then model another live claim choosing
++		// its ticket. Only filesystem interleaving is controlled, never identity results.
++		const seed = await acquireManagedSessionPolicyLock({ sessionName });
++		assert.ok(seed);
++		const owner = JSON.parse(await readFile(join(await onlyClaimPath(), "owner.json"), "utf8"));
++		await seed.release();
++		owner.token = randomUUID();
++		const choosingPath = `${lockBasePath}.claim-${owner.token}`;
++		const ticketPath = join(choosingPath, "ticket.json");
++		await mkdir(choosingPath, { mode: 0o700 });
++		await writeFile(join(choosingPath, "owner.json"), JSON.stringify(owner), { mode: 0o600 });
++		const nativeLstat = fs.lstat;
++		const nativeRename = fs.rename;
++		let ownTicketPublished = false;
++		let missingReads = 0;
++		t.mock.method(fs, "rename", async (...args: Parameters<typeof fs.rename>) => {
++			const result = await nativeRename(...args);
++			if (String(args[1]).endsWith("ticket.json") && String(args[1]) !== ticketPath) ownTicketPublished = true;
++			return result;
++		});
++		t.mock.method(fs, "lstat", async (...args: Parameters<typeof fs.lstat>) => {
++			try { return await nativeLstat(...args); } catch (error) {
++				if ((error as NodeJS.ErrnoException).code === "ENOENT" && String(args[0]) === ticketPath && ownTicketPublished) {
++					missingReads += 1;
++					if (missingReads === publicationRead) {
++						const candidate = join(choosingPath, ".ticket.tmp");
++						await writeFile(candidate, JSON.stringify({ ticket: 2, token: owner.token, version: 3 }), { mode: 0o600 });
++						await nativeRename(candidate, ticketPath);
++					}
++				}
++				throw error; // Preserve the actual missing-file observation.
++			}
++		});
++		syncBuiltinESMExports();
++		try {
++			// No waiting is needed once the later ticket is published. A stale
++			// choosing snapshot must not consume even an immediate wait budget.
++			const lock = await acquireManagedSessionPolicyLock({ sessionName, timeoutMs: 0 });
++			assert.ok(lock, "a completed later ticket must not block the earlier ticket");
++			assert.equal(missingReads, publicationRead);
++			await lock.release();
++			assert.deepEqual(await claimPaths(), [choosingPath]);
++			assert.equal(JSON.parse(await readFile(ticketPath, "utf8")).ticket, 2);
++		} finally {
++			t.mock.restoreAll();
++			syncBuiltinESMExports();
++		}
++	});
++}
++
++for (const holdMs of [0, 1_100]) {
++	test(`managed session policy lock releases after a native open-file rename conflict ${holdMs === 0 ? "within" : "after"} its acquisition wait`, async (t) => {
++		const lock = await acquireManagedSessionPolicyLock({ sessionName });
++		assert.ok(lock);
++		// A protected native close can outlast the default 1,000 ms acquisition wait.
++		if (holdMs > 0) await new Promise((resolve) => setTimeout(resolve, holdMs));
++		const claimPath = await onlyClaimPath();
++		const reader = await fs.open(join(claimPath, "owner.json"), "r");
++		const nativeRename = fs.rename;
++		let nativeConflict = false;
++		t.mock.method(fs, "rename", async (...args: Parameters<typeof fs.rename>) => {
++			try { return await nativeRename(...args); } catch (error) {
++				if (String(args[0]) === claimPath && (error as NodeJS.ErrnoException).code === "EPERM") {
++					nativeConflict = true;
++					await reader.close(); // The actual competing reader finishes.
++				}
++				throw error; // Never fabricate or replace the native rename result.
++			}
++		});
++		syncBuiltinESMExports();
++		try {
++			await lock.release();
++			if (process.platform === "win32") assert.equal(nativeConflict, true);
++			assert.deepEqual(await claimPaths(), []);
++		} finally {
++			t.mock.restoreAll();
++			syncBuiltinESMExports();
++			await reader.close();
++		}
++	});
++}
++
+ test("managed session policy lock excludes a live owner in another process", async () => {
+ 	const moduleUrl = new URL("../extensions/agent-browser/lib/managed-session-policy-lock.ts", import.meta.url).href;
+ 	const script = `import { acquireManagedSessionPolicyLock } from ${JSON.stringify(moduleUrl)}; const lock = await acquireManagedSessionPolicyLock({ sessionName: ${JSON.stringify(sessionName)} }); if (!lock) process.exit(2); process.stdout.write("acquired\\n"); await new Promise((resolve) => process.stdin.once("data", resolve)); await lock.release();`;
+diff --git a/test/agent-browser.managed-session-restore.test.ts b/test/agent-browser.managed-session-restore.test.ts
+index 647c446..691c551 100644
+--- a/test/agent-browser.managed-session-restore.test.ts
++++ b/test/agent-browser.managed-session-restore.test.ts
+@@ -32,6 +32,11 @@ import {
+ } from "../extensions/agent-browser/lib/managed-session-restore.js";
+ import { buildExecutionPlan, restoreManagedSessionStateFromBranch } from "../extensions/agent-browser/lib/runtime.js";
+ 
++// Native fixtures use an isolated home and the upstream 256-bit key format.
++const restoreHomeEnv = (home: string): NodeJS.ProcessEnv => ({
++	HOME: home, USERPROFILE: home, AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
++});
++
+ function initializeGitProject(cwd: string): void {
+ 	execFileSync("git", ["init", "-q", cwd], { stdio: "ignore" });
+ }
+@@ -223,7 +228,10 @@ test("linked-worktree copies and retargeted git pointers get distinct restore ke
+ 		cpSync(linked, copied, { recursive: true, preserveTimestamps: true });
+ 		assert.notEqual(createManagedSessionRestoreKey(copied), linkedKey);
+ 
+-		writeFileSync(join(linked, ".git"), readFileSync(join(otherLinked, ".git"), "utf8"));
++		// Git marks .git hidden on Windows; opening it with O_CREAT fails.
++		const pointer = readFileSync(join(otherLinked, ".git"), "utf8");
++		rmSync(join(linked, ".git"));
++		writeFileSync(join(linked, ".git"), pointer);
+ 		assert.notEqual(createManagedSessionRestoreKey(linked), linkedKey);
+ 	} finally {
+ 		rmSync(root, { recursive: true, force: true });
+@@ -264,15 +272,16 @@ test("managed restore rejects a tampered checkout-generation marker", async () =
+ 	try {
+ 		initializeGitProject(cwd);
+ 		assert.match(createManagedSessionRestoreKey(cwd), /^piab-r2-/);
+-		const readOptions = { args: ["--session", "piab-marker", "read", "https://example.com"], cwd, sessionName: "piab-marker", recordedOwnedSession: { cwd, sessionName: "piab-marker" }, parentEnv: { HOME: home }, restoreState: new ManagedSessionRestoreState() };
++		const readOptions = { args: ["--session", "piab-marker", "read", "https://example.com"], cwd, sessionName: "piab-marker", recordedOwnedSession: { cwd, sessionName: "piab-marker" }, parentEnv: restoreHomeEnv(home), restoreState: new ManagedSessionRestoreState() };
+ 		const readContext = buildOwnedManagedSessionRestoreContext({ ...readOptions, reuseOnly: true });
+ 		const marker = join(cwd, ".git", "pi-agent-browser-project-generation-v1.json");
+-		chmodSync(marker, 0o644);
++		if (process.platform === "win32") writeFileSync(marker, JSON.stringify({ version: 1, id: "invalid-generation" }));
++		else chmodSync(marker, 0o644);
+ 		assert.deepEqual(getManagedSessionRestoreEnv({
+ 			args: ["--session", "piab-marker", "open", "https://example.com"],
+ 			cwd,
+ 			ownedManagedSession: true,
+-			parentEnv: { HOME: home },
++			parentEnv: restoreHomeEnv(home),
+ 			restoreState: new ManagedSessionRestoreState(),
+ 		}), {});
+ 		await withOwnedManagedSessionContext(readContext, async () => {
+@@ -295,7 +304,7 @@ test("getManagedSessionRestoreEnv isolates ownership and blocks incompatible lau
+ 		args,
+ 		cwd,
+ 		ownedManagedSession: true,
+-		parentEnv: { HOME: home, ...parentEnv },
++		parentEnv: { ...restoreHomeEnv(home), ...parentEnv },
+ 		restoreState: managedSessionRestoreState,
+ 		stdin,
+ 	});
+@@ -310,7 +319,7 @@ test("getManagedSessionRestoreEnv isolates ownership and blocks incompatible lau
+ 				args: ["--json", "--session", session, "close"],
+ 				cwd,
+ 				ownedManagedSession: true,
+-				parentEnv: { HOME: home },
++				parentEnv: restoreHomeEnv(home),
+ 				restoreState: managedSessionRestoreState,
+ 			}),
+ 			{},
+@@ -320,7 +329,7 @@ test("getManagedSessionRestoreEnv isolates ownership and blocks incompatible lau
+ 			getAndCommitManagedSessionRestoreEnv({
+ 				args: ["--json", "--session", "piab-caller-owned", "open", "https://app.example.com"],
+ 				cwd,
+-				parentEnv: { HOME: home },
++				parentEnv: restoreHomeEnv(home),
+ 			}),
+ 			{},
+ 		);
+@@ -329,7 +338,7 @@ test("getManagedSessionRestoreEnv isolates ownership and blocks incompatible lau
+ 				args: ["--json", "--session", "custom", "open", "https://app.example.com"],
+ 				cwd,
+ 				ownedManagedSession: true,
+-				parentEnv: { HOME: home },
++				parentEnv: restoreHomeEnv(home),
+ 				restoreState: managedSessionRestoreState,
+ 			}),
+ 			expectedRestoreEnv(cwd, "custom"),
+@@ -411,7 +420,7 @@ test("getManagedSessionRestoreEnv isolates ownership and blocks incompatible lau
+ 				cwd,
+ 				env: { AGENT_BROWSER_PROXY: undefined, AGENT_BROWSER_WEBGPU: "false" },
+ 				ownedManagedSession: true,
+-				parentEnv: { AGENT_BROWSER_PROXY: "http://127.0.0.1:8080", AGENT_BROWSER_WEBGPU: "1", HOME: home },
++				parentEnv: { ...restoreHomeEnv(home), AGENT_BROWSER_PROXY: "http://127.0.0.1:8080", AGENT_BROWSER_WEBGPU: "1" },
+ 				restoreState: managedSessionRestoreState,
+ 			}),
+ 			expectedRestoreEnv(cwd),
+@@ -424,7 +433,7 @@ test("getManagedSessionRestoreEnv isolates ownership and blocks incompatible lau
+ 				cwd,
+ 				env: { PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: "1" },
+ 				ownedManagedSession: true,
+-				parentEnv: { HOME: home, PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: "0" },
++				parentEnv: { ...restoreHomeEnv(home), PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: "0" },
+ 				restoreState: managedSessionRestoreState,
+ 			}),
+ 			expectedRestoreEnv(cwd),
+@@ -506,7 +515,7 @@ test("spawn-time suppression commit sticky-disables restore after an incompatibl
+ 			cwd,
+ 			ownedManagedSession: true,
+ 			restoreState: managedSessionRestoreState,
+-			parentEnv: { HOME: isolatedHome },
++			parentEnv: restoreHomeEnv(isolatedHome),
+ 		}),
+ 		{},
+ 	);
+@@ -516,7 +525,7 @@ test("spawn-time suppression commit sticky-disables restore after an incompatibl
+ 			cwd,
+ 			ownedManagedSession: true,
+ 			restoreState: managedSessionRestoreState,
+-			parentEnv: { HOME: isolatedHome },
++			parentEnv: restoreHomeEnv(isolatedHome),
+ 		}),
+ 		{},
+ 	);
+@@ -527,7 +536,7 @@ test("spawn-time suppression commit sticky-disables restore after an incompatibl
+ 			cwd,
+ 			ownedManagedSession: true,
+ 			restoreState: managedSessionRestoreState,
+-			parentEnv: { HOME: isolatedHome },
++			parentEnv: restoreHomeEnv(isolatedHome),
+ 		}),
+ 		expectedRestoreEnv(cwd),
+ 	);
+@@ -578,7 +587,7 @@ test("owned managed session context enables restore for matching helper probes o
+ 			getAndCommitManagedSessionRestoreEnv({
+ 				args: ["--json", "--session", managed, "snapshot", "-i"],
+ 				cwd,
+-				parentEnv: { HOME: isolatedHome },
++				parentEnv: restoreHomeEnv(isolatedHome),
+ 			}),
+ 			expectedRestoreEnv(cwd),
+ 		);
+@@ -586,7 +595,7 @@ test("owned managed session context enables restore for matching helper probes o
+ 			getAndCommitManagedSessionRestoreEnv({
+ 				args: ["--json", "--session", "caller-owned", "snapshot", "-i"],
+ 				cwd,
+-				parentEnv: { HOME: isolatedHome },
++				parentEnv: restoreHomeEnv(isolatedHome),
+ 			}),
+ 			{},
+ 		);
+@@ -594,7 +603,7 @@ test("owned managed session context enables restore for matching helper probes o
+ 			getAndCommitManagedSessionRestoreEnv({
+ 				args: ["--json", "--namespace", "caller", "--session", managed, "snapshot", "-i"],
+ 				cwd,
+-				parentEnv: { HOME: isolatedHome },
++				parentEnv: restoreHomeEnv(isolatedHome),
+ 			}),
+ 			{},
+ 		);
+@@ -603,7 +612,7 @@ test("owned managed session context enables restore for matching helper probes o
+ 		getAndCommitManagedSessionRestoreEnv({
+ 			args: ["--json", "--session", managed, "snapshot", "-i"],
+ 			cwd,
+-			parentEnv: { HOME: isolatedHome },
++			parentEnv: restoreHomeEnv(isolatedHome),
+ 		}),
+ 		{},
+ 	);
+@@ -658,7 +667,7 @@ test("main-plan restore policy suppresses helpers without sticky-disabling on pr
+ 		const helperOptions = {
+ 			args: ["--json", "--session", managed, "eval", "--stdin"],
+ 			cwd,
+-			parentEnv: { HOME: isolatedHome },
++			parentEnv: restoreHomeEnv(isolatedHome),
+ 		};
+ 		assert.deepEqual(getManagedSessionRestoreEnv(helperOptions), {});
+ 		assert.equal(isManagedSessionRestoreDisabled(managed), false);
+@@ -672,7 +681,7 @@ test("main-plan restore policy suppresses helpers without sticky-disabling on pr
+ 			cwd,
+ 			ownedManagedSession: true,
+ 			restoreState: managedSessionRestoreState,
+-			parentEnv: { HOME: isolatedHome },
++			parentEnv: restoreHomeEnv(isolatedHome),
+ 		}),
+ 		{},
+ 	);
+@@ -687,7 +696,7 @@ test("main-plan restore policy suppresses helpers without sticky-disabling on pr
+ 		const helperOptions = {
+ 			args: ["--json", "--session", managed, "eval", "--stdin"],
+ 			cwd,
+-			parentEnv: { HOME: isolatedHome },
++			parentEnv: restoreHomeEnv(isolatedHome),
+ 		};
+ 		assert.deepEqual(getManagedSessionRestoreEnv(helperOptions), {});
+ 		assert.equal(isManagedSessionRestoreDisabled(managed), false);
+@@ -699,7 +708,7 @@ test("main-plan restore policy suppresses helpers without sticky-disabling on pr
+ 			cwd,
+ 			ownedManagedSession: true,
+ 			restoreState: managedSessionRestoreState,
+-			parentEnv: { HOME: isolatedHome },
++			parentEnv: restoreHomeEnv(isolatedHome),
+ 		}),
+ 		expectedRestoreEnv(cwd),
+ 	);
+@@ -721,7 +730,7 @@ test("wrapper-injected ChatGPT user agent remains compatible with managed restor
+ 		args: plan.effectiveArgs,
+ 		cwd,
+ 		managedSessionName: managed,
+-		parentEnv: { HOME: isolatedHome },
++		parentEnv: restoreHomeEnv(isolatedHome),
+ 		restoreState: managedSessionRestoreState,
+ 		wrapperInjectedUserAgent: true,
+ 	});
+@@ -731,7 +740,7 @@ test("wrapper-injected ChatGPT user agent remains compatible with managed restor
+ 				args: plan.effectiveArgs,
+ 				cwd,
+ 				ownedManagedSession: true,
+-				parentEnv: { HOME: isolatedHome },
++				parentEnv: restoreHomeEnv(isolatedHome),
+ 				restoreState: managedSessionRestoreState,
+ 			}),
+ 			expectedRestoreEnv(cwd),
+@@ -754,7 +763,7 @@ test("passive agent-browser config preserves automatic restore while explicit ov
+ 				cwd,
+ 				ownedManagedSession: true,
+ 				restoreState: managedSessionRestoreState,
+-				parentEnv: { HOME: home },
++				parentEnv: restoreHomeEnv(home),
+ 			}),
+ 			expectedRestoreEnv(cwd),
+ 		);
+@@ -762,16 +771,16 @@ test("passive agent-browser config preserves automatic restore while explicit ov
+ 
+ 		clearManagedSessionRestoreDisabled();
+ 		rmSync(join(cwd, "agent-browser.json"));
+-		assert.equal(agentBrowserConfigBlocksManagedRestore({ AGENT_BROWSER_CONFIG: "", HOME: home }), true);
+-		assert.equal(agentBrowserConfigBlocksManagedRestore({ HOME: ` ${home} ` }), true);
++		assert.equal(agentBrowserConfigBlocksManagedRestore({ ...restoreHomeEnv(home), AGENT_BROWSER_CONFIG: "" }), true);
++		assert.equal(agentBrowserConfigBlocksManagedRestore(restoreHomeEnv(` ${home} `)), true);
+ 		assert.equal(
+-			agentBrowserConfigBlocksManagedRestore({ HOME: home }, [
++			agentBrowserConfigBlocksManagedRestore(restoreHomeEnv(home), [
+ 				"--headers", "--config", "open", "https://app.example.com",
+ 			]),
+ 			false,
+ 		);
+ 		assert.equal(
+-			agentBrowserConfigBlocksManagedRestore({ HOME: home }, [
++			agentBrowserConfigBlocksManagedRestore(restoreHomeEnv(home), [
+ 				"open", "https://app.example.com", "--config=/dev/zero",
+ 			]),
+ 			false,
+@@ -782,7 +791,7 @@ test("passive agent-browser config preserves automatic restore while explicit ov
+ 				cwd,
+ 				ownedManagedSession: true,
+ 				restoreState: managedSessionRestoreState,
+-				parentEnv: { HOME: home },
++				parentEnv: restoreHomeEnv(home),
+ 			}),
+ 			{},
+ 		);
+@@ -795,7 +804,7 @@ test("passive agent-browser config preserves automatic restore while explicit ov
+ 				cwd,
+ 				ownedManagedSession: true,
+ 				restoreState: managedSessionRestoreState,
+-				parentEnv: { HOME: home },
++				parentEnv: restoreHomeEnv(home),
+ 			}),
+ 			{},
+ 		);
+@@ -810,7 +819,7 @@ test("passive agent-browser config preserves automatic restore while explicit ov
+ 				cwd,
+ 				ownedManagedSession: true,
+ 				restoreState: managedSessionRestoreState,
+-				parentEnv: { HOME: home },
++				parentEnv: restoreHomeEnv(home),
+ 			}),
+ 			expectedRestoreEnv(cwd),
+ 		);
+@@ -824,7 +833,7 @@ test("passive agent-browser config preserves automatic restore while explicit ov
+ test("managed restore rejects relative HOME and USERPROFILE paths", () => {
+ 	const cwd = mkdtempSync(join(tmpdir(), "piab-relative-home-cwd-"));
+ 	try {
+-		assert.equal(agentBrowserConfigBlocksManagedRestore({ HOME: "relative-home" }), true);
++		assert.equal(agentBrowserConfigBlocksManagedRestore({ HOME: "relative-home" }, [], posixFixturePlatform), true);
+ 		assert.equal(ensureManagedSessionRestoreStorageIsSecure({ HOME: "relative-home" }, posixFixturePlatform), false);
+ 		assert.equal(agentBrowserConfigBlocksManagedRestore({ USERPROFILE: "relative-profile" }, [], "win32"), true);
+ 	} finally {
+@@ -969,10 +978,10 @@ test("managed restore fails closed outside a durable Git checkout generation", a
+ 			args: ["--session", "piab-non-git", "open", "https://example.com"],
+ 			cwd,
+ 			ownedManagedSession: true,
+-			parentEnv: { HOME: home },
++			parentEnv: restoreHomeEnv(home),
+ 			restoreState: new ManagedSessionRestoreState(),
+ 		}), {});
+-		const options = { args: ["--session", "piab-non-git", "read", "https://example.com"], cwd, sessionName: "piab-non-git", recordedOwnedSession: { cwd, sessionName: "piab-non-git" }, parentEnv: { HOME: home }, restoreState: new ManagedSessionRestoreState() };
++		const options = { args: ["--session", "piab-non-git", "read", "https://example.com"], cwd, sessionName: "piab-non-git", recordedOwnedSession: { cwd, sessionName: "piab-non-git" }, parentEnv: restoreHomeEnv(home), restoreState: new ManagedSessionRestoreState() };
+ 		const context = buildOwnedManagedSessionRestoreContext({ ...options, reuseOnly: true });
+ 		assert.equal(context?.restoreKey, undefined, "a browser-independent read must not create an unavailable-checkout fallback key");
+ 		await withOwnedManagedSessionContext(context, async () => assert.deepEqual(getManagedSessionRestoreEnv(options), {}));
+@@ -1090,8 +1099,7 @@ test("owned snapshot pruning persists close-proven paths and leaves unrecorded m
+ 		for (const [index, suffix] of ["old", "middle", "new"].entries()) {
+ 			assert.equal(pruneOwnedManagedSessionRestoreSnapshots({
+ 				cwd,
+-				parentEnv: { HOME: home },
+-				platform: posixFixturePlatform,
++				parentEnv: restoreHomeEnv(home),
+ 				restoreKey: key,
+ 				statePath: join(sessions, `${key}-${suffix}.json`),
+ 			}), index === 2 ? 1 : 0);
+@@ -1100,10 +1108,13 @@ test("owned snapshot pruning persists close-proven paths and leaves unrecorded m
+ 		const manifest = readdirSync(sessions).find((name) => name.startsWith(".pi-agent-browser-owned-snapshots-v2-"));
+ 		assert.ok(manifest);
+ 		const manifestDirectory = join(sessions, manifest);
+-		assert.equal(statSync(manifestDirectory).mode & 0o077, 0);
++		assert.equal(statSync(manifestDirectory).isDirectory(), true);
++		if (process.platform !== "win32") assert.equal(statSync(manifestDirectory).mode & 0o077, 0);
+ 		const ownershipRecords = readdirSync(manifestDirectory).filter((name) => name.endsWith(".json"));
+ 		assert.equal(ownershipRecords.length, 2);
+-		assert.equal(ownershipRecords.every((name) => (statSync(join(manifestDirectory, name)).mode & 0o077) === 0), true);
++		assert.deepEqual(new Set(ownershipRecords.map((name) => JSON.parse(readFileSync(join(manifestDirectory, name), "utf8")))),
++			new Set(["middle", "new"].map((suffix) => realpathSync(join(sessions, `${key}-${suffix}.json`)))));
++		if (process.platform !== "win32") assert.equal(ownershipRecords.every((name) => (statSync(join(manifestDirectory, name)).mode & 0o077) === 0), true);
+ 		assert.equal(existsSync(join(namespaceSessions, `${key}-old.json`)), true);
+ 		assert.equal(existsSync(join(sessions, `${key}-caller.json`)), true);
+ 
+@@ -1111,8 +1122,7 @@ test("owned snapshot pruning persists close-proven paths and leaves unrecorded m
+ 			assert.equal(pruneOwnedManagedSessionRestoreSnapshots({
+ 				cwd,
+ 				namespace: "Team",
+-				parentEnv: { HOME: home },
+-				platform: posixFixturePlatform,
++				parentEnv: restoreHomeEnv(home),
+ 				restoreKey: key,
+ 				statePath: join(namespaceSessions, `${key}-${suffix}.json`),
+ 			}), index === 2 ? 1 : 0);
+@@ -1139,11 +1149,11 @@ test("owned snapshot pruning leaves independent checkout generations untouched",
+ 		const otherPath = join(sessions, `${otherKey}-other.json`);
+ 		const currentPath = join(sessions, `${currentKey}-current.json`);
+ 		for (const path of [otherPath, currentPath]) writeFileSync(path, "{}");
+-		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: otherProject, restoreKey: otherKey, parentEnv: { HOME: home }, platform: posixFixturePlatform, statePath: otherPath }), 0);
++		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: otherProject, restoreKey: otherKey, parentEnv: restoreHomeEnv(home), statePath: otherPath }), 0);
+ 		const oldSeconds = (Date.now() - 31 * 24 * 60 * 60 * 1_000) / 1_000;
+ 		utimesSync(otherPath, oldSeconds, oldSeconds);
+ 
+-		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: isolatedProject, restoreKey: currentKey, parentEnv: { HOME: home }, platform: posixFixturePlatform, statePath: currentPath }), 0);
++		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: isolatedProject, restoreKey: currentKey, parentEnv: restoreHomeEnv(home), statePath: currentPath }), 0);
+ 		assert.equal(existsSync(otherPath), true);
+ 		assert.equal(existsSync(join(sessions, `.pi-agent-browser-owned-snapshots-v2-${otherKey}`)), true);
+ 		assert.equal(existsSync(currentPath), true);
+@@ -1167,12 +1177,12 @@ test("owned snapshot lineage follows a checkout rename", () => {
+ 		for (const path of paths) writeFileSync(path, "{}");
+ 		const oldSeconds = (Date.now() - 31 * 24 * 60 * 60 * 1_000) / 1_000;
+ 		utimesSync(paths[0] as string, oldSeconds, oldSeconds);
+-		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: project, restoreKey: key, parentEnv: { HOME: home }, platform: posixFixturePlatform, statePath: paths[0] }), 0);
++		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: project, restoreKey: key, parentEnv: restoreHomeEnv(home), statePath: paths[0] }), 0);
+ 
+ 		renameSync(project, renamedProject);
+ 		assert.equal(createManagedSessionRestoreKey(renamedProject), key);
+-		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: renamedProject, restoreKey: key, parentEnv: { HOME: home }, platform: posixFixturePlatform, statePath: paths[1] }), 0);
+-		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: renamedProject, restoreKey: key, parentEnv: { HOME: home }, platform: posixFixturePlatform, statePath: paths[2] }), 1);
++		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: renamedProject, restoreKey: key, parentEnv: restoreHomeEnv(home), statePath: paths[1] }), 0);
++		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: renamedProject, restoreKey: key, parentEnv: restoreHomeEnv(home), statePath: paths[2] }), 1);
+ 		assert.equal(existsSync(paths[0] as string), false);
+ 	} finally {
+ 		rmSync(project, { recursive: true, force: true });
+@@ -1193,7 +1203,7 @@ test("owned snapshot pruning expires stale generations from the same checkout pa
+ 		const retiredPath = join(sessions, `${retiredKey}-retired.json`);
+ 		const unrecordedPath = join(sessions, `${retiredKey}-caller.json`);
+ 		for (const path of [retiredPath, unrecordedPath]) writeFileSync(path, "{}");
+-		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: reusedProject, restoreKey: retiredKey, parentEnv: { HOME: home }, platform: posixFixturePlatform, statePath: retiredPath }), 0);
++		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: reusedProject, restoreKey: retiredKey, parentEnv: restoreHomeEnv(home), statePath: retiredPath }), 0);
+ 		const oldSeconds = (Date.now() - 31 * 24 * 60 * 60 * 1_000) / 1_000;
+ 		utimesSync(retiredPath, oldSeconds, oldSeconds);
+ 
+@@ -1203,7 +1213,7 @@ test("owned snapshot pruning expires stale generations from the same checkout pa
+ 		assert.notEqual(currentKey, retiredKey);
+ 		const currentPath = join(sessions, `${currentKey}-current.json`);
+ 		writeFileSync(currentPath, "{}");
+-		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: reusedProject, restoreKey: currentKey, parentEnv: { HOME: home }, platform: posixFixturePlatform, statePath: currentPath }), 1);
++		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd: reusedProject, restoreKey: currentKey, parentEnv: restoreHomeEnv(home), statePath: currentPath }), 1);
+ 		assert.equal(existsSync(retiredPath), false);
+ 		assert.equal(existsSync(unrecordedPath), true);
+ 		assert.equal(existsSync(join(sessions, `.pi-agent-browser-owned-snapshots-v2-${retiredKey}`)), false);
+@@ -1227,7 +1237,7 @@ test("owned snapshot manifest self-heals malformed records without claiming unre
+ 		const newPath = join(sessions, `${key}-new.json`);
+ 		for (const path of [oldPath, middlePath, newPath]) writeFileSync(path, "{}");
+ 
+-		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd, restoreKey: key, parentEnv: { HOME: home }, platform: posixFixturePlatform, statePath: oldPath }), 0);
++		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd, restoreKey: key, parentEnv: restoreHomeEnv(home), statePath: oldPath }), 0);
+ 		const manifestName = readdirSync(sessions).find((name) => name.startsWith(".pi-agent-browser-owned-snapshots-v2-"));
+ 		assert.ok(manifestName);
+ 		const manifestDirectory = join(sessions, manifestName);
+@@ -1235,14 +1245,14 @@ test("owned snapshot manifest self-heals malformed records without claiming unre
+ 		writeFileSync(firstRecordPath, "not json");
+ 		chmodSync(firstRecordPath, 0o644);
+ 
+-		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd, restoreKey: key, parentEnv: { HOME: home }, platform: posixFixturePlatform, statePath: middlePath }), 0);
++		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd, restoreKey: key, parentEnv: restoreHomeEnv(home), statePath: middlePath }), 0);
+ 		const middleRecordPath = join(manifestDirectory, readdirSync(manifestDirectory).find((name) => name.endsWith(".json")) as string);
+-		assert.equal(statSync(middleRecordPath).mode & 0o777, 0o600);
++		if (process.platform !== "win32") assert.equal(statSync(middleRecordPath).mode & 0o777, 0o600);
+ 		assert.equal(JSON.parse(readFileSync(middleRecordPath, "utf8")), realpathSync(middlePath));
+ 		assert.equal(existsSync(oldPath), true);
+ 
+ 		writeFileSync(middleRecordPath, "x".repeat(16 * 1_024 + 1));
+-		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd, restoreKey: key, parentEnv: { HOME: home }, platform: posixFixturePlatform, statePath: newPath }), 0);
++		assert.equal(pruneOwnedManagedSessionRestoreSnapshots({ cwd, restoreKey: key, parentEnv: restoreHomeEnv(home), statePath: newPath }), 0);
+ 		const remainingRecords = readdirSync(manifestDirectory).filter((name) => name.endsWith(".json"));
+ 		assert.equal(remainingRecords.length, 1);
+ 		assert.equal(JSON.parse(readFileSync(join(manifestDirectory, remainingRecords[0] as string), "utf8")), realpathSync(newPath));
+@@ -1303,11 +1313,11 @@ test("owned snapshot retention converges concurrent young closes to the newest 2
+ 		for (const [index, path] of paths.entries()) {
+ 			writeFileSync(path, "{}");
+ 			utimesSync(path, nowSeconds - (paths.length - index), nowSeconds - (paths.length - index));
+-			if (index < 256) pruneOwnedManagedSessionRestoreSnapshots({ cwd, restoreKey: key, parentEnv: { HOME: home }, platform: posixFixturePlatform, statePath: path });
++			if (index < 256) pruneOwnedManagedSessionRestoreSnapshots({ cwd, restoreKey: key, parentEnv: restoreHomeEnv(home), statePath: path });
+ 		}
+ 		const moduleUrl = new URL("../extensions/agent-browser/lib/managed-session-restore.ts", import.meta.url).href;
+ 		const children = paths.slice(256).map((statePath) => {
+-			const script = `import { pruneOwnedManagedSessionRestoreSnapshots } from ${JSON.stringify(moduleUrl)}; pruneOwnedManagedSessionRestoreSnapshots(${JSON.stringify({ cwd, restoreKey: key, parentEnv: { HOME: home }, platform: posixFixturePlatform, statePath })});`;
++			const script = `import { pruneOwnedManagedSessionRestoreSnapshots } from ${JSON.stringify(moduleUrl)}; pruneOwnedManagedSessionRestoreSnapshots(${JSON.stringify({ cwd, restoreKey: key, parentEnv: restoreHomeEnv(home), statePath })});`;
+ 			const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { stdio: ["ignore", "pipe", "pipe"] });
+ 			const stderr: Buffer[] = [];
+ 			child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+@@ -1471,7 +1481,7 @@ test("owned managed session ALS context is isolated across concurrent calls", as
+ 				getAndCommitManagedSessionRestoreEnv({
+ 					args: ["--json", "--session", managed, "snapshot", "-i"],
+ 					cwd,
+-					parentEnv: { HOME: isolatedHome },
++					parentEnv: restoreHomeEnv(isolatedHome),
+ 				}).AGENT_BROWSER_RESTORE === key;
+ 		}),
+ 		withOwnedManagedSessionContext(undefined, async () => {
+@@ -1480,7 +1490,7 @@ test("owned managed session ALS context is isolated across concurrent calls", as
+ 				getAndCommitManagedSessionRestoreEnv({
+ 					args: ["--json", "--session", managed, "snapshot", "-i"],
+ 					cwd,
+-					parentEnv: { HOME: isolatedHome },
++					parentEnv: restoreHomeEnv(isolatedHome),
+ 				}).AGENT_BROWSER_RESTORE === key;
+ 		}),
+ 	]);
+diff --git a/test/agent-browser.presentation-artifacts-batch.test.ts b/test/agent-browser.presentation-artifacts-batch.test.ts
+index 3f9744e..44e2d5d 100644
+--- a/test/agent-browser.presentation-artifacts-batch.test.ts
++++ b/test/agent-browser.presentation-artifacts-batch.test.ts
+@@ -35,35 +35,38 @@ test("batch stdin shape errors include a copyable native-tool example", () => {
+ 	assert.match(error, /\{ "args": \["batch"\], "stdin": "\[\[\\"get\\",\\"title\\"\],\[\\"get\\",\\"url\\"\]\]" \}/);
+ });
+ 
+-test("buildToolPresentation formats download results as saved-file summaries", async () => {
++test("buildToolPresentation formats download results as saved-file summaries", async (t) => {
++	const tempDir = await mkdtemp(join(tmpdir(), "piab-missing-download-"));
++	t.after(() => rm(tempDir, { force: true, recursive: true }));
++	const downloadPath = join(tempDir, "report.pdf");
+ 	const presentation = await buildToolPresentation({
+ 		commandInfo: { command: "download", subcommand: "@e5" },
+ 		cwd: process.cwd(),
+ 		envelope: {
+ 			success: true,
+ 			data: {
+-				path: "/tmp/report.pdf",
++				path: downloadPath,
+ 			},
+ 		},
+ 	});
+ 
+ 	assert.equal(presentation.content[0]?.type, "text");
+-	assert.match((presentation.content[0] as { text: string }).text, /Download reported; file not verified: \/tmp\/report\.pdf/);
++	assert.ok((presentation.content[0] as { text: string }).text.includes(`Download reported; file not verified: ${downloadPath}`));
+ 	assert.doesNotMatch((presentation.content[0] as { text: string }).text, /Media type:/);
+ 	assert.match((presentation.content[0] as { text: string }).text, /not found on disk/);
+-	assert.equal(presentation.summary, "Artifact verification failed: requested download was not found at /tmp/report.pdf.");
++	assert.equal(presentation.summary, `Artifact verification failed: requested download was not found at ${downloadPath}.`);
+ 	assert.equal(presentation.resultCategory, "failure");
+ 	assert.equal(presentation.failureCategory, "artifact-missing");
+ 	assert.equal(presentation.artifacts?.[0]?.kind, "download");
+-	assert.equal(presentation.artifacts?.[0]?.path, "/tmp/report.pdf");
+-	assert.equal(presentation.artifacts?.[0]?.absolutePath, "/tmp/report.pdf");
++	assert.equal(presentation.artifacts?.[0]?.path, downloadPath);
++	assert.equal(presentation.artifacts?.[0]?.absolutePath, downloadPath);
+ 	assert.equal(presentation.artifacts?.[0]?.mediaType, undefined);
+ 	assert.equal(presentation.artifacts?.[0]?.exists, false);
+-	assert.equal(presentation.savedFilePath, "/tmp/report.pdf");
++	assert.equal(presentation.savedFilePath, downloadPath);
+ 	assert.deepEqual(presentation.savedFile, {
+ 		command: "download",
+ 		kind: "download",
+-		path: "/tmp/report.pdf",
++		path: downloadPath,
+ 		subcommand: "@e5",
+ 	});
+ });
+@@ -107,7 +110,9 @@ test("buildToolPresentation does not treat data-url download payloads as verifie
+ 	assert.doesNotMatch((presentation.content[0] as { text: string }).text, /Download completed|Downloaded file|not found on disk/);
+ });
+ 
+-test("buildToolPresentation renders metadata-first summaries for file artifact commands", async () => {
++test("buildToolPresentation renders metadata-first summaries for file artifact commands", async (t) => {
++	const tempDir = await mkdtemp(join(tmpdir(), "piab-missing-artifacts-"));
++	t.after(() => rm(tempDir, { force: true, recursive: true }));
+ 	const cases = [
+ 		{
+ 			commandInfo: { command: "pdf" },
+@@ -156,25 +161,25 @@ test("buildToolPresentation renders metadata-first summaries for file artifact c
+ 	for (const item of cases) {
+ 		const presentation = await buildToolPresentation({
+ 			commandInfo: item.commandInfo,
+-			cwd: "/tmp/pi-agent-browser-artifact-tests",
++			cwd: tempDir,
+ 			envelope: { success: true, data: item.data },
+ 		});
+ 
+ 		assert.equal(presentation.content[0]?.type, "text");
+ 		assert.match((presentation.content[0] as { text: string }).text, new RegExp(item.expectedText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+-		assert.equal(presentation.summary, `Artifact verification failed: requested ${item.expectedKind} was not found at ${join("/tmp/pi-agent-browser-artifact-tests", item.data.path)}.`);
++		assert.equal(presentation.summary, `Artifact verification failed: requested ${item.expectedKind} was not found at ${join(tempDir, item.data.path)}.`);
+ 		assert.equal(presentation.resultCategory, "failure");
+ 		assert.equal(presentation.failureCategory, "artifact-missing");
+ 		assert.equal(presentation.artifacts?.length, 1);
+ 		assert.equal(presentation.artifacts?.[0]?.kind, item.expectedKind);
+ 		assert.equal(presentation.artifacts?.[0]?.path, item.data.path);
+-		assert.equal(presentation.artifacts?.[0]?.absolutePath, join("/tmp/pi-agent-browser-artifact-tests", item.data.path));
++		assert.equal(presentation.artifacts?.[0]?.absolutePath, join(tempDir, item.data.path));
+ 		assert.equal(presentation.artifacts?.[0]?.mediaType, undefined);
+ 		assert.equal(presentation.artifacts?.[0]?.exists, false);
+ 		assert.equal(presentation.artifactVerification?.missingCount, 1);
+ 		assert.equal(presentation.artifactVerification?.verified, false);
+ 		assert.equal(presentation.artifactVerification?.artifacts[0]?.state, "missing");
+-		assert.equal(presentation.artifactVerification?.artifacts[0]?.absolutePath, join("/tmp/pi-agent-browser-artifact-tests", item.data.path));
++		assert.equal(presentation.artifactVerification?.artifacts[0]?.absolutePath, join(tempDir, item.data.path));
+ 		assert.equal(presentation.imagePath, undefined);
+ 		assert.equal(presentation.imagePaths, undefined);
+ 		if (item.commandInfo.command === "pdf") {
+@@ -207,14 +212,16 @@ test("buildToolPresentation does not classify state load paths as saved artifact
+ 	assert.match((presentation.content[0] as { text: string }).text, /auth-state\.json/);
+ });
+ 
+-test("buildToolPresentation records path-bearing diff screenshots without inlining them as trusted screenshots", async () => {
++test("buildToolPresentation records path-bearing diff screenshots without inlining them as trusted screenshots", async (t) => {
++	const tempDir = await mkdtemp(join(tmpdir(), "piab-missing-diff-"));
++	t.after(() => rm(tempDir, { force: true, recursive: true }));
+ 	const presentation = await buildToolPresentation({
+ 		commandInfo: { command: "diff", subcommand: "screenshot" },
+-		cwd: "/tmp/pi-agent-browser-artifact-tests",
++		cwd: tempDir,
+ 		envelope: { success: true, data: { baselinePath: "baseline.png", diffPath: "diff.png", mismatchPixels: 12 } },
+ 	});
+ 
+-	assert.equal(presentation.summary, "Artifact verification failed: requested image was not found at /tmp/pi-agent-browser-artifact-tests/diff.png.");
++	assert.equal(presentation.summary, `Artifact verification failed: requested image was not found at ${join(tempDir, "diff.png")}.`);
+ 	assert.equal(presentation.resultCategory, "failure");
+ 	assert.equal(presentation.failureCategory, "artifact-missing");
+ 	assert.equal(presentation.content[0]?.type, "text");
+@@ -226,17 +233,19 @@ test("buildToolPresentation records path-bearing diff screenshots without inlini
+ 	assert.equal(presentation.artifacts?.length, 1);
+ 	assert.equal(presentation.artifacts?.[0]?.kind, "image");
+ 	assert.equal(presentation.artifacts?.[0]?.path, "diff.png");
+-	assert.equal(presentation.artifacts?.[0]?.absolutePath, join("/tmp/pi-agent-browser-artifact-tests", "diff.png"));
++	assert.equal(presentation.artifacts?.[0]?.absolutePath, join(tempDir, "diff.png"));
+ 	assert.equal(presentation.artifactVerification?.artifacts[0]?.state, "missing");
+ 	assert.equal(presentation.artifactVerification?.artifacts[0]?.path, "diff.png");
+ 	assert.equal(presentation.imagePath, undefined);
+ 	assert.equal(presentation.imagePaths, undefined);
+ });
+ 
+-test("buildToolPresentation renders record start as a lifecycle state without missing-file copy", async () => {
++test("buildToolPresentation renders record start as a lifecycle state without missing-file copy", async (t) => {
++	const tempDir = await mkdtemp(join(tmpdir(), "piab-pending-record-"));
++	t.after(() => rm(tempDir, { force: true, recursive: true }));
+ 	const presentation = await buildToolPresentation({
+ 		commandInfo: { command: "record", subcommand: "start" },
+-		cwd: "/tmp/pi-agent-browser-artifact-tests",
++		cwd: tempDir,
+ 		envelope: { success: true, data: { path: "recording.webm" } },
+ 	});
+ 
+@@ -252,7 +261,7 @@ test("buildToolPresentation renders record start as a lifecycle state without mi
+ 	assert.equal(presentation.artifacts?.length, 1);
+ 	assert.equal(presentation.artifacts?.[0]?.kind, "video");
+ 	assert.equal(presentation.artifacts?.[0]?.path, "recording.webm");
+-	assert.equal(presentation.artifacts?.[0]?.absolutePath, join("/tmp/pi-agent-browser-artifact-tests", "recording.webm"));
++	assert.equal(presentation.artifacts?.[0]?.absolutePath, join(tempDir, "recording.webm"));
+ 	assert.equal(presentation.artifacts?.[0]?.mediaType, undefined);
+ 	assert.equal(presentation.artifacts?.[0]?.exists, undefined);
+ 	assert.equal(presentation.artifacts?.[0]?.status, "pending");
+@@ -904,7 +913,10 @@ test("buildToolPresentation does not inline non-screenshot path records with ima
+ 	}
+ });
+ 
+-test("buildToolPresentation preserves wait --download saved-file metadata inside batch output", async () => {
++test("buildToolPresentation preserves wait --download saved-file metadata inside batch output", async (t) => {
++	const tempDir = await mkdtemp(join(tmpdir(), "piab-missing-batch-download-"));
++	t.after(() => rm(tempDir, { force: true, recursive: true }));
++	const downloadPath = join(tempDir, "export.csv");
+ 	const presentation = await buildToolPresentation({
+ 		commandInfo: { command: "batch" },
+ 		cwd: process.cwd(),
+@@ -912,7 +924,7 @@ test("buildToolPresentation preserves wait --download saved-file metadata inside
+ 			success: true,
+ 			data: [
+ 				{ command: ["click", "#export"], result: { clicked: true }, success: true },
+-				{ command: ["wait", "--download", "/tmp/export.csv"], result: { path: "/tmp/export.csv", elapsedMs: 75 }, success: true },
++				{ command: ["wait", "--download", downloadPath], result: { path: downloadPath, elapsedMs: 75 }, success: true },
+ 			],
+ 		},
+ 	});
+@@ -921,25 +933,25 @@ test("buildToolPresentation preserves wait --download saved-file metadata inside
+ 	assert.match(text, /Batch failed: 1\/2 succeeded/);
+ 	assert.doesNotMatch(text, /Batch: 2\/2 succeeded/);
+ 	assert.match(text, /Step 1 — click #export/);
+-	assert.match(text, /Step 2 — wait --download \/tmp\/export\.csv/);
+-	assert.match(text, /Download event reported; file not verified: \/tmp\/export\.csv/);
++	assert.ok(text.includes(`Step 2 — wait --download ${downloadPath}`));
++	assert.ok(text.includes(`Download event reported; file not verified: ${downloadPath}`));
+ 	assert.equal(presentation.batchSteps?.[1]?.artifacts?.[0]?.kind, "download");
+-	assert.equal(presentation.batchSteps?.[1]?.savedFilePath, "/tmp/export.csv");
++	assert.equal(presentation.batchSteps?.[1]?.savedFilePath, downloadPath);
+ 	assert.deepEqual(presentation.batchSteps?.[1]?.savedFile, {
+ 		command: "wait",
+ 		kind: "download",
+ 		metadata: { elapsedMs: 75 },
+-		path: "/tmp/export.csv",
++		path: downloadPath,
+ 		subcommand: "--download",
+ 	});
+-	assert.equal(presentation.summary, "Artifact verification failed: requested download was not found at /tmp/export.csv.");
++	assert.equal(presentation.summary, `Artifact verification failed: requested download was not found at ${downloadPath}.`);
+ 	assert.equal(presentation.batchFailure?.successCount, 1);
+ 	assert.equal(presentation.batchFailure?.totalCount, 2);
+ 	assert.equal(presentation.batchSteps?.[1]?.artifactVerification?.missingCount, 1);
+ 	assert.equal(presentation.artifactVerification?.missingCount, 1);
+-	assert.deepEqual(presentation.batchSteps?.[1]?.nextActions?.[0]?.params?.args, ["wait", "--download", "/tmp/export.csv"]);
++	assert.deepEqual(presentation.batchSteps?.[1]?.nextActions?.[0]?.params?.args, ["wait", "--download", downloadPath]);
+ 	assert.equal(presentation.batchSteps?.[1]?.pageChangeSummary?.changeType, "artifact");
+-	assert.equal(presentation.batchSteps?.[1]?.pageChangeSummary?.savedFilePath, "/tmp/export.csv");
++	assert.equal(presentation.batchSteps?.[1]?.pageChangeSummary?.savedFilePath, downloadPath);
+ });
+ 
+ test("buildToolPresentation does not re-append old artifact retention noise for routine explicit batch files", async () => {
+diff --git a/test/agent-browser.process.test.ts b/test/agent-browser.process.test.ts
+index 116b37b..4a2c063 100644
+--- a/test/agent-browser.process.test.ts
++++ b/test/agent-browser.process.test.ts
+@@ -8,6 +8,7 @@
+ 
+ import assert from "node:assert/strict";
+ import { execFileSync } from "node:child_process";
++import { randomUUID } from "node:crypto";
+ import { getEventListeners } from "node:events";
+ import { chmod, lchown, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+@@ -189,7 +190,10 @@ test("process start identity commands prefer system paths before PATH and keep n
+ 	assert.match(windows?.file ?? "", /(?:^|[\\/])powershell\.exe$/i);
+ 	assert.equal(win32.isAbsolute(windows?.file ?? ""), true);
+ 	assert.ok(windows?.args.includes("-NonInteractive"));
+-	assert.match(windows?.args.at(-1) ?? "", /Get-Process -Id 123/);
++	assert.match(windows?.args.at(-1) ?? "", /\[System\.Diagnostics\.Process\]::GetProcessById\(123\)/);
++	assert.match(windows?.args.at(-1) ?? "", /\$ErrorActionPreference = 'Stop'/);
++	assert.match(windows?.args.at(-1) ?? "", /\[Console\]::Out\.WriteLine/);
++	assert.match(windows?.args.at(-1) ?? "", /\.StartTime\.ToUniversalTime\(\)\.Ticks/);
+ 	assert.match(windows?.args.at(-1) ?? "", /win32-powershell-ticks-v1:/);
+ 	assert.equal(buildProcessStartIdentityCommand(0, "win32"), undefined);
+ 	assert.equal(normalizeProcessStartIdentity("  638000000000000000\r\n"), "638000000000000000");
+@@ -259,6 +263,7 @@ test("agent-browser socket path preflight reports long configured roots before u
+ 	const socketDir = `/tmp/${"deep/".repeat(20)}sockets`;
+ 	const error = getAgentBrowserSocketPathValidationError({
+ 		args: ["--namespace", "team", "--session", "managed", "open", "https://example.com"],
++		platform: "linux", // Exercise the Unix limit even when the test runner is Windows.
+ 		socketDir,
+ 	});
+ 	assert.match(error ?? "", /Unix socket path would be \d+ bytes \(max 103\)/);
+@@ -384,7 +389,12 @@ test("runAgentBrowserProcess uses the Pi-scoped socket directory without trustin
+ 				assert.equal(result.spawnError, undefined);
+ 				const parsed = await parseAgentBrowserEnvelope(result.stdout);
+ 				assert.equal((parsed.envelope?.data as { socketDir?: string }).socketDir, socketPath);
+-				assert.equal((await stat(socketPath)).mode & 0o777, 0o700);
++				const metadata = await lstat(socketPath);
++				assert.equal(metadata.isDirectory(), true);
++				assert.equal(metadata.isSymbolicLink(), false);
++				if (process.platform !== "win32") assert.equal(metadata.mode & 0o777, 0o700);
++				// Windows validates a real, non-redirected directory, not POSIX mode bits.
++				assert.equal(await getAgentBrowserSocketDirValidationError(socketPath), undefined);
+ 			},
+ 		);
+ 	} finally {
+@@ -461,13 +471,58 @@ test("runAgentBrowserProcess stops a hung upstream client at the wrapper watchdo
+ 		assert.equal(processResult.timedOut, true);
+ 		assert.equal(processResult.timeoutMs, 100);
+ 		assert.equal(processResult.aborted, false);
+-		assert.equal(processResult.exitCode, 124);
++		// The observed Windows shell close code wins over the timeout fallback.
++		assert.equal(processResult.exitCode, process.platform === "win32" ? 1 : 124);
+ 		assert.ok(Date.now() - startedAt < 2_000);
+ 	} finally {
+ 		await rm(tempDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+ 	}
+ });
+ 
++for (const mode of ["timeout", "abort"] as const) {
++	test(`runAgentBrowserProcess reaps its fixture before returning from ${mode}`, async () => {
++		const root = await mkdtemp(join(tmpdir(), "piab-reap-"));
++		const pidPath = join(root, "pid");
++		const controller = new AbortController();
++		await writeFakeAgentBrowserBinary(root, `require("node:fs").writeFileSync(${JSON.stringify(pidPath)}, String(process.pid)); setInterval(() => {}, 1000);`);
++		const pending = runAgentBrowserProcess({
++			args: ["get", "url"],
++			cwd: root,
++			env: { PATH: `${root}${delimiter}${process.env.PATH ?? ""}` },
++			signal: controller.signal,
++			timeoutMs: mode === "timeout" ? 800 : 0,
++		});
++		let pid: number | undefined;
++		try {
++			const deadline = Date.now() + 5_000;
++			while (Date.now() < deadline) {
++				try { pid = Number(await readFile(pidPath, "utf8")); break; }
++				catch { await new Promise((resolve) => setTimeout(resolve, 5)); }
++			}
++			assert.ok(pid && Number.isInteger(pid), "fixture must start before cancellation");
++			if (mode === "abort") controller.abort();
++			const result = await pending;
++			assert.equal(result.spawnError, undefined);
++			assert.equal(result.timedOut, mode === "timeout");
++			assert.equal(result.aborted, mode === "abort");
++			assert.equal(getEventListeners(controller.signal, "abort").length, 0);
++			assert.throws(() => process.kill(pid as number, 0), { code: "ESRCH" }, "fixture must be gone at return, not eventually");
++			await rm(root, { recursive: true, force: true });
++		} finally {
++			controller.abort();
++			await pending;
++			if (pid) {
++				try {
++					process.kill(pid, 0);
++					if (process.platform === "win32") execFileSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
++					else process.kill(pid, "SIGKILL");
++				} catch { /* Already reaped. */ }
++			}
++			await rm(root, { recursive: true, force: true });
++		}
++	});
++}
++
+ test("runAgentBrowserProcess handles closed stdin pipe without an unhandled EPIPE", async () => {
+ 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-test-"));
+ 	const basePath = process.env.PATH ?? "";
+@@ -591,7 +646,7 @@ test("runAgentBrowserProcess returns timeout exit code when descendants keep std
+ 		lingerPid = Number((await readFile(lingerPidPath, "utf8")).trim());
+ 		assert.equal(processResult.timedOut, true);
+ 		assert.equal(processResult.timeoutMs, timeoutMs);
+-		assert.equal(processResult.exitCode, 124);
++		assert.equal(processResult.exitCode, process.platform === "win32" ? 1 : 124);
+ 		assert.equal(processResult.spawnError, undefined);
+ 		assert.ok(
+ 			elapsedMs < timeoutMs + 2_000,
+@@ -650,13 +705,8 @@ test("runAgentBrowserProcess removes abort listeners after spawn errors", async
+ 			signal: controller.signal,
+ 		});
+ 
+-		if (process.platform === "win32") {
+-			assert.equal(processResult.exitCode, 1);
+-			assert.match(processResult.stderr, /agent-browser|not recognized/);
+-		} else {
+-			assert.equal(processResult.exitCode, 127);
+-			assert.match(processResult.spawnError?.message ?? "", /ENOENT|agent-browser/);
+-		}
++		assert.equal(processResult.exitCode, 127);
++		assert.match(processResult.spawnError?.message ?? "", /ENOENT|agent-browser/);
+ 		assert.equal(processResult.aborted, false);
+ 		assert.equal(processResult.agentBrowserStarted, false);
+ 		assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+@@ -777,7 +827,7 @@ const restoreKeyPath = path.join(${JSON.stringify(tempDir)}, "daemon-restore-key
+ if (args.includes("session") && args.includes("info")) {
+ 	process.stdout.write(JSON.stringify({ success: true, data: { active: false, runtime: null } }));
+ } else if (isClose) {
+-	const sessions = path.join(process.env.HOME, ".agent-browser", "sessions");
++	const sessions = path.join(process.platform === "win32" ? process.env.USERPROFILE : process.env.HOME, ".agent-browser", "sessions");
+ 	const restoreKey = fs.readFileSync(restoreKeyPath, "utf8");
+ 	const statePath = path.join(sessions, restoreKey + "-auto.json");
+ 	fs.mkdirSync(sessions, { recursive: true });
+@@ -794,7 +844,7 @@ if (args.includes("session") && args.includes("info")) {
+ 
+ 	execFileSync("git", ["init", "-q", tempDir], { stdio: "ignore" });
+ 	try {
+-		await withPatchedEnv({ HOME: tempDir, PATH: `${tempDir}${delimiter}${basePath}` }, async () => {
++		await withPatchedEnv({ HOME: tempDir, USERPROFILE: tempDir, AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), PATH: `${tempDir}${delimiter}${basePath}` }, async () => {
+ 			const harness = createExtensionHarness({ cwd: tempDir });
+ 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
+ 
+@@ -883,17 +933,17 @@ test("runAgentBrowserProcess pins managed restore identity while preserving call
+ 	await cleanupSecureTempArtifacts();
+ 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-namespace-env-"));
+ 	const basePath = process.env.PATH ?? "";
+-	await writeFakeAgentBrowserBinary(tempDir, `const fs = require("node:fs"); const config = process.env.AGENT_BROWSER_CONFIG; process.stdout.write(JSON.stringify({ success: true, data: { args: process.argv.slice(2), config, configContent: config ? fs.readFileSync(config, "utf8") : null, encryptionKey: process.env.AGENT_BROWSER_ENCRYPTION_KEY ?? null, home: process.env.HOME ?? null, namespace: process.env.AGENT_BROWSER_NAMESPACE ?? null, restore: process.env.AGENT_BROWSER_RESTORE ?? null } }));`);
++	await writeFakeAgentBrowserBinary(tempDir, `const fs = require("node:fs"); const config = process.env.AGENT_BROWSER_CONFIG; process.stdout.write(JSON.stringify({ success: true, data: { args: process.argv.slice(2), config, configContent: config ? fs.readFileSync(config, "utf8") : null, encryptionKey: process.env.AGENT_BROWSER_ENCRYPTION_KEY ?? null, home: process.env.HOME ?? null, userProfile: process.env.USERPROFILE ?? null, namespace: process.env.AGENT_BROWSER_NAMESPACE ?? null, restore: process.env.AGENT_BROWSER_RESTORE ?? null } }));`);
+ 	execFileSync("git", ["init", "-q", tempDir], { stdio: "ignore" });
+ 	try {
+-		await withPatchedEnv({ AGENT_BROWSER_NAMESPACE: "redirected", HOME: tempDir, PATH: `${tempDir}${delimiter}${basePath}` }, async () => {
++		await withPatchedEnv({ AGENT_BROWSER_NAMESPACE: "redirected", HOME: tempDir, USERPROFILE: tempDir, PATH: `${tempDir}${delimiter}${basePath}` }, async () => {
+ 			const restoreState = new ManagedSessionRestoreState();
+ 			const args = ["--session", "piab-managed", "snapshot", "-i"];
+ 			const context = buildOwnedManagedSessionRestoreContext({
+ 				args,
+ 				cwd: tempDir,
+ 				managedSessionName: "piab-managed",
+-				parentEnv: { AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), AGENT_BROWSER_NAMESPACE: process.env.AGENT_BROWSER_NAMESPACE, HOME: tempDir, PATH: `${tempDir}${delimiter}${basePath}` },
++				parentEnv: { AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), AGENT_BROWSER_NAMESPACE: process.env.AGENT_BROWSER_NAMESPACE, HOME: tempDir, USERPROFILE: tempDir, PATH: `${tempDir}${delimiter}${basePath}` },
+ 				restoreState,
+ 				sessionName: "piab-managed",
+ 			});
+@@ -901,14 +951,16 @@ test("runAgentBrowserProcess pins managed restore identity while preserving call
+ 			const processResult = await withOwnedManagedSessionContext(context, () => runAgentBrowserProcess({
+ 				args,
+ 				cwd: tempDir,
+-				env: { AGENT_BROWSER_ENCRYPTION_KEY: "b".repeat(64), HOME: join(tempDir, "later-home-override") },
++				env: { AGENT_BROWSER_ENCRYPTION_KEY: "b".repeat(64), HOME: join(tempDir, "later-home-override"), USERPROFILE: join(tempDir, "later-profile-override") },
+ 				managedSessionRestoreState: restoreState,
+ 				ownedManagedSession: true,
+ 			}));
+ 			const parsed = await parseAgentBrowserEnvelope(processResult.stdout);
+-			const data = parsed.envelope?.data as { config?: string; configContent?: string; encryptionKey?: string; home?: string; namespace?: string; restore?: string };
++			const data = parsed.envelope?.data as { config?: string; configContent?: string; encryptionKey?: string; home?: string; userProfile?: string; namespace?: string; restore?: string };
+ 			assert.equal(data.encryptionKey, "a".repeat(64));
+-			assert.equal(data.home, await realpath(tempDir));
++			// Pin the native restore home; the other platform's variable remains caller-owned.
++			assert.equal(data.home, process.platform === "win32" ? join(tempDir, "later-home-override") : await realpath(tempDir));
++			assert.equal(data.userProfile, process.platform === "win32" ? tempDir : join(tempDir, "later-profile-override"));
+ 			assert.equal(data.namespace, "");
+ 			assert.equal(data.restore, createManagedSessionRestoreKey(tempDir, "piab-managed"));
+ 			assert.equal(data.configContent, null);
+@@ -929,7 +981,7 @@ test("runAgentBrowserProcess pins managed restore identity while preserving call
+ 				currentManagedSessionName: "piab-managed",
+ 				currentManagedSessionNamespace: "Review Space",
+ 				namespace: plan.namespace,
+-				parentEnv: { AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), AGENT_BROWSER_NAMESPACE: process.env.AGENT_BROWSER_NAMESPACE, HOME: tempDir, PATH: `${tempDir}${delimiter}${basePath}` },
++				parentEnv: { AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), AGENT_BROWSER_NAMESPACE: process.env.AGENT_BROWSER_NAMESPACE, HOME: tempDir, USERPROFILE: tempDir, PATH: `${tempDir}${delimiter}${basePath}` },
+ 				restoreState,
+ 				sessionName: plan.sessionName,
+ 			});
+@@ -974,7 +1026,7 @@ test("runAgentBrowserProcess refuses a changed checkout identity before spawning
+ 	await writeFakeAgentBrowserBinary(tempDir, `require("node:fs").writeFileSync(${JSON.stringify(startedPath)}, "started");`);
+ 	execFileSync("git", ["init", "-q", tempDir], { stdio: "ignore" });
+ 	try {
+-		await withPatchedEnv({ HOME: tempDir, PATH: `${tempDir}${delimiter}${basePath}` }, async () => {
++		await withPatchedEnv({ HOME: tempDir, USERPROFILE: tempDir, AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), PATH: `${tempDir}${delimiter}${basePath}` }, async () => {
+ 			const restoreState = new ManagedSessionRestoreState();
+ 			const args = ["--session", "piab-managed", "open", "https://example.com"];
+ 			const context = buildOwnedManagedSessionRestoreContext({
+@@ -985,7 +1037,13 @@ test("runAgentBrowserProcess refuses a changed checkout identity before spawning
+ 				sessionName: "piab-managed",
+ 			});
+ 			assert.equal(context?.restoreDecision, "enabled");
+-			await chmod(join(tempDir, ".git", "pi-agent-browser-project-generation-v1.json"), 0o644);
++			const markerPath = join(tempDir, ".git", "pi-agent-browser-project-generation-v1.json");
++			if (process.platform === "win32") {
++				// Windows has no POSIX mode guard: change the actual checkout generation.
++				await writeFile(markerPath, JSON.stringify({ id: randomUUID(), version: 1 }));
++			} else {
++				await chmod(markerPath, 0o644);
++			}
+ 			for (const browserIndependentReadConfirmation of [false, true]) {
+ 				const result: ProcessRunResult = await withOwnedManagedSessionContext(context, () => runAgentBrowserProcess({
+ 					args: browserIndependentReadConfirmation ? ["--session", "piab-managed", "confirm", "read-id"] : args,
+@@ -1012,7 +1070,7 @@ test("runAgentBrowserProcess refuses incompatible environment changes after plan
+ 	await writeFakeAgentBrowserBinary(tempDir, `require("node:fs").writeFileSync(${JSON.stringify(startedPath)}, "started");`);
+ 	execFileSync("git", ["init", "-q", tempDir], { stdio: "ignore" });
+ 	try {
+-		await withPatchedEnv({ HOME: tempDir, PATH: `${tempDir}${delimiter}${basePath}` }, async () => {
++		await withPatchedEnv({ HOME: tempDir, USERPROFILE: tempDir, AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), PATH: `${tempDir}${delimiter}${basePath}` }, async () => {
+ 			const restoreState = new ManagedSessionRestoreState();
+ 			const args = ["--session", "piab-managed", "open", "https://example.com"];
+ 			const context = buildOwnedManagedSessionRestoreContext({ args, cwd: tempDir, managedSessionName: "piab-managed", restoreState, sessionName: "piab-managed" });
+diff --git a/test/agent-browser.recording-recovery.test.ts b/test/agent-browser.recording-recovery.test.ts
+index a09d7da..7e0f694 100644
+--- a/test/agent-browser.recording-recovery.test.ts
++++ b/test/agent-browser.recording-recovery.test.ts
+@@ -66,7 +66,10 @@ function execute(row) {
+ let output;
+ if (tokens[0] === 'batch') {
+   const raw = tokens.slice(1).filter(value => value !== '--bail');
+-  const rows = raw.length ? raw.map(row => row.split(' ')) : JSON.parse(stdin);
++  const rows = raw.length ? raw.map(row => {
++    const quotedStart = /^record start (".*")$/.exec(row);
++    return quotedStart ? ['record', 'start', JSON.parse(quotedStart[1])] : row.split(' ');
++  }) : JSON.parse(stdin);
+   output = [];
+   for (const command of rows) {
+     try { const result = execute(command); if (result === undefined) break; output.push({ command, success: true, result }); }
+@@ -227,7 +230,7 @@ for (const mode of ["timeout", "stale-batch"]) {
+ 	test(`timed-out raw recording batch keeps receipt evidence without claiming other steps succeeded: ${mode}`, { concurrency: false }, async () => {
+ 		await withRecorder(mode, async ({ root, logPath, harness, prefix }) => {
+ 			const path = join(root, "raw.webm"), outputPath = join(root, "batch-receipt.json");
+-			const result = await executeRegisteredTool(harness.tool, harness.ctx, { args: [...prefix, "batch", `record start ${path}`, "record stop"], stdin: JSON.stringify([["record", "start", join(root, "ignored.webm")], ["record", "stop"]]), timeoutMs: 200, outputPath });
++			const result = await executeRegisteredTool(harness.tool, harness.ctx, { args: [...prefix, "batch", `record start ${JSON.stringify(path)}`, "record stop"], stdin: JSON.stringify([["record", "start", join(root, "ignored.webm")], ["record", "stop"]]), timeoutMs: 200, outputPath });
+ 			assert.equal(result.isError, true, "a recording receipt cannot prove all timed-out batch steps succeeded");
+ 			const exported = JSON.parse(await readFile(outputPath, "utf8"));
+ 			assert.equal(exported.recordingRecovery.expected.absolutePath, path);
+diff --git a/test/agent-browser.script.test.ts b/test/agent-browser.script.test.ts
+index c0b81c4..111c412 100644
+--- a/test/agent-browser.script.test.ts
++++ b/test/agent-browser.script.test.ts
+@@ -1,6 +1,6 @@
+ import assert from "node:assert/strict";
+ import { writeFileSync } from "node:fs";
+-import { chmod, mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
++import { chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import test from "node:test";
+@@ -810,10 +810,13 @@ else process.stdout.write(JSON.stringify({ success: true, data: Array.from({ len
+ test("script still runs fail-closed cleanup when the main browser command never starts", { concurrency: false }, async () => {
+ 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-script-preflight-"));
+ 	const logPath = join(tempDir, "invocations.log");
+-	const socketDir = join(tempDir, "a".repeat(80));
++	// Windows has no Unix socket byte limit; use a real artifact mkdir failure there.
++	const socketDir = join(tempDir, process.platform === "win32" ? "socket" : "a".repeat(80));
++	const args = process.platform === "win32" ? ["screenshot", "not-a-directory/out.png"] : ["open", "https://example.test/"];
+ 	const basePath = process.env.PATH ?? "";
+ 	await mkdir(socketDir, { recursive: true });
+ 	await chmod(socketDir, 0o700);
++	if (process.platform === "win32") await writeFile(join(tempDir, "not-a-directory"), "existing file");
+ 	await writeFakeAgentBrowserBinary(tempDir, `const fs = require("node:fs");
+ fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ args: process.argv.slice(2) }) + "\\n");
+ process.stdout.write(JSON.stringify({ success: true, data: { title: "should not run" } }));`);
+@@ -822,16 +825,16 @@ process.stdout.write(JSON.stringify({ success: true, data: { title: "should not
+ 			const harness = createExtensionHarness({ cwd: tempDir, sessionFile: join(tempDir, "session.jsonl") });
+ 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
+ 			const result = await executeRegisteredTool(harness.tool, harness.ctx, {
+-				script: `emit(await browser({ args: ["open", "https://example.test/"] }));`,
++				script: `emit(await browser({ args: ${JSON.stringify(args)} }));`,
+ 			});
+ 			assert.equal(result.isError, false, JSON.stringify(result));
+ 			assert.equal((result.details?.data as { ok?: boolean } | undefined)?.ok, false);
+ 			assert.equal((result.details?.data as { failureCategory?: string } | undefined)?.failureCategory, "validation-error");
+-			assert.match((result.details?.data as { error?: string } | undefined)?.error ?? "", /Unix socket path would be/);
++			assert.match((result.details?.data as { error?: string } | undefined)?.error ?? "", process.platform === "win32" ? /writable artifact path whose parent components are directories/ : /Unix socket path would be/);
+ 			assert.equal((result.details?.scriptSession as { cleanup?: string } | undefined)?.cleanup, "closed");
+ 			assert.deepEqual(harness.appendedEntries.map((entry) => (entry.data as { cleanup?: string }).cleanup), ["active", "closed"]);
+ 			const invocations = await readInvocationLog(logPath);
+-			assert.equal(invocations.some((entry) => entry.args.includes("open")), false);
++			assert.equal(invocations.some((entry) => entry.args.includes(args[0])), false);
+ 			assert.ok(invocations.some((entry) => entry.args.includes("close")), "cleanup must close helpers that could have started the isolated browser");
+ 		});
+ 	} finally {
+diff --git a/test/agent-browser.snapshot-presentation.test.ts b/test/agent-browser.snapshot-presentation.test.ts
+index 47e815f..a928a63 100644
+--- a/test/agent-browser.snapshot-presentation.test.ts
++++ b/test/agent-browser.snapshot-presentation.test.ts
+@@ -7,7 +7,7 @@
+  */
+ 
+ import assert from "node:assert/strict";
+-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
++import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import { dirname, join } from "node:path";
+ import test from "node:test";
+@@ -103,14 +103,19 @@ test("buildToolPresentation compacts oversized snapshots and spills a redacted s
+ 	assert.ok(spillPath);
+ 	assert.match(text, new RegExp(spillPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+ 	const spillText = await readFile(spillPath, "utf8");
+-	const spillStats = await stat(spillPath);
+-	const spillDirStats = await stat(dirname(spillPath));
++	const spillStats = await lstat(spillPath);
++	const spillDirStats = await lstat(dirname(spillPath));
+ 	assert.match(spillText, /Large snapshot row 120/);
+ 	assert.match(spillText, /Actionable control 1/);
+ 	assert.match(spillText, /SAMLRequest=%5BREDACTED%5D&RelayState=%5BREDACTED%5D/);
+ 	assert.doesNotMatch(spillText, /saml-secret|relay-secret/);
+-	assert.equal(spillStats.mode & 0o777, 0o600);
+-	assert.equal(spillDirStats.mode & 0o777, 0o700);
++	assert.equal(spillStats.isFile(), true);
++	assert.equal(spillDirStats.isDirectory(), true);
++	// Windows mode bits do not represent POSIX owner-only access; retain type and content proof there.
++	if (process.platform !== "win32") {
++		assert.equal(spillStats.mode & 0o777, 0o600);
++		assert.equal(spillDirStats.mode & 0o777, 0o700);
++	}
+ 	await rm(spillPath, { force: true });
+ });
+ 
+@@ -145,8 +150,15 @@ test("buildToolPresentation keeps compact snapshot spill files in the persisted
+ 		assert.equal(spillPath?.startsWith(join(sessionDir, ".pi-agent-browser-artifacts", TEST_SESSION_ID)), true);
+ 		await cleanupSecureTempArtifacts();
+ 		assert.match(await readFile(String(spillPath), "utf8"), /Persisted snapshot row 120/);
+-		assert.equal((await stat(String(spillPath))).mode & 0o777, 0o600);
+-		assert.equal((await stat(dirname(String(spillPath)))).mode & 0o777, 0o700);
++		const spillStats = await lstat(String(spillPath));
++		const spillDirStats = await lstat(dirname(String(spillPath)));
++		assert.equal(spillStats.isFile(), true);
++		assert.equal(spillDirStats.isDirectory(), true);
++		// NTFS access is governed by ACLs, not the POSIX permission bits exposed by stat.
++		if (process.platform !== "win32") {
++			assert.equal(spillStats.mode & 0o777, 0o600);
++			assert.equal(spillDirStats.mode & 0o777, 0o700);
++		}
+ 	} finally {
+ 		await cleanupSecureTempArtifacts();
+ 		await rm(sessionDir, { force: true, recursive: true });
+diff --git a/test/agent-browser.upgrade-output.test.ts b/test/agent-browser.upgrade-output.test.ts
+index 5e0f71c..2db2400 100644
+--- a/test/agent-browser.upgrade-output.test.ts
++++ b/test/agent-browser.upgrade-output.test.ts
+@@ -116,7 +116,8 @@ if (mode === 'structured-error') {
+ 						assert.doesNotMatch(spill, /upgrade-secret/);
+ 					}
+ 					if (mode === "timeout" || mode === "abort") {
+-						assert.equal(result.details?.exitCode, 0, "even a clean signal-handler exit must retain cancellation/timeout failure");
++						// POSIX runs the handler; Windows taskkill forcibly closes the shell with 1.
++						assert.equal(result.details?.exitCode, process.platform === "win32" ? 1 : 0, "native termination status must retain cancellation/timeout failure");
+ 						assert.equal(result.details?.parseError, undefined);
+ 						if (mode === "timeout") assert.equal(result.details?.timedOut, true);
+ 						const pid = Number(await readFile(marker, "utf8"));
+diff --git a/Users/mitchfultz/Library/Caches/pi-runs/atb-harness/extension-compatibility-20260920/implementation/logs/browser-two-policy-failures/candidate/test/agent-browser.windows-stock-launcher.test.ts b/test/agent-browser.windows-stock-launcher.test.ts
+new file mode 100644
+index 0000000..d5141ae
+--- /dev/null
++++ b/test/agent-browser.windows-stock-launcher.test.ts
+@@ -0,0 +1,216 @@
++import assert from "node:assert/strict";
++import { spawnSync } from "node:child_process";
++import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { dirname, join, relative } from "node:path";
++import test from "node:test";
++import crossSpawn from "cross-spawn";
++import { buildAgentBrowserProcessEnv, runAgentBrowserProcess } from "../extensions/agent-browser/lib/process.js";
++import { resolveWindowsStockLauncher } from "../extensions/agent-browser/lib/windows-stock-launcher.js";
++import { withPatchedEnv, writeFakeAgentBrowserBinary } from "./helpers/agent-browser-harness.js";
++
++const windows = process.platform === "win32";
++const template = '@ECHO off\r\n"%~dp0node_modules\\agent-browser\\bin\\agent-browser-win32-x64.exe" %*\r\n';
++const vector = ["", "one two", '"quoted"', "C:\\path with space\\", "雪 🐎", "one\ntwo", "one\r\ntwo", "%PATH%", "a&b", "a^b"];
++const capture = "process.stdout.write(JSON.stringify({args:process.argv.slice(2),stdin:require('node:fs').readFileSync(0,'utf8'),exe:process.execPath}));";
++async function sameFile(a: string, b: string) {
++	const [left, right] = await Promise.all([stat(a, { bigint: true }), stat(b, { bigint: true })]);
++	assert.deepEqual([left.dev, left.ino], [right.dev, right.ino]);
++}
++async function stock(root: string) {
++	const bin = join(root, "node_modules", "agent-browser", "bin");
++	await mkdir(bin, { recursive: true });
++	await writeFile(join(dirname(bin), "package.json"), JSON.stringify({ name: "agent-browser", bin: { "agent-browser": "bin/agent-browser.js" } }));
++	const exe = join(bin, "agent-browser-win32-x64.exe");
++	await copyFile(process.execPath, exe);
++	await writeFile(join(root, "agent-browser.cmd"), template);
++	return exe;
++}
++function childEnv(path: string): NodeJS.ProcessEnv {
++	const env = { ...process.env };
++	for (const key of Object.keys(env)) if (key.toLowerCase() === "path") env[key] = undefined;
++	return { ...env, Path: path };
++}
++function original(cwd: string, env: NodeJS.ProcessEnv, args: string[], input = "") {
++	// Use the same effective environment, not the override map: undefined keys
++	// mean deletion to the product, but Node deduplicates PATH casing before
++	// dropping undefined values. Command selection itself is the real library.
++	const result = crossSpawn.sync("agent-browser", args, { cwd, env: buildAgentBrowserProcessEnv(process.env, env), input, encoding: "utf8", timeout: 10_000 });
++	assert.ifError(result.error);
++	return result;
++}
++
++test("stock CMD correction preserves the complete argv vector and stdin; original CMD loses newlines", { skip: !windows }, async () => {
++	const root = await mkdtemp(join(tmpdir(), "stock-"));
++	try {
++		const prefix = join(root, "stock space 雪"), exe = await stock(prefix);
++		const script = join(root, "capture.cjs"); await writeFile(script, capture);
++		const env = childEnv(prefix), cwdBefore = process.cwd();
++		await sameFile(resolveWindowsStockLauncher(root, env)!, exe);
++		assert.equal(process.cwd(), cwdBefore);
++		const args = [script, ...vector], stdin = "stdin\r\n雪\n";
++		const old = original(root, env, args, stdin);
++		assert.equal(old.status, 0, old.stderr);
++		assert.notDeepEqual(JSON.parse(old.stdout).args, vector);
++		const result = await runAgentBrowserProcess({ cwd: root, env, args, stdin });
++		assert.equal(result.spawnError, undefined); assert.equal(result.exitCode, 0, result.stderr);
++		assert.equal(result.agentBrowserStarted, true); assert.equal(result.aborted, false); assert.equal(result.timedOut, false);
++		const received = JSON.parse(result.stdout);
++		assert.deepEqual(received.args, vector); assert.equal(received.stdin, stdin); await sameFile(received.exe, exe);
++	} finally { await rm(root, { recursive: true, force: true }); }
++});
++
++test("selection matches actual cross-spawn controls for PATHEXT, custom shadows, child cwd and relative Path", { skip: !windows }, async () => {
++	const root = await mkdtemp(join(tmpdir(), "select-"));
++	try {
++		const prefix = join(root, "stock"), exe = await stock(prefix), cwd = join(root, "cwd"), custom = join(root, "custom");
++		await mkdir(cwd); await mkdir(custom);
++		const script = join(root, "capture.cjs"); await writeFile(script, capture);
++		await copyFile(process.execPath, join(prefix, "agent-browser.exe"));
++		for (const order of [".EXE;.CMD", ".CMD;.EXE"]) {
++			await withPatchedEnv({ PATHEXT: order }, async () => {
++				for (const differing of [false, true]) {
++					// which uses parent PATHEXT to choose transport; cmd.exe itself
++					// uses child PATHEXT to select the command it actually executes.
++					const env = { ...childEnv(relative(cwd, prefix)), PATHEXT: differing ? (order === ".EXE;.CMD" ? ".CMD;.EXE" : ".EXE;.CMD") : order };
++					const raw = original(cwd, env, [script, "probe"]); assert.equal(raw.status, 0, raw.stderr);
++					const expected = order.startsWith(".EXE") || differing ? join(prefix, "agent-browser.exe") : exe;
++					await sameFile(JSON.parse(raw.stdout).exe, expected);
++					const chosen = resolveWindowsStockLauncher(cwd, env);
++					if (order.startsWith(".EXE") || differing) assert.equal(chosen, undefined); else await sameFile(chosen!, exe);
++					const integrated = await runAgentBrowserProcess({ cwd, env, args: [script, "probe"] });
++					assert.equal(integrated.exitCode, 0, integrated.stderr); await sameFile(JSON.parse(integrated.stdout).exe, expected);
++				}
++
++			});
++		}
++		await writeFakeAgentBrowserBinary(custom, "process.stdout.write('custom-cmd');");
++		const ambiguous = { ...childEnv(prefix), PATH: custom, Path: prefix };
++		// which sees Path's EXE and requests shell-free spawn, but Node selects
++		// PATH (only a CMD). The real original result is ENOENT, not that CMD.
++		const ambiguousRaw = crossSpawn.sync("agent-browser", ["probe"], { cwd, env: buildAgentBrowserProcessEnv(process.env, ambiguous), encoding: "utf8", timeout: 10_000 });
++		assert.equal((ambiguousRaw.error as NodeJS.ErrnoException)?.code, "ENOENT");
++		assert.equal(resolveWindowsStockLauncher(cwd, ambiguous), undefined);
++		const ambiguousResult = await runAgentBrowserProcess({ cwd, env: ambiguous, args: ["probe"] });
++		assert.equal(ambiguousResult.exitCode, 127); assert.equal((ambiguousResult.spawnError as NodeJS.ErrnoException)?.code, "ENOENT");
++		assert.equal(ambiguousResult.agentBrowserStarted, false);
++		for (const location of [custom, cwd]) {
++			if (location === cwd) await writeFakeAgentBrowserBinary(cwd, "process.stdout.write('cwd-cmd');");
++			const env = childEnv(`${custom};${prefix}`);
++			const raw = original(cwd, env, ["probe"]); assert.equal(raw.status, 0, raw.stderr);
++			assert.equal(raw.stdout, location === cwd ? "cwd-cmd" : "custom-cmd");
++			assert.equal(resolveWindowsStockLauncher(cwd, env), undefined);
++			const integrated = await runAgentBrowserProcess({ cwd, env, args: ["probe"] });
++			assert.equal(integrated.exitCode, raw.status); assert.equal(integrated.stdout, raw.stdout);
++		}
++		await rm(join(cwd, "agent-browser.cmd"));
++		await copyFile(process.execPath, join(custom, "agent-browser.exe"));
++		await withPatchedEnv({ PATHEXT: ".EXE;.CMD" }, async () => {
++			const env = childEnv(`${custom};${prefix}`), raw = original(cwd, env, [script, "probe"]);
++			await sameFile(JSON.parse(raw.stdout).exe, join(custom, "agent-browser.exe"));
++			assert.equal(resolveWindowsStockLauncher(cwd, env), undefined);
++			const integrated = await runAgentBrowserProcess({ cwd, env, args: [script, "probe"] });
++			await sameFile(JSON.parse(integrated.stdout).exe, join(custom, "agent-browser.exe"));
++		});
++		const stockCwd = join(root, "stock-cwd"); await stock(stockCwd);
++		const noCwd = { ...childEnv(custom), NoDefaultCurrentDirectoryInExePath: "1" };
++		const noCwdRaw = original(stockCwd, noCwd, [script, "probe"]);
++		assert.equal(noCwdRaw.status, 0, noCwdRaw.stderr);
++		assert.equal(resolveWindowsStockLauncher(stockCwd, noCwd), undefined);
++		const noCwdResult = await runAgentBrowserProcess({ cwd: stockCwd, env: noCwd, args: [script, "probe"] });
++		assert.equal(noCwdResult.exitCode, noCwdRaw.status); assert.deepEqual(JSON.parse(noCwdResult.stdout), JSON.parse(noCwdRaw.stdout));
++		await withPatchedEnv({ ComSpec: process.execPath }, async () => {
++			const env = childEnv(stockCwd), raw = original(stockCwd, env, [script, "probe"]);
++			assert.equal(resolveWindowsStockLauncher(stockCwd, env), undefined);
++			const result = await runAgentBrowserProcess({ cwd: stockCwd, env, args: [script, "probe"] });
++			assert.equal(result.exitCode, raw.status); assert.equal(result.stdout, raw.stdout);
++		});
++	} finally { await rm(root, { recursive: true, force: true }); }
++});
++
++test("custom CMD keeps its original multiline limitation rather than being rewritten", { skip: !windows }, async () => {
++	const root = await mkdtemp(join(tmpdir(), "custom-lf-"));
++	try {
++		await writeFakeAgentBrowserBinary(root, capture);
++		const env = childEnv(root), args = ["fill", "#field", "one\ntwo"], stdin = "literal\r\nstdin";
++		assert.equal(resolveWindowsStockLauncher(root, env), undefined);
++		const raw = original(root, env, args, stdin);
++		const result = await runAgentBrowserProcess({ cwd: root, env, args, stdin });
++		assert.equal(result.exitCode, raw.status); assert.deepEqual(JSON.parse(result.stdout), JSON.parse(raw.stdout));
++		assert.notDeepEqual(JSON.parse(result.stdout).args, args);
++		assert.equal(JSON.parse(result.stdout).stdin, stdin);
++	} finally { await rm(root, { recursive: true, force: true }); }
++});
++
++test("unrecognized stock layouts retain original fallback and never scan to a later stock installation", { skip: !windows }, async () => {
++	const root = await mkdtemp(join(tmpdir(), "fallback-"));
++	try {
++		const first = join(root, "first"), later = join(root, "later");
++		const exe = await stock(first); await stock(later);
++		const script = join(root, "capture.cjs"); await writeFile(script, capture);
++		const env = childEnv(`${first};${later}`), shim = join(first, "agent-browser.cmd"), manifest = join(first, "node_modules", "agent-browser", "package.json");
++		const originalManifest = await readFile(manifest, "utf8");
++		for (const kind of ["extra-command", "quoted-forwarding", "wrong-package", "missing-binary", "directory-binary"]) {
++			await writeFile(shim, kind === "extra-command" ? template + "@REM custom command\r\n" : kind === "quoted-forwarding" ? template.replace('%*', '"%*"') : template);
++			await writeFile(manifest, kind === "wrong-package" ? '{"name":"custom"}' : originalManifest);
++			if (kind === "missing-binary") await rm(exe);
++			if (kind === "directory-binary") await mkdir(exe);
++			assert.equal(resolveWindowsStockLauncher(root, env), undefined, kind);
++			const raw = original(root, env, [script, "probe"]);
++			const integrated = await runAgentBrowserProcess({ cwd: root, env, args: [script, "probe"] });
++			assert.equal(integrated.exitCode, raw.status, kind); assert.equal(integrated.stdout, raw.stdout, kind);
++		}
++		const missingEnv = childEnv(join(root, "absent"));
++		assert.equal(resolveWindowsStockLauncher(root, missingEnv), undefined);
++		const missing = await runAgentBrowserProcess({ cwd: root, env: missingEnv, args: ["--version"] });
++		assert.equal(missing.exitCode, 127); assert.equal((missing.spawnError as NodeJS.ErrnoException)?.code, "ENOENT");
++		assert.equal(missing.agentBrowserStarted, false);
++	} finally { await rm(root, { recursive: true, force: true }); }
++});
++
++for (const mode of ["abort", "timeout"] as const) {
++	test(`recognized shell-free stock route reaps child on ${mode}`, { skip: !windows }, async () => {
++		const root = await mkdtemp(join(tmpdir(), "stock-kill-")), controller = new AbortController();
++		let pid: number | undefined;
++		let running: ReturnType<typeof runAgentBrowserProcess> | undefined;
++		try {
++			const prefix = join(root, "stock"); await stock(prefix);
++			const script = join(root, "wait.cjs"), marker = join(root, "pid");
++			await writeFile(script, `require('node:fs').writeFileSync(${JSON.stringify(marker)},String(process.pid));setInterval(()=>{},1000);`);
++			running = runAgentBrowserProcess({ cwd: root, env: childEnv(prefix), args: [script], signal: controller.signal, timeoutMs: mode === "timeout" ? 800 : 0 });
++			for (let count = 0; count < 100; count++) {
++				try { pid = Number(await readFile(marker, "utf8")); break; } catch { await new Promise(resolve => setTimeout(resolve, 20)); }
++			}
++			assert.ok(pid, "child must start before cancellation");
++			if (mode === "abort") controller.abort();
++			const result = await running;
++			assert.equal(result.aborted, mode === "abort"); assert.equal(result.timedOut, mode === "timeout");
++			assert.throws(() => process.kill(pid!, 0), { code: "ESRCH" }, "reaped before returning");
++		} finally {
++			controller.abort(); await running;
++			if (pid) { try { process.kill(pid, "SIGKILL"); } catch { /* already reaped */ } }
++			await rm(root, { recursive: true, force: true });
++		}
++	});
++}
++
++test("actual stock Rust receives exact LF/CRLF and every vector operand through production integration", { skip: !windows || !process.env.PI_AGENT_BROWSER_STOCK_PREFIX }, async () => {
++	const prefix = process.env.PI_AGENT_BROWSER_STOCK_PREFIX!;
++	const root = await mkdtemp(join(tmpdir(), "rust-argv-"));
++	try {
++		const exe = join(prefix, "node_modules", "agent-browser", "bin", "agent-browser-win32-x64.exe"), env = childEnv(prefix);
++		await sameFile(resolveWindowsStockLauncher(root, env)!, exe);
++		for (const operand of ["--no-startup-window,--disable-gpu\n--no-sandbox", "--no-startup-window,--disable-gpu\r\n--no-sandbox", ...vector]) {
++			const args = ["--json", "dashboard", operand];
++			const expected = `${operand.startsWith("-") ? "Unknown dashboard option" : "Unknown dashboard subcommand"}: ${operand}`;
++			const direct = spawnSync(exe, args, { cwd: root, env: buildAgentBrowserProcessEnv(process.env, env), encoding: "utf8", timeout: 10_000 });
++			assert.equal(direct.status, 1, direct.stderr); assert.equal(JSON.parse(direct.stdout).error, expected);
++			const old = original(root, env, args);
++			if (operand.includes("\n")) assert.notEqual(JSON.parse(old.stdout).error, expected);
++			const result = await runAgentBrowserProcess({ cwd: root, env, args });
++			assert.equal(result.exitCode, 1, result.stderr); assert.equal(result.spawnError, undefined);
++			assert.equal(JSON.parse(result.stdout).error, expected);
++			console.log(JSON.stringify({ operand, hex: Buffer.from(operand).toString("hex"), direct: direct.stdout, original: old.stdout, candidate: result.stdout }));
++		}
++	} finally { await rm(root, { recursive: true, force: true }); }
++});
+diff --git a/test/doctor.test.ts b/test/doctor.test.ts
+index 65f16a8..a7c6bed 100644
+--- a/test/doctor.test.ts
++++ b/test/doctor.test.ts
+@@ -7,7 +7,9 @@
+  */
+ 
+ import assert from "node:assert/strict";
++import { resolve } from "node:path";
+ import test from "node:test";
++import { pathToFileURL } from "node:url";
+ 
+ import { CAPABILITY_BASELINE } from "../scripts/agent-browser-capability-baseline.mjs";
+ 
+@@ -137,8 +139,8 @@ test("doctor warns instead of failing when Pi version cannot be inspected", asyn
+ 
+ test("doctor reports duplicate package and checkout sources with remediation", async () => {
+ 	const settingsByPath = new Map([
+-		["/agent/settings.json", JSON.stringify({ packages: ["npm:pi-agent-browser-native"] })],
+-		["/repo/.pi/settings.json", JSON.stringify({ extensions: ["/repo/extensions/agent-browser/index.ts"] })],
++		[resolve("/agent/settings.json"), JSON.stringify({ packages: ["npm:pi-agent-browser-native"] })],
++		[resolve("/repo/.pi/settings.json"), JSON.stringify({ extensions: [resolve("/repo/extensions/agent-browser/index.ts")] })],
+ 	]);
+ 	const report = await evaluateDoctorWithPi({
+ 		agentDir: "/agent",
+@@ -153,13 +155,13 @@ test("doctor reports duplicate package and checkout sources with remediation", a
+ 	assert.match(text, /Duplicate pi-agent-browser-native sources detected/);
+ 	assert.match(text, /`agent_browser`/);
+ 	assert.match(text, /npm:pi-agent-browser-native/);
+-	assert.match(text, /extensions\/agent-browser\/index\.ts/);
++	assert.ok(text.includes(resolve("/repo/extensions/agent-browser/index.ts")));
+ 	assert.match(text, /pi --approve --no-extensions -e <source>/);
+ 	assert.match(text, /keep exactly one active source/i);
+ });
+ 
+ test("doctor passes the source check when exactly one configured source is active", async () => {
+-	const settingsByPath = new Map([["/agent/settings.json", JSON.stringify({ packages: ["npm:pi-agent-browser-native"] })]]);
++	const settingsByPath = new Map([[resolve("/agent/settings.json"), JSON.stringify({ packages: ["npm:pi-agent-browser-native"] })]]);
+ 	const report = await evaluateDoctorWithPi({
+ 		agentDir: "/agent",
+ 		cwd: "/repo",
+@@ -175,7 +177,7 @@ test("doctor passes the source check when exactly one configured source is activ
+ });
+ 
+ test("doctor resolves relative package sources from their settings file directory", async () => {
+-	const settingsByPath = new Map([["/home/user/.pi/agent/settings.json", JSON.stringify({ packages: ["../../Projects/AI/pi-agent-browser"] })]]);
++	const settingsByPath = new Map([[resolve("/home/user/.pi/agent/settings.json"), JSON.stringify({ packages: ["../../Projects/AI/pi-agent-browser"] })]]);
+ 	const report = await evaluateDoctorWithPi({
+ 		agentDir: "/home/user/.pi/agent",
+ 		cwd: "/home/user/Projects/AI/pi-agent-browser",
+@@ -192,7 +194,7 @@ test("doctor resolves relative package sources from their settings file director
+ 
+ test("doctor resolves relative extension sources from their settings file directory", async () => {
+ 	const settingsByPath = new Map([
+-		["/home/user/.pi/agent/settings.json", JSON.stringify({ extensions: ["../../Projects/AI/pi-agent-browser/extensions/agent-browser/index.ts"] })],
++		[resolve("/home/user/.pi/agent/settings.json"), JSON.stringify({ extensions: ["../../Projects/AI/pi-agent-browser/extensions/agent-browser/index.ts"] })],
+ 	]);
+ 	const report = await evaluateDoctorWithPi({
+ 		agentDir: "/home/user/.pi/agent",
+@@ -210,7 +212,7 @@ test("doctor resolves relative extension sources from their settings file direct
+ 
+ test("doctor recognizes compiled extension entrypoint sources", async () => {
+ 	const settingsByPath = new Map([
+-		["/home/user/.pi/agent/settings.json", JSON.stringify({ extensions: ["../../Projects/AI/pi-agent-browser/dist/extensions/agent-browser/index.js"] })],
++		[resolve("/home/user/.pi/agent/settings.json"), JSON.stringify({ extensions: ["../../Projects/AI/pi-agent-browser/dist/extensions/agent-browser/index.js"] })],
+ 	]);
+ 	const report = await evaluateDoctorWithPi({
+ 		agentDir: "/home/user/.pi/agent",
+@@ -243,7 +245,7 @@ test("doctor treats no configured source as an informational warning, not a fail
+ 
+ test("doctor remains read-only through injected I/O", async () => {
+ 	const calls: string[] = [];
+-	const settingsByPath = new Map([["/agent/settings.json", JSON.stringify({ packages: ["npm:pi-agent-browser-native"] })]]);
++	const settingsByPath = new Map([[resolve("/agent/settings.json"), JSON.stringify({ packages: ["npm:pi-agent-browser-native"] })]]);
+ 	const report = await evaluateDoctorWithPi({
+ 		agentDir: "/agent",
+ 		cwd: "/repo",
+@@ -267,15 +269,16 @@ test("doctor remains read-only through injected I/O", async () => {
+ });
+ 
+ test("isDirectRun resolves npm bin symlinks before comparing the entrypoint", () => {
+-	const metaUrl = "file:///package/scripts/doctor.mjs";
+-	const resolveRealPath = (path: string) => {
+-		if (path === "/tmp/node_modules/.bin/pi-agent-browser-doctor") return "/package/scripts/doctor.mjs";
+-		return path;
+-	};
++	const entrypoint = resolve("/package with spaces/#tools/scripts/doctor.mjs");
++	const binPath = resolve("/tmp/node_modules/.bin/pi-agent-browser-doctor");
++	const metaUrl = pathToFileURL(entrypoint).href;
++	const resolveRealPath = (path: string) => path === binPath ? entrypoint : path;
+ 
+-	assert.equal(isDirectRun(metaUrl, "/tmp/node_modules/.bin/pi-agent-browser-doctor", resolveRealPath), true);
+-	assert.equal(isDirectRun(metaUrl, "/other/script.mjs", resolveRealPath), false);
++	assert.equal(isDirectRun(metaUrl, binPath, resolveRealPath), true);
++	assert.equal(isDirectRun(metaUrl, entrypoint, resolveRealPath), true);
++	assert.equal(isDirectRun(metaUrl, resolve("/other/script.mjs"), resolveRealPath), false);
+ 	assert.equal(isDirectRun(metaUrl, undefined, resolveRealPath), false);
++	assert.equal(isDirectRun(metaUrl, binPath, () => { throw new Error("missing entrypoint"); }), false);
+ });
+ 
+ test("parseCliArgs supports help, paths, repeated settings, and skip-source-check", () => {
+diff --git a/test/verify-lifecycle.test.ts b/test/verify-lifecycle.test.ts
+index ed74f11..4e62e1d 100644
+--- a/test/verify-lifecycle.test.ts
++++ b/test/verify-lifecycle.test.ts
+@@ -8,7 +8,7 @@
+ 
+ import assert from "node:assert/strict";
+ import { execFile as execFileCallback } from "node:child_process";
+-import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
++import { appendFile, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import { pathToFileURL } from "node:url";
+@@ -277,7 +277,9 @@ test("lifecycle wait discovers the initial transcript for observed open validati
+ 			describe: "initial open", sessionDir: directory, timeoutMs: 2000, sinceCount: 0,
+ 			predicate: (result) => matchesSuccessfulPageResult(result, "open", "https://react.dev/"),
+ 		});
+-		assert.equal(opened.sessionFile, sessionFile);
++		// Native find may return mixed separators; assert the discovered file's identity, not its spelling.
++		assert.equal(await realpath(opened.sessionFile), await realpath(sessionFile));
++		assert.equal(matchesSuccessfulPageResult(opened.result, "open", "https://react.dev/"), true);
+ 	} finally {
+ 		await rm(directory, { force: true, recursive: true });
+ 	}
