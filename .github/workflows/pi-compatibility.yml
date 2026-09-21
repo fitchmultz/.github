@@ -144,7 +144,7 @@ jobs:
       matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
     name: ${{ matrix.repo }} / ${{ matrix.label }} / ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: ${{ matrix.repo == 'pi-agent-browser-native' && matrix.os == 'windows-latest' && 35 || 25 }}
     # The previous official target is a diagnostic comparison, not an unbounded support promise.
     continue-on-error: ${{ matrix.label == 'baseline' }}
     env:

@@ -14,6 +14,7 @@ const { values } = parseArgs({ options: {
 assert.ok(values.repo && values.source && values.host && values.output, "Required: --repo NAME --source PATH --host official|fork|none --output PATH [--target VERSION|FORK_ARTIFACT]");
 const entry = readJson(new URL("../fleet.json", import.meta.url)).find((item) => item.repo === values.repo);
 assert.ok(entry, `Repository is not in the fleet: ${values.repo}`);
+const contractTimeoutMs = entry.contractTimeoutMs?.[process.platform] ?? 600_000;
 assert.ok(["official", "fork", "none"].includes(values.host));
 assert.equal(values.host === "none", entry.kind === "cli", "Only standalone CLIs use the host-free lane");
 const source = resolve(values.source);
@@ -27,7 +28,7 @@ const env = isolatedEnvironment(root);
 const report = { repo: values.repo, flavor: values.host, lane: process.env.PI_COMPAT_LANE_LABEL ?? values.host, node: process.version, npm: run("npm", ["--version"], { env, quiet: true }).trim(), platform: process.platform,
   source: run("git", ["rev-parse", "HEAD"], { cwd: source, quiet: true }).trim(),
   sourceDirty: run("git", ["status", "--porcelain"], { cwd: source, quiet: true }).trim() !== "",
-  target: values.host === "fork" ? process.env.PI_COMPAT_FORK_REF : values.target, checks: {} };
+  target: values.host === "fork" ? process.env.PI_COMPAT_FORK_REF : values.target, contractTimeoutMs, checks: {} };
 let phase = "prepare";
 try {
   const development = join(root, "development");
@@ -49,7 +50,7 @@ try {
     report.developmentHost = selected;
     if (!expectedRefusal) {
       phase = "package-contracts";
-      run("npm", ["run", "check:compat"], { cwd: development, env: {
+      run("npm", ["run", "check:compat"], { cwd: development, timeout: contractTimeoutMs, env: {
         ...env, PI_COMPAT_HOST: values.host, PI_COMPAT_EXPECTED_VERSION: host.version,
         PI_COMPAT_EXPECTED_PACKAGE_DIR: selected.packageDir, PI_PACKAGE_DIR: selected.packageDir,
         PI_HOST_INDEX: selected.index, PI_HOST_CLI: selected.cli,
@@ -61,7 +62,7 @@ try {
     }
   } else {
     phase = "standalone-cli-contracts";
-    run("npm", ["run", "check:compat"], { cwd: development, env });
+    run("npm", ["run", "check:compat"], { cwd: development, env, timeout: contractTimeoutMs });
     report.checks.contracts = "passed";
   }
 
