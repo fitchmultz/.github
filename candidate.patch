@@ -112,10 +112,42 @@ index 35cffbd..a4e423e 100644
  		const verificationError = await getRestoredProcessVerificationError(record);
  		if (verificationError) return { error: verificationError, resource: "process", state: "failed" };
 diff --git a/extensions/agent-browser/lib/managed-session-policy-lock.ts b/extensions/agent-browser/lib/managed-session-policy-lock.ts
-index 91991f8..5f00b2a 100644
+index 91991f8..a25568d 100644
 --- a/extensions/agent-browser/lib/managed-session-policy-lock.ts
 +++ b/extensions/agent-browser/lib/managed-session-policy-lock.ts
-@@ -205,6 +205,12 @@ function claimPrecedes(left: PolicyLockClaim, right: PolicyLockClaim): boolean {
+@@ -169,14 +169,24 @@ async function ownerAlive(owner: PolicyLockOwner): Promise<boolean | undefined>
+ 	return current === undefined ? undefined : processStartIdentitiesMatch(owner.startIdentity, current);
+ }
+ 
+-async function removeClaimOwnedBy(path: string, token: string): Promise<boolean> {
+-	const current = await readClaim(path);
+-	if (current?.owner.token !== token) return false;
++async function removeClaimOwnedBy(path: string, token: string, deadline = 0): Promise<boolean> {
+ 	const movedPath = join(dirname(path), `.pi-agent-browser-policy-remove-${token}-${randomUUID()}`);
+-	try {
+-		await rename(path, movedPath);
+-	} catch (error) {
+-		return (error as NodeJS.ErrnoException).code === "ENOENT";
++	while (true) {
++		const current = await readClaim(path);
++		if (current?.owner.token !== token) return false;
++		try {
++			await rename(path, movedPath);
++			break;
++		} catch (error) {
++			const code = (error as NodeJS.ErrnoException).code;
++			if (code === "ENOENT") return true;
++			// Windows may refuse a directory move while a contender reads its
++			// metadata. Revalidate before retrying, using only time remaining
++			// in the original acquisition budget, never a new release budget.
++			if (process.platform !== "win32" || code !== "EPERM" || Date.now() >= deadline) return false;
++			await waitForRetry();
++			if (Date.now() >= deadline) return false;
++		}
+ 	}
+ 	const moved = await readClaim(movedPath);
+ 	if (moved?.owner.token !== token) {
+@@ -205,6 +215,12 @@ function claimPrecedes(left: PolicyLockClaim, right: PolicyLockClaim): boolean {
  	return left.ticket < right.ticket || (left.ticket === right.ticket && left.owner.token < right.owner.token);
  }
  
@@ -128,7 +160,7 @@ index 91991f8..5f00b2a 100644
  function waitForRetry(signal?: AbortSignal): Promise<void> {
  	return new Promise((resolve) => {
  		if (signal?.aborted) return resolve();
-@@ -261,11 +267,22 @@ export async function acquireManagedSessionPolicyLock(options: {
+@@ -261,18 +277,29 @@ export async function acquireManagedSessionPolicyLock(options: {
  			let blocked = false;
  			for (const claim of claims) {
  				if (claim.owner.token === token || !claimPrecedes(claim, ownClaim)) continue;
@@ -151,6 +183,14 @@ index 91991f8..5f00b2a 100644
  				blocked = true;
  				break;
  			}
+ 			if (!blocked) {
+ 				await cleanDeadPolicyArtifacts(directory);
+ 				lockAcquired = true;
+-				return { release: async () => { await removeClaimOwnedBy(claimPath, token); } };
++				return { release: async () => { await removeClaimOwnedBy(claimPath, token, deadline); } };
+ 			}
+ 			if (Date.now() >= deadline) return undefined;
+ 			await waitForRetry(options.signal);
 diff --git a/extensions/agent-browser/lib/process.ts b/extensions/agent-browser/lib/process.ts
 index 65bf1f2..93fc0f2 100644
 --- a/extensions/agent-browser/lib/process.ts
@@ -933,7 +973,7 @@ index 3771c91..6054431 100644
  			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--session", "shared", "open", "https://example.test/"] })).isError, false);
  			assert.equal((await executeRegisteredTool(harness.tool, harness.ctx, { args: ["--session", "shared", "record", "start", "branch.webm"] })).isError, false);
 diff --git a/test/agent-browser.managed-session-policy-lock.test.ts b/test/agent-browser.managed-session-policy-lock.test.ts
-index 1176a6b..95ee8da 100644
+index 1176a6b..fab15f5 100644
 --- a/test/agent-browser.managed-session-policy-lock.test.ts
 +++ b/test/agent-browser.managed-session-policy-lock.test.ts
 @@ -6,7 +6,10 @@
@@ -974,7 +1014,7 @@ index 1176a6b..95ee8da 100644
  	await first.release();
  	await stat(claimPath);
  });
-@@ -102,6 +114,58 @@ test("managed session policy lock serializes concurrent contenders", async () =>
+@@ -102,6 +114,86 @@ test("managed session policy lock serializes concurrent contenders", async () =>
  	assert.equal(maxActive, 1);
  });
  
@@ -1029,6 +1069,34 @@ index 1176a6b..95ee8da 100644
 +		}
 +	});
 +}
++
++test("managed session policy lock releases after a native open-file rename conflict within its original budget", async (t) => {
++	const lock = await acquireManagedSessionPolicyLock({ sessionName });
++	assert.ok(lock);
++	const claimPath = await onlyClaimPath();
++	const reader = await fs.open(join(claimPath, "owner.json"), "r");
++	const nativeRename = fs.rename;
++	let nativeConflict = false;
++	t.mock.method(fs, "rename", async (...args: Parameters<typeof fs.rename>) => {
++		try { return await nativeRename(...args); } catch (error) {
++			if (String(args[0]) === claimPath && (error as NodeJS.ErrnoException).code === "EPERM") {
++				nativeConflict = true;
++				await reader.close(); // The actual competing reader finishes.
++			}
++			throw error; // Never fabricate or replace the native rename result.
++		}
++	});
++	syncBuiltinESMExports();
++	try {
++		await lock.release();
++		if (process.platform === "win32") assert.equal(nativeConflict, true);
++		assert.deepEqual(await claimPaths(), []);
++	} finally {
++		t.mock.restoreAll();
++		syncBuiltinESMExports();
++		await reader.close();
++	}
++});
 +
  test("managed session policy lock excludes a live owner in another process", async () => {
  	const moduleUrl = new URL("../extensions/agent-browser/lib/managed-session-policy-lock.ts", import.meta.url).href;
