@@ -1,6 +1,6 @@
 {
   "base": "6075283fea803fb5d002700852e591ef7d3a2caa",
-  "patch": "0bfddd43c09473a5e7bfc5bc768cfe715d18e429083b0c03d9d0fb1be356f708",
+  "patch": "d9d62750ebba4abebd95ee7bf281195c0bd7b26c4a717c916afbfb1586332058",
   "oldPolicy": "324e93cf0d945cd6755be8dfc118241e2cd2edd5a74d0fcb39f3d1c9d8ccbb27",
   "files": {
     ".github/workflows/native-checkpoint.yml": "ead80069f2bed8a58c3b41f7d660eb023b739eb96b31ed6e2cda66c85230b3f2",
@@ -47,7 +47,7 @@
     "extensions/agent-browser/lib/input-modes/types.ts": "811eab8d77df9a45ece3e3d12899bda639b9ff1ef95dfa9ff8c78b51df8d38a8",
     "extensions/agent-browser/lib/json-schema.ts": "db2883ef021b7345327167fa67d9ab3f299bd6dd39e9f7d0e4eb7fea1f4da34e",
     "extensions/agent-browser/lib/launch-scoped-flags.ts": "889a4f78ec6e2d99ac0eeede59632c1b3053f4829a7871838613287e517926b4",
-    "extensions/agent-browser/lib/managed-session-policy-lock.ts": "324e93cf0d945cd6755be8dfc118241e2cd2edd5a74d0fcb39f3d1c9d8ccbb27",
+    "extensions/agent-browser/lib/managed-session-policy-lock.ts": "1a8bb04220dd6686ce5b322810d3f35b872be5a8a37b0aafc6d33242dad19899",
     "extensions/agent-browser/lib/managed-session-restore.ts": "317a2b5060369ec408f95d93809f60d23d8cbafe12eadef35039a630f54773f4",
     "extensions/agent-browser/lib/managed-session-snapshots.ts": "9d1bf390b9cdc706c5698796077480e7f2dd6af0c9be110ae329e67dc0150dbc",
     "extensions/agent-browser/lib/managed-session-storage.ts": "589d3f76e3464147b676bf2ada26a6dd27ab264298b13c6fe14f60cec2783452",

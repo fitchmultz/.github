@@ -112,7 +112,7 @@ index 35cffbd..a4e423e 100644
  		const verificationError = await getRestoredProcessVerificationError(record);
  		if (verificationError) return { error: verificationError, resource: "process", state: "failed" };
 diff --git a/extensions/agent-browser/lib/managed-session-policy-lock.ts b/extensions/agent-browser/lib/managed-session-policy-lock.ts
-index 91991f8..a25568d 100644
+index 91991f8..c0212af 100644
 --- a/extensions/agent-browser/lib/managed-session-policy-lock.ts
 +++ b/extensions/agent-browser/lib/managed-session-policy-lock.ts
 @@ -169,14 +169,24 @@ async function ownerAlive(owner: PolicyLockOwner): Promise<boolean | undefined>
@@ -138,8 +138,8 @@ index 91991f8..a25568d 100644
 +			const code = (error as NodeJS.ErrnoException).code;
 +			if (code === "ENOENT") return true;
 +			// Windows may refuse a directory move while a contender reads its
-+			// metadata. Revalidate before retrying, using only time remaining
-+			// in the original acquisition budget, never a new release budget.
++			// metadata. Revalidate before retrying. Owned-claim cleanup gets
++			// its own bounded window, independent of the acquisition wait.
 +			if (process.platform !== "win32" || code !== "EPERM" || Date.now() >= deadline) return false;
 +			await waitForRetry();
 +			if (Date.now() >= deadline) return false;
@@ -187,10 +187,18 @@ index 91991f8..a25568d 100644
  				await cleanDeadPolicyArtifacts(directory);
  				lockAcquired = true;
 -				return { release: async () => { await removeClaimOwnedBy(claimPath, token); } };
-+				return { release: async () => { await removeClaimOwnedBy(claimPath, token, deadline); } };
++				return { release: async () => { await removeClaimOwnedBy(claimPath, token, Date.now() + POLICY_LOCK_WAIT_MS); } };
  			}
  			if (Date.now() >= deadline) return undefined;
  			await waitForRetry(options.signal);
+@@ -282,6 +309,6 @@ export async function acquireManagedSessionPolicyLock(options: {
+ 		return undefined;
+ 	} finally {
+ 		await rm(candidatePath, { force: true, recursive: true }).catch(() => undefined);
+-		if (claimPublished && !lockAcquired) await removeClaimOwnedBy(claimPath, token);
++		if (claimPublished && !lockAcquired) await removeClaimOwnedBy(claimPath, token, Date.now() + POLICY_LOCK_WAIT_MS);
+ 	}
+ }
 diff --git a/extensions/agent-browser/lib/process.ts b/extensions/agent-browser/lib/process.ts
 index 65bf1f2..93fc0f2 100644
 --- a/extensions/agent-browser/lib/process.ts
