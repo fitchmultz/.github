@@ -16,23 +16,36 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: fitchmultz/.github
-          ref: 425f6367e5c5d997cac271b011d9cce76cd57d6c
+          ref: 00794928f9df8e56fdc7f6fbed69ce986e7d8f3c
           path: automation
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: fitchmultz/pi-agent-browser-native
-          ref: 9d0fb58abedf34dd26e2fa76c04d1f4159070e63
-          path: browser
-          sparse-checkout: |
-            extensions/agent-browser/lib/process-identity.ts
-            package.json
-          sparse-checkout-cone-mode: false
+          repository: fitchmultz/.github
+          ref: 425f6367e5c5d997cac271b011d9cce76cd57d6c
+          path: previous
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           check-latest: true
           package-manager-cache: false
-      - name: Compare native process queries without exposing environment values
-        run: node --experimental-strip-types probe/windows-process-probe.mjs
+      - name: Exact Windows regression fails before the environment repair and passes afterward
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp automation/scripts/common.mjs automation/scripts/common.candidate.mjs
+          trap 'mv -f automation/scripts/common.candidate.mjs automation/scripts/common.mjs' EXIT
+          cp previous/scripts/common.mjs automation/scripts/common.mjs
+          set +e
+          node --test automation/test/windows-environment.native.mjs > before.tap 2>&1
+          before_status=$?
+          set -e
+          printf 'Previous environment exit status: %s\n' "$before_status"
+          cat before.tap
+          test "$before_status" -ne 0
+          grep -q ETIMEDOUT before.tap
+          cp automation/scripts/common.candidate.mjs automation/scripts/common.mjs
+          cmp automation/scripts/common.candidate.mjs automation/scripts/common.mjs
+          node --test automation/test/windows-environment.native.mjs | tee after.tap
+          git -C automation diff --exit-code -- scripts/common.mjs test/windows-environment.native.mjs
