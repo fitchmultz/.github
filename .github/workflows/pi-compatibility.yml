@@ -53,6 +53,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
+          check-latest: true
           package-manager-cache: false
       - id: targets
         env:
@@ -86,6 +87,7 @@ jobs:
         id: node
         with:
           node-version: '24'
+          check-latest: true
           cache: npm
           cache-dependency-path: fork/package-lock.json
       - name: Use the reviewed npm version
@@ -163,6 +165,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
+          check-latest: true
           cache: npm
           cache-dependency-path: |
             extension/package-lock.json
