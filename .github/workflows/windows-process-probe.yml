@@ -30,6 +30,11 @@ jobs:
           node-version: '24'
           check-latest: true
           package-manager-cache: false
+      - name: Initialize the native Windows PowerShell module path for following bash steps
+        shell: powershell
+        run: |
+          node probe/windows-shell-probe.mjs powershell
+          "PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Exact Windows regression fails before the environment repair and passes afterward
         shell: bash
         run: |

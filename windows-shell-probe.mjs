@@ -8,7 +8,7 @@ const keys = ['PSModulePath', 'ProgramFiles', 'ProgramW6432', 'CommonProgramFile
 const output = (value) => console.log(JSON.stringify(value));
 output({ shell: process.argv[2], node: process.version, paths: Object.fromEntries(keys.map(key => [key, process.env[key] ?? null])) });
 const query = `$p = Get-Process -Id ${process.pid} -ErrorAction Stop; $p.Id; $p.StartTime.ToUniversalTime().ToString('o')`;
-for (const [label, restored] of [['ambient', null], ['candidate', []], ['program-files', ['ProgramFiles']], ['program-w6432', ['ProgramW6432']], ['common-program-files', ['CommonProgramFiles']], ['all-three', ['ProgramFiles', 'ProgramW6432', 'CommonProgramFiles']]]) {
+for (const [label, restored] of [['ambient', null], ['candidate', []]]) {
   const root = mkdtempSync(join(tmpdir(), 'shell-query-'));
   const env = restored === null ? { ...process.env } : isolatedEnvironment(root);
   for (const key of restored ?? []) if (process.env[key]) env[key] = process.env[key];
@@ -16,6 +16,9 @@ for (const [label, restored] of [['ambient', null], ['candidate', []], ['program
   try {
     const result = execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', query], { env, encoding: 'utf8', timeout: label === 'ambient' ? 30_000 : 5_000 });
     output({ label, ok: true, elapsedMs: performance.now() - start, result: result.trim(), modulePath: env.PSModulePath ?? null });
+    const cimStart = performance.now();
+    const cim = execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', `$p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId = ${process.pid}' -ErrorAction Stop; $p.ProcessId; $p.ParentProcessId`], { env, encoding: 'utf8', timeout: 5_000 });
+    output({ label, case: 'native-cim-process-query', ok: true, elapsedMs: performance.now() - cimStart, result: cim.trim() });
   } catch (error) {
     output({ label, ok: false, elapsedMs: performance.now() - start, code: error.code, stdout: String(error.stdout ?? ''), stderr: String(error.stderr ?? ''), modulePath: env.PSModulePath ?? null });
   } finally {
