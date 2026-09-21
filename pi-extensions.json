@@ -1,0 +1,37 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "timezone": "America/Denver",
+  "ignoreUnstable": true,
+  "automerge": false,
+  "prConcurrentLimit": 3,
+  "packageRules": [
+    {
+      "description": "Qualify the declared Pi development cohort together; peers remain host-provided.",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "matchPackageNames": ["@earendil-works/**"],
+      "groupName": "Pi stable compatibility",
+      "rangeStrategy": "pin"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["peerDependencies"],
+      "matchPackageNames": ["@earendil-works/**", "typebox"],
+      "enabled": false
+    },
+    {
+      "matchPackageNames": ["fitchmultz/.github"],
+      "groupName": "shared Pi compatibility workflow"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      "matchStrings": ["(?:automation-ref|PI_AUTOMATION_REF): (?<currentDigest>[a-f0-9]{40}) # (?<currentValue>v[0-9.]+)"],
+      "depNameTemplate": "fitchmultz/.github",
+      "datasourceTemplate": "github-tags"
+    }
+  ]
+}

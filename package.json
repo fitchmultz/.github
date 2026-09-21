@@ -1,0 +1,15 @@
+{
+  "name": "fitchmultz-pi-automation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@11.19.0",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:native": "node --test test/*.native.mjs",
+    "check:renovate": "renovate-config-validator --strict pi-extensions.json renovate.json",
+    "qualify": "node scripts/qualify.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "devDependencies": { "renovate": "44.104.2" }
+}
