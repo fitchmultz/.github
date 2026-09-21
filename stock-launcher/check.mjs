@@ -62,6 +62,12 @@ try {
     ['chromium', ['--import', 'tsx', '--test', '--test-reporter=tap', 'test/agent-browser.chromium-args.test.ts']],
     ['argv-process', ['--import', 'tsx', '--test', '--test-reporter=tap', '--test-concurrency=1', 'test/agent-browser.windows-argv.test.ts', 'test/agent-browser.process.test.ts']],
   ]) await check(name, process.execPath, args, testEnv);
+  if (process.platform === 'win32') {
+    const originalSource = join(here, 'entry-process.ts');
+    report.originalProcessSha256 = sha256(originalSource);
+    copyFileSync(originalSource, join(dev, 'extensions/agent-browser/lib/process-original.ts'));
+    await check('original-vs-candidate', process.execPath, ['--import', 'tsx', join(here, 'original-vs-candidate.mjs'), dev, join(out, 'original-vs-candidate.json')], testEnv);
+  }
   if (floor) {
     report.floor = floor;
     for (const [name, args] of [['floor-types', ['node_modules/typescript/bin/tsc', '--noEmit']], ['floor-build', ['scripts/build.mjs']], ['floor-tests', ['--import', 'tsx', '--test', '--test-reporter=tap', '--test-concurrency=1', 'test/agent-browser.windows-stock-launcher.test.ts', 'test/agent-browser.windows-argv.test.ts', 'test/agent-browser.chromium-args.test.ts', 'test/agent-browser.process.test.ts']]]) await check(name, floor, args, { ...testEnv, PATH: `${dirname(floor)}${process.platform === 'win32' ? ';' : ':'}${testEnv.PATH}` });

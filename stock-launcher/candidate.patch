@@ -338,7 +338,7 @@
  			const stdinError = error instanceof Error ? error : new Error(String(error));
 --- /dev/null
 +++ b/extensions/agent-browser/lib/windows-stock-launcher.ts
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,48 @@
 +import { readFileSync, statSync } from "node:fs";
 +import { dirname, join, resolve } from "node:path";
 +import { isMainThread } from "node:worker_threads";
@@ -351,6 +351,13 @@
 + */
 +export function resolveWindowsStockLauncher(cwd: string, env: NodeJS.ProcessEnv): string | undefined {
 +	if (process.platform !== "win32" || !isMainThread) return undefined;
++	// which reads parent PATHEXT; cmd.exe reads the child's. Node also handles
++	// duplicate case-insensitive environment keys differently from path-key.
++	// In those ambiguous cases, keep the original transport and its selection.
++	const values = (name: string) => Object.entries(env)
++		.filter(([key, value]) => key.toUpperCase() === name && value !== undefined).map(([, value]) => value);
++	const paths = values("PATH"), extensions = values("PATHEXT");
++	if (paths.length !== 1 || !paths[0] || extensions.length !== 1 || extensions[0] !== process.env.PATHEXT) return undefined;
 +	const previousCwd = process.cwd();
 +	let selected: string | null;
 +	try {
@@ -2246,7 +2253,7 @@
  						const pid = Number(await readFile(marker, "utf8"));
 --- /dev/null
 +++ b/test/agent-browser.windows-stock-launcher.test.ts
-@@ -0,0 +1,173 @@
+@@ -0,0 +1,197 @@
 +import assert from "node:assert/strict";
 +import { spawnSync } from "node:child_process";
 +import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -2277,7 +2284,7 @@
 +}
 +function childEnv(path: string): NodeJS.ProcessEnv {
 +	const env = { ...process.env };
-+	for (const key of Object.keys(env)) if (key.toLowerCase() === "path") delete env[key];
++	for (const key of Object.keys(env)) if (key.toLowerCase() === "path") env[key] = undefined;
 +	return { ...env, Path: path };
 +}
 +function original(cwd: string, env: NodeJS.ProcessEnv, args: string[], input = "") {
@@ -2315,18 +2322,28 @@
 +		await copyFile(process.execPath, join(prefix, "agent-browser.exe"));
 +		for (const order of [".EXE;.CMD", ".CMD;.EXE"]) {
 +			await withPatchedEnv({ PATHEXT: order }, async () => {
-+				// cross-spawn/which uses parent PATHEXT, not options.env.PATHEXT.
-+				const env = { ...childEnv(relative(cwd, prefix)), PATHEXT: order === ".EXE;.CMD" ? ".CMD;.EXE" : ".EXE;.CMD" };
-+				const raw = original(cwd, env, [script, "probe"]); assert.equal(raw.status, 0, raw.stderr);
-+				const expected = order.startsWith(".EXE") ? join(prefix, "agent-browser.exe") : exe;
-+				await sameFile(JSON.parse(raw.stdout).exe, expected);
-+				const chosen = resolveWindowsStockLauncher(cwd, env);
-+				if (order.startsWith(".EXE")) assert.equal(chosen, undefined); else await sameFile(chosen!, exe);
-+				const integrated = await runAgentBrowserProcess({ cwd, env, args: [script, "probe"] });
-+				assert.equal(integrated.exitCode, 0, integrated.stderr); await sameFile(JSON.parse(integrated.stdout).exe, expected);
++				for (const differing of [false, true]) {
++					// which uses parent PATHEXT to choose transport; cmd.exe itself
++					// uses child PATHEXT to select the command it actually executes.
++					const env = { ...childEnv(relative(cwd, prefix)), PATHEXT: differing ? (order === ".EXE;.CMD" ? ".CMD;.EXE" : ".EXE;.CMD") : order };
++					const raw = original(cwd, env, [script, "probe"]); assert.equal(raw.status, 0, raw.stderr);
++					const expected = order.startsWith(".EXE") || differing ? join(prefix, "agent-browser.exe") : exe;
++					await sameFile(JSON.parse(raw.stdout).exe, expected);
++					const chosen = resolveWindowsStockLauncher(cwd, env);
++					if (order.startsWith(".EXE") || differing) assert.equal(chosen, undefined); else await sameFile(chosen!, exe);
++					const integrated = await runAgentBrowserProcess({ cwd, env, args: [script, "probe"] });
++					assert.equal(integrated.exitCode, 0, integrated.stderr); await sameFile(JSON.parse(integrated.stdout).exe, expected);
++				}
++
 +			});
 +		}
 +		await writeFakeAgentBrowserBinary(custom, "process.stdout.write('custom-cmd');");
++		const ambiguous = { ...childEnv(prefix), PATH: custom, Path: prefix };
++		const ambiguousRaw = original(cwd, ambiguous, ["probe"]);
++		assert.equal(ambiguousRaw.stdout, "custom-cmd");
++		assert.equal(resolveWindowsStockLauncher(cwd, ambiguous), undefined);
++		const ambiguousResult = await runAgentBrowserProcess({ cwd, env: ambiguous, args: ["probe"] });
++		assert.equal(ambiguousResult.exitCode, ambiguousRaw.status); assert.equal(ambiguousResult.stdout, ambiguousRaw.stdout);
 +		for (const location of [custom, cwd]) {
 +			if (location === cwd) await writeFakeAgentBrowserBinary(cwd, "process.stdout.write('cwd-cmd');");
 +			const env = childEnv(`${custom};${prefix}`);
@@ -2345,6 +2362,20 @@
 +			const integrated = await runAgentBrowserProcess({ cwd, env, args: [script, "probe"] });
 +			await sameFile(JSON.parse(integrated.stdout).exe, join(custom, "agent-browser.exe"));
 +		});
++	} finally { await rm(root, { recursive: true, force: true }); }
++});
++
++test("custom CMD keeps its original multiline limitation rather than being rewritten", { skip: !windows }, async () => {
++	const root = await mkdtemp(join(tmpdir(), "custom-lf-"));
++	try {
++		await writeFakeAgentBrowserBinary(root, capture);
++		const env = childEnv(root), args = ["fill", "#field", "one\ntwo"], stdin = "literal\r\nstdin";
++		assert.equal(resolveWindowsStockLauncher(root, env), undefined);
++		const raw = original(root, env, args, stdin);
++		const result = await runAgentBrowserProcess({ cwd: root, env, args, stdin });
++		assert.equal(result.exitCode, raw.status); assert.deepEqual(JSON.parse(result.stdout), JSON.parse(raw.stdout));
++		assert.notDeepEqual(JSON.parse(result.stdout).args, args);
++		assert.equal(JSON.parse(result.stdout).stdin, stdin);
 +	} finally { await rm(root, { recursive: true, force: true }); }
 +});
 +
