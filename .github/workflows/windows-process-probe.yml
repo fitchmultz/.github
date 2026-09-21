@@ -6,6 +6,7 @@ permissions:
   contents: read
 jobs:
   browser-boundaries:
+    if: ${{ !contains(github.event.head_commit.message, '[filesystem-only]') }}
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -45,3 +46,30 @@ jobs:
           name: browser-native-boundaries
           path: probe/evidence
           if-no-files-found: error
+
+  filesystem-api:
+    if: ${{ contains(github.event.head_commit.message, '[filesystem-only]') }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: probe
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/.github
+          ref: a78d00c02fa2f3c05fe53b082f0a338150981a65
+          path: automation
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          check-latest: true
+          package-manager-cache: false
+      - name: Initialize native Windows module discovery for bash
+        shell: pwsh
+        run: '"PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+      - name: Compare actual Node filesystem APIs in the private fixture
+        shell: bash
+        run: node probe/browser-filesystem-api.mjs
