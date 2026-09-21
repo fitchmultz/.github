@@ -1,0 +1,144 @@
+{
+  "repo": "pi-agent-browser-native",
+  "flavor": "fork",
+  "lane": "fork",
+  "node": "v24.21.0",
+  "npm": "11.19.0",
+  "platform": "win32",
+  "source": "d11714ef9cda76dd2fd2fe6dd4f59860d3b57c25",
+  "sourceDirty": false,
+  "target": "f371064864ef239d66a81ee645a6774dc525be40",
+  "contractTimeoutMs": 900000,
+  "checks": {},
+  "host": {
+    "flavor": "fork",
+    "packageDir": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\pc-n60F7O\\host\\node_modules\\@earendil-works\\pi-coding-agent",
+    "version": "0.86.1",
+    "index": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\pc-n60F7O\\host\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\index.js",
+    "cli": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\pc-n60F7O\\host\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js",
+    "indexSha256": "da30c460a0b3065c6bc261de2dcc7f506077105271ee25a5db0c0bc7f84c7c45",
+    "cliSha256": "20eb483f6f7f223efdfec6c72c06a40973142574a1419c4931a6650240fc8535",
+    "cohort": {
+      "@earendil-works/pi-coding-agent": "0.86.1",
+      "@earendil-works/chord": "0.86.1",
+      "@earendil-works/pi-agent-core": "0.86.1",
+      "@earendil-works/pi-ai": "0.86.1",
+      "@earendil-works/pi-telemetry": "0.86.1",
+      "@earendil-works/pi-tui": "0.86.1"
+    },
+    "companions": {
+      "typebox": "1.3.27"
+    },
+    "provenance": {
+      "ref": "f371064864ef239d66a81ee645a6774dc525be40",
+      "node": "v24.21.0",
+      "npm": "11.19.0",
+      "lockSha256": "1705e68978bf6be55e1d49b37e932c47d750c29d6894d0a8c3e0cddd4f335bed",
+      "modelDataManifestSha256": "6104e60775707742652dd6e198bf32a3de7cf83e4d16bcbd8a6a860f25d4f2f4",
+      "packages": [
+        {
+          "name": "@earendil-works/pi-agent-core",
+          "version": "0.86.1",
+          "file": "earendil-works-pi-agent-core-0.86.1.tgz",
+          "sha256": "7eae3d7376ae993814a273eff18e1c698d2d2baccf53ef5b58854310969907ea"
+        },
+        {
+          "name": "@earendil-works/pi-ai",
+          "version": "0.86.1",
+          "file": "earendil-works-pi-ai-0.86.1.tgz",
+          "sha256": "9be26fe1c10819c329beed85e7a4e749533443660e893e1de6324ca0f5f600fb"
+        },
+        {
+          "name": "@earendil-works/chord",
+          "version": "0.86.1",
+          "file": "earendil-works-chord-0.86.1.tgz",
+          "sha256": "d8834d054ecc4fa1c74e861f7051f73f631a0b6fbe26f8801e90838077edeadf"
+        },
+        {
+          "name": "@earendil-works/pi-client",
+          "version": "0.86.1",
+          "file": "earendil-works-pi-client-0.86.1.tgz",
+          "sha256": "4f0b68ae27934015aade2ffb1aa40e70f46e4693538037b38e73104fbc0eb0b4"
+        },
+        {
+          "name": "@earendil-works/pi-coding-agent",
+          "version": "0.86.1",
+          "file": "earendil-works-pi-coding-agent-0.86.1.tgz",
+          "sha256": "2a3fe90d9ec215b105b8dca3e2df50a4daefc1700b3fbf388279f3c4fa43bcad"
+        },
+        {
+          "name": "@earendil-works/pi-durable",
+          "version": "0.86.1",
+          "file": "earendil-works-pi-durable-0.86.1.tgz",
+          "sha256": "1abc6c15ad7cadf28e0f9230d8890bd9df126aa97376d85680549b1073085b8e"
+        },
+        {
+          "name": "@earendil-works/pi-protocol",
+          "version": "0.86.1",
+          "file": "earendil-works-pi-protocol-0.86.1.tgz",
+          "sha256": "afcc599ee1f31db582996a0ecf42dbd7100938989a6e53700173fcef19ad8980"
+        },
+        {
+          "name": "@earendil-works/pi-server",
+          "version": "0.86.1",
+          "file": "earendil-works-pi-server-0.86.1.tgz",
+          "sha256": "71ac8774790abba3a2ef01d64b18a8b18a558f6b3635b2c054956fe4c167f608"
+        },
+        {
+          "name": "@earendil-works/pi-session-backend-sqlite-node",
+          "version": "0.86.1",
+          "file": "earendil-works-pi-session-backend-sqlite-node-0.86.1.tgz",
+          "sha256": "c270c2c713d99096eda5759be7e5c77caa23ea0c885b5a4d654840148caa5359"
+        },
+        {
+          "name": "@earendil-works/pi-telemetry",
+          "version": "0.86.1",
+          "file": "earendil-works-pi-telemetry-0.86.1.tgz",
+          "sha256": "2e588ac20a34efbf5a1aec703a14a092b9b54ae77532a9bb7032c63e70aaa005"
+        },
+        {
+          "name": "@earendil-works/pi-tui",
+          "version": "0.86.1",
+          "file": "earendil-works-pi-tui-0.86.1.tgz",
+          "sha256": "8c8dd8e049d9aa7ca91d47afe4915f28542e95f47f4751c61f2c96c2f7578791"
+        }
+      ]
+    },
+    "overrides": {
+      "@earendil-works/pi-agent-core": "file:D:/a/_temp/fork-package/earendil-works-pi-agent-core-0.86.1.tgz",
+      "@earendil-works/pi-ai": "file:D:/a/_temp/fork-package/earendil-works-pi-ai-0.86.1.tgz",
+      "@earendil-works/chord": "file:D:/a/_temp/fork-package/earendil-works-chord-0.86.1.tgz",
+      "@earendil-works/pi-client": "file:D:/a/_temp/fork-package/earendil-works-pi-client-0.86.1.tgz",
+      "@earendil-works/pi-coding-agent": "file:D:/a/_temp/fork-package/earendil-works-pi-coding-agent-0.86.1.tgz",
+      "@earendil-works/pi-durable": "file:D:/a/_temp/fork-package/earendil-works-pi-durable-0.86.1.tgz",
+      "@earendil-works/pi-protocol": "file:D:/a/_temp/fork-package/earendil-works-pi-protocol-0.86.1.tgz",
+      "@earendil-works/pi-server": "file:D:/a/_temp/fork-package/earendil-works-pi-server-0.86.1.tgz",
+      "@earendil-works/pi-session-backend-sqlite-node": "file:D:/a/_temp/fork-package/earendil-works-pi-session-backend-sqlite-node-0.86.1.tgz",
+      "@earendil-works/pi-telemetry": "file:D:/a/_temp/fork-package/earendil-works-pi-telemetry-0.86.1.tgz",
+      "@earendil-works/pi-tui": "file:D:/a/_temp/fork-package/earendil-works-pi-tui-0.86.1.tgz",
+      "typebox": "1.3.27"
+    }
+  },
+  "developmentHost": {
+    "packageDir": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\pc-n60F7O\\development\\node_modules\\@earendil-works\\pi-coding-agent",
+    "version": "0.86.1",
+    "index": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\pc-n60F7O\\development\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\index.js",
+    "cli": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\pc-n60F7O\\development\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js",
+    "indexSha256": "da30c460a0b3065c6bc261de2dcc7f506077105271ee25a5db0c0bc7f84c7c45",
+    "cliSha256": "20eb483f6f7f223efdfec6c72c06a40973142574a1419c4931a6650240fc8535",
+    "cohort": {
+      "@earendil-works/pi-ai": "0.86.1",
+      "@earendil-works/pi-telemetry": "0.86.1",
+      "@earendil-works/pi-coding-agent": "0.86.1",
+      "@earendil-works/chord": "0.86.1",
+      "@earendil-works/pi-agent-core": "0.86.1",
+      "@earendil-works/pi-tui": "0.86.1"
+    },
+    "companions": {
+      "typebox": "1.3.27"
+    }
+  },
+  "result": "failed",
+  "phase": "package-contracts",
+  "error": "Error: npm exited 1 (no signal)\n    at run (file:///D:/a/pi-agent-browser-native/pi-agent-browser-native/automation/scripts/common.mjs:25:34)\n    at file:///D:/a/pi-agent-browser-native/pi-agent-browser-native/automation/scripts/qualify.mjs:53:7"
+}

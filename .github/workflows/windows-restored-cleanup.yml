@@ -1,52 +1,51 @@
-name: Stock launcher Windows qualification
+name: Current-head restored Electron cleanup diagnostic
 on:
   push:
     branches: [compatibility/windows-argv-probe]
-    paths: ['stock-launcher/**']
+    paths: ['restored-cleanup/**', '.github/workflows/windows-restored-cleanup.yml']
 permissions:
   contents: read
 jobs:
-  stock-launcher:
+  restored-cleanup:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       GIT_CONFIG_COUNT: '1'
       GIT_CONFIG_KEY_0: core.autocrlf
       GIT_CONFIG_VALUE_0: 'false'
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           path: probe
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: fitchmultz/.github
           ref: 736c45701fe96157644479a91fe507bea3135d22
           path: automation
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: fitchmultz/pi-agent-browser-native
-          ref: 6075283fea803fb5d002700852e591ef7d3a2caa
+          ref: 3a9adf490883149e7f79ee070d1900877e17b891
           path: browser
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24.21.0'
-          check-latest: true
           package-manager-cache: false
       - name: Initialize native Windows module discovery for bash
         shell: pwsh
         run: '"PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
-      - name: Use the same native npm toolchain
+      - name: Exact npm toolchain
         shell: bash
         run: npm install --global npm@11.19.0
-      - name: Qualify stock launcher and unchanged Chromium assertions
+      - name: One restored prefix and full original three-file repeat
         shell: bash
-        run: node probe/stock-launcher/check.mjs "$GITHUB_WORKSPACE/automation" "$GITHUB_WORKSPACE/browser" "$GITHUB_WORKSPACE/probe/evidence"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        run: node probe/restored-cleanup/check.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: browser-stock-launcher-fix
-          path: probe/evidence
+          name: browser-restored-cleanup-final
+          path: probe/restored-cleanup-evidence
           if-no-files-found: error

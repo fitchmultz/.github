@@ -1,0 +1,35 @@
+--- a/extensions/agent-browser/lib/electron/cleanup.ts
++++ b/extensions/agent-browser/lib/electron/cleanup.ts
+@@ -101,6 +101,7 @@
+ 
+ async function readPidCommandLine(pid: number | undefined): Promise<string | undefined> {
+ 	if (!pid || !Number.isSafeInteger(pid) || pid <= 0) return undefined;
++	const diagnosticStarted = performance.now();
+ 	try {
+ 		// Win32_Process.CommandLine is the native ownership evidence; process
+ 		// start time (used by daemon-policy locks) cannot prove profile ownership.
+@@ -113,11 +114,14 @@
+ 			? ["-NoProfile", "-NonInteractive", "-Command",
+ 				`[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $p = [wmi]"Win32_Process.Handle='${pid}'"; [Console]::WriteLine($p.CommandLine)`]
+ 			: ["-ww", "-p", String(pid), "-o", "command="];
+-		const { stdout } = await execFileAsync(file, args, {
++		const { stdout, stderr } = await execFileAsync(file, args, {
+ 			timeout: RESTORED_PROCESS_COMMAND_TIMEOUT_MS,
+ 		});
++		console.error("RESTORED_CLEANUP_DIAGNOSTIC", JSON.stringify({ phase: "command-return", pid, elapsedMs: performance.now() - diagnosticStarted, timeoutMs: RESTORED_PROCESS_COMMAND_TIMEOUT_MS, stdout, stderr }));
+ 		return stdout.trim() || undefined;
+-	} catch {
++	} catch (error) {
++		const detail = error as Error & { code?: unknown; signal?: unknown; killed?: unknown; stdout?: unknown; stderr?: unknown };
++		console.error("RESTORED_CLEANUP_DIAGNOSTIC", JSON.stringify({ phase: "command-error", pid, elapsedMs: performance.now() - diagnosticStarted, timeoutMs: RESTORED_PROCESS_COMMAND_TIMEOUT_MS, message: detail.message, code: detail.code, signal: detail.signal, killed: detail.killed, stdout: detail.stdout, stderr: detail.stderr }));
+ 		return undefined;
+ 	}
+ }
+@@ -239,6 +243,7 @@
+ 		: await cleanupUserDataDir(options.record);
+ 	const steps = [processStep, debugPortStep, userDataDirStep];
+ 	const summary = summarizeCleanup(options.record.launchId, steps);
++	console.error("RESTORED_CLEANUP_DIAGNOSTIC", JSON.stringify({ phase: "cleanup-return", launchId: options.record.launchId, pid: options.record.pid, trackedChild: Boolean(options.child), userDataDir: options.record.userDataDir, timeoutMs, steps, summary }));
+ 	return {
+ 		launchId: options.record.launchId,
+ 		partial: summary.partial,

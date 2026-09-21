@@ -2,7 +2,7 @@ name: Windows native command candidate
 on:
   push:
     branches: [compatibility/windows-argv-probe]
-    paths-ignore: ['stock-launcher/**', '.github/workflows/windows-stock-launcher.yml', '.github/workflows/windows-argv-probe.yml']
+    paths-ignore: ['stock-launcher/**', '.github/workflows/windows-stock-launcher.yml', '.github/workflows/windows-argv-probe.yml', 'restored-cleanup/**', '.github/workflows/windows-restored-cleanup.yml']
 permissions:
   contents: read
 jobs:
