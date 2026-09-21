@@ -1,0 +1,24 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "ignoreUnstable": true,
+  "automerge": false,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^host-targets\\.json$/"],
+      "matchStrings": ["\"official\": \"(?<currentValue>[0-9.]+)\""],
+      "depNameTemplate": "@earendil-works/pi-coding-agent",
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^host-targets\\.json$/"],
+      "matchStrings": ["\"forkRef\": \"(?<currentDigest>[a-f0-9]{40})\""],
+      "depNameTemplate": "fitchmultz/pi",
+      "packageNameTemplate": "https://github.com/fitchmultz/pi",
+      "currentValueTemplate": "main",
+      "datasourceTemplate": "git-refs"
+    }
+  ]
+}

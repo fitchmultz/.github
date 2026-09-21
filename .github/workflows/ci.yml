@@ -1,0 +1,87 @@
+name: Automation CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      source-ref:
+        description: Fleet source ref (empty uses the configured rollout ref or main)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: automation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.19.0', '24']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - run: npm test
+      - name: Install a real official host in an empty profile
+        run: |
+          node --input-type=module <<'JS'
+          import { join } from 'node:path';
+          import { isolatedEnvironment, readJson } from './scripts/common.mjs';
+          import { prepareHost } from './scripts/hosts.mjs';
+          const root = process.env.RUNNER_TEMP;
+          await prepareHost(join(root, 'test-host'), 'official', readJson('host-targets.json').official, isolatedEnvironment(join(root, 'profile')));
+          JS
+      - name: Prove correct selection and seeded startup failures through the real CLI
+        env:
+          PI_TEST_HOST: ${{ runner.temp }}/test-host
+        run: npm run test:native
+
+  configuration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm rebuild re2
+      - run: npm run check:renovate
+      - name: Validate native workflow syntax
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint"
+
+  fleet:
+    uses: ./.github/workflows/pi-compatibility.yml
+    with:
+      automation-ref: ${{ github.sha }}
+      repository: all
+      # During the initial cross-repository PR rollout, this variable selects the candidate branches.
+      # Clear it once those branches have merged; normal operation always qualifies main.
+      source-ref: ${{ inputs.source-ref || vars.PI_COMPATIBILITY_SOURCE_REF || 'main' }}
+
+  automation:
+    if: always()
+    needs: [tests, configuration, fleet]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          TESTS: ${{ needs.tests.result }}
+          CONFIGURATION: ${{ needs.configuration.result }}
+          FLEET: ${{ needs.fleet.result }}
+        run: test "$TESTS" = success && test "$CONFIGURATION" = success && test "$FLEET" = success

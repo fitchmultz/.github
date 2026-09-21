@@ -1,0 +1,55 @@
+name: Pi release canary
+
+on:
+  schedule:
+    - cron: '23 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pi-release-canary
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    # Enabled only after the reviewed initial fleet rollout and account setup.
+    if: vars.PI_COMPATIBILITY_ENABLED == 'true'
+    uses: ./.github/workflows/pi-compatibility.yml
+    with:
+      automation-ref: ${{ github.sha }}
+      repository: all
+      source-ref: main
+      official-version: latest
+      check-published: true
+
+  report:
+    if: ${{ !cancelled() && vars.PI_COMPATIBILITY_ENABLED == 'true' }}
+    needs: qualify
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        # Resolver/build failures can legitimately leave no qualification artifact.
+        continue-on-error: true
+        with:
+          pattern: qualification-*
+          path: evidence
+      - name: Update one failure issue per affected repository and host
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION: ${{ needs.qualify.result }}
+        run: |
+          mkdir -p evidence
+          node scripts/report-canary.mjs evidence "$QUALIFICATION"
