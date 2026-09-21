@@ -1,3 +1,38 @@
+diff --git a/extensions/agent-browser/lib/electron/cleanup.ts b/extensions/agent-browser/lib/electron/cleanup.ts
+index 35cffbd..0ec73dd 100644
+--- a/extensions/agent-browser/lib/electron/cleanup.ts
++++ b/extensions/agent-browser/lib/electron/cleanup.ts
+@@ -84,13 +84,18 @@ export async function inspectElectronLaunchStatus(record: ElectronLaunchRecord,
+ 	};
+ }
+ 
++function hasProcessExited(child: ChildProcess | undefined, pid: number | undefined): boolean {
++	// A Windows PID probe can report ESRCH during termination, before the
++	// tracked process has exited and released its executable/resources.
++	return child ? child.exitCode !== null || child.signalCode !== null : isPidAlive(pid) === false;
++}
++
+ async function waitForProcessExit(child: ChildProcess | undefined, pid: number | undefined, deadlineMs: number): Promise<boolean> {
+ 	while (Date.now() <= deadlineMs) {
+-		if (child && (child.exitCode !== null || child.signalCode !== null)) return true;
+-		if (isPidAlive(pid) === false) return true;
++		if (hasProcessExited(child, pid)) return true;
+ 		await sleep(ELECTRON_CLEANUP_POLL_INTERVAL_MS);
+ 	}
+-	return isPidAlive(pid) === false;
++	return hasProcessExited(child, pid);
+ }
+ 
+ async function readPidCommandLine(pid: number | undefined): Promise<string | undefined> {
+@@ -146,7 +151,7 @@ function signalRestoredLaunchProcess(record: ElectronLaunchRecord, signal: NodeJ
+ 
+ async function cleanupProcess(record: ElectronLaunchRecord, child: ChildProcess | undefined, deadlineMs: number): Promise<ElectronCleanupStep> {
+ 	if (!record.pid) return { resource: "process", state: "skipped" };
+-	if (isPidAlive(record.pid) === false) return { resource: "process", state: "already-gone" };
++	if (hasProcessExited(child, record.pid)) return { resource: "process", state: "already-gone" };
+ 	if (!child) {
+ 		const verificationError = await getRestoredProcessVerificationError(record);
+ 		if (verificationError) return { error: verificationError, resource: "process", state: "failed" };
 diff --git a/extensions/agent-browser/lib/process.ts b/extensions/agent-browser/lib/process.ts
 index 65bf1f2..93fc0f2 100644
 --- a/extensions/agent-browser/lib/process.ts
@@ -307,10 +342,69 @@ index 3ce86a7..5fab807 100644
  		const symlinkResult = await discoverElectronApps({
  			locations: { linuxDesktopDirectories: [desktopDir], pathEnv: "" },
 diff --git a/test/agent-browser.extension-electron-lifecycle.test.ts b/test/agent-browser.extension-electron-lifecycle.test.ts
-index 7bd4a6c..59e2f44 100644
+index 7bd4a6c..80627e7 100644
 --- a/test/agent-browser.extension-electron-lifecycle.test.ts
 +++ b/test/agent-browser.extension-electron-lifecycle.test.ts
-@@ -654,6 +654,8 @@ test("agentBrowserExtension applies managed restore policy to every current-sess
+@@ -7,7 +7,8 @@
+  */
+ 
+ import assert from "node:assert/strict";
+-import { execFileSync } from "node:child_process";
++import { execFileSync, type ChildProcess } from "node:child_process";
++import { once } from "node:events";
+ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+@@ -16,8 +17,8 @@ import test from "node:test";
+ import { Check } from "typebox/value";
+ 
+ import { compileAgentBrowserElectron } from "../extensions/agent-browser/lib/input-modes/electron.js";
+-import type { ElectronLaunchStatus } from "../extensions/agent-browser/lib/electron/cleanup.js";
+-import type { ElectronLaunchRecord } from "../extensions/agent-browser/lib/electron/launch.js";
++import { cleanupElectronLaunchResources, type ElectronLaunchStatus } from "../extensions/agent-browser/lib/electron/cleanup.js";
++import { launchElectronApp, type ElectronLaunchRecord } from "../extensions/agent-browser/lib/electron/launch.js";
+ 
+ import { createManagedSessionRestoreKey, getManagedSessionRestoreScope } from "../extensions/agent-browser/lib/managed-session-restore.js";
+ import { getSessionPageStateKey, SessionPageState } from "../extensions/agent-browser/lib/session-page-state.js";
+@@ -595,6 +596,37 @@ test("agentBrowserExtension launches Electron with isolated profile, snapshot ha
+ 	}
+ });
+ 
++for (const terminateBeforeCleanup of [false, true]) {
++	test(`Electron cleanup awaits tracked child exit before removing owned resources (already signaled: ${terminateBeforeCleanup})`, { concurrency: false }, async () => {
++		const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-electron-exit-"));
++		let child: ChildProcess | undefined;
++		try {
++			const app = await writeFakeLaunchableElectronApp({ applicationsDir: tempDir, bundleId: "com.example.CleanupExit", launchLogPath: join(tempDir, "launch.json"), name: "Cleanup Exit" });
++			const launched = await launchElectronApp({ appPath: app.appPath, appArgs: app.appArgs });
++			assert.equal(launched.ok, true, launched.ok ? undefined : JSON.stringify(launched.failure));
++			if (!launched.ok) return;
++			child = launched.value.child;
++			let exited = false;
++			child.once("exit", () => { exited = true; });
++			if (terminateBeforeCleanup) child.kill("SIGTERM");
++			const cleanup = await cleanupElectronLaunchResources({ child, record: launched.value.record });
++			assert.equal(cleanup.partial, false, JSON.stringify(cleanup));
++			assert.equal(exited, true, "tracked process must exit before cleanup returns, not merely stop responding to PID probes");
++			assert.throws(() => process.kill(launched.value.record.pid!, 0), { code: "ESRCH" });
++			await assert.rejects(stat(launched.value.record.userDataDir), { code: "ENOENT" });
++			// In particular, Windows must release the running executable without rm retries.
++			await rm(app.executablePath);
++		} finally {
++			if (child && child.exitCode === null && child.signalCode === null) {
++				const exited = once(child, "exit", { signal: AbortSignal.timeout(2_000) });
++				child.kill("SIGKILL");
++				await exited;
++			}
++			await rm(tempDir, { force: true, recursive: true });
++		}
++	});
++}
++
+ test("agentBrowserExtension retains headed autosave policy for Electron cleanup close", { concurrency: false }, async () => {
+ 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-electron-headed-cleanup-"));
+ 	const applicationsDir = join(tempDir, "Applications");
+@@ -654,6 +686,8 @@ test("agentBrowserExtension applies managed restore policy to every current-sess
  	await writeFakeAgentBrowserBinary(tempDir, fakeAgentBrowserLifecycleScript(upstreamLogPath));
  	try {
  		await withPatchedEnv({

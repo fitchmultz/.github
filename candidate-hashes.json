@@ -1,6 +1,6 @@
 {
   "base": "6075283fea803fb5d002700852e591ef7d3a2caa",
-  "patch": "a1ee2d3f41bf9a1e65791767fe36f5445c71ebcdde82e3757f7de9f5b32bd57b",
+  "patch": "4caf18d0f9678dfaa7e007d714376efbdbda64fa23c9d1f38e9d2dfd301293dc",
   "files": {
     "extensions/agent-browser/lib/process.ts": "0742068e2850e147fd05d6ed46d24efd4d43229c1bb7a88f3d5e3dfb6b6185b0",
     "test/agent-browser.artifact-diagnostics.test.ts": "dc1dadf5172ed8cb30090fe80056c72e47df16c9f420d91bc2b23c0d9c28a574",
@@ -8,9 +8,10 @@
     "test/agent-browser.cold-resume.test.ts": "088da5b69c90b9fcf9d4c5a41429446751c14fbe7f59b2177517da104e5d5dce",
     "test/agent-browser.destination-cancel.test.ts": "0e286b4f9296af4475cc38a6f62c4bcb28d2cbe36d8917f6a2bfe297669cf6b6",
     "test/agent-browser.extension-electron-discovery.test.ts": "0739d23cfd7f457c3c5848a0bd037b74eb6b0014114973f8bd074ee3b088a287",
-    "test/agent-browser.extension-electron-lifecycle.test.ts": "66e8255bf8e667b4f7693a78b48232c6e572621325a89228adabbf3536e7fddb",
+    "test/agent-browser.extension-electron-lifecycle.test.ts": "e24d7fcf9fdd315198dc4fe5c81242e2a73bd4223f19f09fcb120af3d0b04d13",
     "test/agent-browser.extension-errors-artifacts.test.ts": "19dd1375c25c7af8db83fb10d88962c58a4aed90dfc4edb9f7af924fe5981939",
-    "test/agent-browser.process.test.ts": "b93e86d06efe60803f5ab646c71c380a56c0fae7b071b6cd26e3b8a63eb04a61"
+    "test/agent-browser.process.test.ts": "b93e86d06efe60803f5ab646c71c380a56c0fae7b071b6cd26e3b8a63eb04a61",
+    "extensions/agent-browser/lib/electron/cleanup.ts": "ef6fba53ee4ad1f108d1e7375cfe1ac96d82ff90b447bef9c3614e20042c34c9"
   },
   "concurrentParentOwned": [
     "test/agent-browser.artifact-diagnostics.test.ts",
