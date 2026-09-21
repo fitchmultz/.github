@@ -47,7 +47,7 @@ try {
  assert.equal(observe('green-regression',regression).status,0);
  assert.equal(observe('green-artifact',artifact).status,0);
  observe('typecheck',['node_modules/typescript/bin/tsc','--noEmit'],120000);
- observe('build',['scripts/project.mjs','build'],120000);
+ observe('build',['scripts/build.mjs'],120000);
  observe('original-process-controls',['--import','tsx','--test','--test-reporter=tap','--test-name-pattern=resolveSpawnedChildExitCode|stops a hung|handles closed stdin|handles abort during|resolves after exit|returns timeout exit|removes abort listeners|spills oversized stdout|stops spilling','test/agent-browser.process.test.ts'],120000);
  observe('affected-cleanup',['--import','tsx','--test','--test-reporter=tap','--test-concurrency=1','--test-name-pattern=abort|cancel|timeout|overlap|kill|cleanup|exits|exit','test/agent-browser.cold-boundaries.test.ts','test/agent-browser.destination-cancel.test.ts','test/agent-browser.extension-electron-discovery.test.ts','test/agent-browser.extension-electron-lifecycle.test.ts','test/agent-browser.extension-errors-artifacts.test.ts'],240000);
  report.finalHashes=Object.fromEntries(Object.keys(manifest.files).map(f=>[f,sha256(join(development,f))]));assert.deepEqual(report.finalHashes,manifest.files);

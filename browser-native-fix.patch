@@ -366,7 +366,7 @@ index f542c4b..e04e367 100644
  			assert.equal(result.details?.savedFilePath, "/tmp/export.csv");
  			assert.deepEqual(result.details?.savedFile, {
 diff --git a/test/agent-browser.process.test.ts b/test/agent-browser.process.test.ts
-index 116b37b..5a14059 100644
+index 116b37b..9c93127 100644
 --- a/test/agent-browser.process.test.ts
 +++ b/test/agent-browser.process.test.ts
 @@ -468,6 +468,50 @@ test("runAgentBrowserProcess stops a hung upstream client at the wrapper watchdo
@@ -400,7 +400,7 @@ index 116b37b..5a14059 100644
 +			assert.equal(result.timedOut, mode === "timeout");
 +			assert.equal(result.aborted, mode === "abort");
 +			assert.equal(getEventListeners(controller.signal, "abort").length, 0);
-+			assert.throws(() => process.kill(pid, 0), { code: "ESRCH" }, "fixture must be gone at return, not eventually");
++			assert.throws(() => process.kill(pid as number, 0), { code: "ESRCH" }, "fixture must be gone at return, not eventually");
 +			await rm(root, { recursive: true, force: true });
 +		} finally {
 +			controller.abort();

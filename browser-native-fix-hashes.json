@@ -1,6 +1,6 @@
 {
   "base": "6075283fea803fb5d002700852e591ef7d3a2caa",
-  "patch": "c3f68dc0a452179c0c04ed56ab71aad1410cc20ae14c7782c3868f7340be642a",
+  "patch": "8ad43f31907d37d09e5a7bcdf1ea119d537eaac3a37abe5870ceaf350adc37f5",
   "files": {
     "extensions/agent-browser/lib/process.ts": "0742068e2850e147fd05d6ed46d24efd4d43229c1bb7a88f3d5e3dfb6b6185b0",
     "test/agent-browser.artifact-diagnostics.test.ts": "75db8e7cf70a3026d8e8610512ea787d593f48742fbdd495692189cec2d06595",
@@ -10,6 +10,6 @@
     "test/agent-browser.extension-electron-discovery.test.ts": "285afcab75e4f418e06a2cb0390c7cc7da46eb164ddcdcdcca5b70a7f394f498",
     "test/agent-browser.extension-electron-lifecycle.test.ts": "66e8255bf8e667b4f7693a78b48232c6e572621325a89228adabbf3536e7fddb",
     "test/agent-browser.extension-errors-artifacts.test.ts": "19dd1375c25c7af8db83fb10d88962c58a4aed90dfc4edb9f7af924fe5981939",
-    "test/agent-browser.process.test.ts": "27d8ffe91f84ad5bf782c4ea6d2c633e189bad43075e8a2fe68d8831e15ebf39"
+    "test/agent-browser.process.test.ts": "b6be56ef0ca9570aa752c24107b4c19d8c1a9ca2f20db92eef346e79e256cd89"
   }
 }
