@@ -1,0 +1,21 @@
+{
+  "base": "6075283fea803fb5d002700852e591ef7d3a2caa",
+  "patch": "887e84e2e60949ebb3453d93b71d0f73d2c143107ec44e126c01a1af391f934a",
+  "files": {
+    "extensions/agent-browser/lib/process.ts": "0742068e2850e147fd05d6ed46d24efd4d43229c1bb7a88f3d5e3dfb6b6185b0",
+    "test/agent-browser.artifact-diagnostics.test.ts": "dc1dadf5172ed8cb30090fe80056c72e47df16c9f420d91bc2b23c0d9c28a574",
+    "test/agent-browser.cold-boundaries.test.ts": "8816a03c20284131e838248686ceec76e59890b7ab90d299b4b6091d40f8569b",
+    "test/agent-browser.cold-resume.test.ts": "088da5b69c90b9fcf9d4c5a41429446751c14fbe7f59b2177517da104e5d5dce",
+    "test/agent-browser.destination-cancel.test.ts": "0e286b4f9296af4475cc38a6f62c4bcb28d2cbe36d8917f6a2bfe297669cf6b6",
+    "test/agent-browser.extension-electron-discovery.test.ts": "285afcab75e4f418e06a2cb0390c7cc7da46eb164ddcdcdcca5b70a7f394f498",
+    "test/agent-browser.extension-electron-lifecycle.test.ts": "66e8255bf8e667b4f7693a78b48232c6e572621325a89228adabbf3536e7fddb",
+    "test/agent-browser.extension-errors-artifacts.test.ts": "19dd1375c25c7af8db83fb10d88962c58a4aed90dfc4edb9f7af924fe5981939",
+    "test/agent-browser.process.test.ts": "b93e86d06efe60803f5ab646c71c380a56c0fae7b071b6cd26e3b8a63eb04a61"
+  },
+  "frozenSource": "/tmp/bpf-source-buswo33o",
+  "parentOwned": [
+    "test/agent-browser.artifact-diagnostics.test.ts",
+    "test/agent-browser.process.test.ts",
+    "test/agent-browser.cold-boundaries.test.ts"
+  ]
+}
