@@ -191,6 +191,10 @@ jobs:
           for tool in fd ripgrep zstd; do
             brew list "$tool" >/dev/null 2>&1 || brew install "$tool"
           done
+      - name: Initialize native Windows module discovery for bash
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
       - name: Qualify the selected host and consumer artifacts
         shell: bash
         env:
