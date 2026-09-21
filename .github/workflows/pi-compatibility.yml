@@ -145,8 +145,9 @@ jobs:
     name: ${{ matrix.repo }} / ${{ matrix.label }} / ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.repo == 'pi-agent-browser-native' && matrix.os == 'windows-latest' && 35 || 25 }}
-    # The previous official target is a diagnostic comparison, not an unbounded support promise.
-    continue-on-error: ${{ matrix.label == 'baseline' }}
+    # Previous official baselines are diagnostic; the owner waived Windows qualification on 2026-09-21.
+    # Keep Windows failures and artifacts visible without blocking the rollout.
+    continue-on-error: ${{ matrix.label == 'baseline' || matrix.os == 'windows-latest' }}
     env:
       npm_config_cache: ${{ github.workspace }}/.npm-cache
     steps:

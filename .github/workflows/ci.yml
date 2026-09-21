@@ -51,6 +51,8 @@ jobs:
         run: npm run test:native
 
   windows-environment:
+    # Windows qualification is owner-waived; retain this diagnostic without gating delivery.
+    continue-on-error: true
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
@@ -100,12 +102,11 @@ jobs:
 
   automation:
     if: always()
-    needs: [tests, windows-environment, configuration, fleet]
+    needs: [tests, configuration, fleet]
     runs-on: ubuntu-latest
     steps:
       - env:
           TESTS: ${{ needs.tests.result }}
-          WINDOWS_ENVIRONMENT: ${{ needs.windows-environment.result }}
           CONFIGURATION: ${{ needs.configuration.result }}
           FLEET: ${{ needs.fleet.result }}
-        run: test "$TESTS" = success && test "$WINDOWS_ENVIRONMENT" = success && test "$CONFIGURATION" = success && test "$FLEET" = success
+        run: test "$TESTS" = success && test "$CONFIGURATION" = success && test "$FLEET" = success
