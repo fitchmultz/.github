@@ -1,0 +1,371 @@
+diff --git a/test/agent-browser.presentation-artifacts-batch.test.ts b/test/agent-browser.presentation-artifacts-batch.test.ts
+index 3f9744e..44e2d5d 100644
+--- a/test/agent-browser.presentation-artifacts-batch.test.ts
++++ b/test/agent-browser.presentation-artifacts-batch.test.ts
+@@ -35,35 +35,38 @@ test("batch stdin shape errors include a copyable native-tool example", () => {
+ 	assert.match(error, /\{ "args": \["batch"\], "stdin": "\[\[\\"get\\",\\"title\\"\],\[\\"get\\",\\"url\\"\]\]" \}/);
+ });
+ 
+-test("buildToolPresentation formats download results as saved-file summaries", async () => {
++test("buildToolPresentation formats download results as saved-file summaries", async (t) => {
++	const tempDir = await mkdtemp(join(tmpdir(), "piab-missing-download-"));
++	t.after(() => rm(tempDir, { force: true, recursive: true }));
++	const downloadPath = join(tempDir, "report.pdf");
+ 	const presentation = await buildToolPresentation({
+ 		commandInfo: { command: "download", subcommand: "@e5" },
+ 		cwd: process.cwd(),
+ 		envelope: {
+ 			success: true,
+ 			data: {
+-				path: "/tmp/report.pdf",
++				path: downloadPath,
+ 			},
+ 		},
+ 	});
+ 
+ 	assert.equal(presentation.content[0]?.type, "text");
+-	assert.match((presentation.content[0] as { text: string }).text, /Download reported; file not verified: \/tmp\/report\.pdf/);
++	assert.ok((presentation.content[0] as { text: string }).text.includes(`Download reported; file not verified: ${downloadPath}`));
+ 	assert.doesNotMatch((presentation.content[0] as { text: string }).text, /Media type:/);
+ 	assert.match((presentation.content[0] as { text: string }).text, /not found on disk/);
+-	assert.equal(presentation.summary, "Artifact verification failed: requested download was not found at /tmp/report.pdf.");
++	assert.equal(presentation.summary, `Artifact verification failed: requested download was not found at ${downloadPath}.`);
+ 	assert.equal(presentation.resultCategory, "failure");
+ 	assert.equal(presentation.failureCategory, "artifact-missing");
+ 	assert.equal(presentation.artifacts?.[0]?.kind, "download");
+-	assert.equal(presentation.artifacts?.[0]?.path, "/tmp/report.pdf");
+-	assert.equal(presentation.artifacts?.[0]?.absolutePath, "/tmp/report.pdf");
++	assert.equal(presentation.artifacts?.[0]?.path, downloadPath);
++	assert.equal(presentation.artifacts?.[0]?.absolutePath, downloadPath);
+ 	assert.equal(presentation.artifacts?.[0]?.mediaType, undefined);
+ 	assert.equal(presentation.artifacts?.[0]?.exists, false);
+-	assert.equal(presentation.savedFilePath, "/tmp/report.pdf");
++	assert.equal(presentation.savedFilePath, downloadPath);
+ 	assert.deepEqual(presentation.savedFile, {
+ 		command: "download",
+ 		kind: "download",
+-		path: "/tmp/report.pdf",
++		path: downloadPath,
+ 		subcommand: "@e5",
+ 	});
+ });
+@@ -107,7 +110,9 @@ test("buildToolPresentation does not treat data-url download payloads as verifie
+ 	assert.doesNotMatch((presentation.content[0] as { text: string }).text, /Download completed|Downloaded file|not found on disk/);
+ });
+ 
+-test("buildToolPresentation renders metadata-first summaries for file artifact commands", async () => {
++test("buildToolPresentation renders metadata-first summaries for file artifact commands", async (t) => {
++	const tempDir = await mkdtemp(join(tmpdir(), "piab-missing-artifacts-"));
++	t.after(() => rm(tempDir, { force: true, recursive: true }));
+ 	const cases = [
+ 		{
+ 			commandInfo: { command: "pdf" },
+@@ -156,25 +161,25 @@ test("buildToolPresentation renders metadata-first summaries for file artifact c
+ 	for (const item of cases) {
+ 		const presentation = await buildToolPresentation({
+ 			commandInfo: item.commandInfo,
+-			cwd: "/tmp/pi-agent-browser-artifact-tests",
++			cwd: tempDir,
+ 			envelope: { success: true, data: item.data },
+ 		});
+ 
+ 		assert.equal(presentation.content[0]?.type, "text");
+ 		assert.match((presentation.content[0] as { text: string }).text, new RegExp(item.expectedText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+-		assert.equal(presentation.summary, `Artifact verification failed: requested ${item.expectedKind} was not found at ${join("/tmp/pi-agent-browser-artifact-tests", item.data.path)}.`);
++		assert.equal(presentation.summary, `Artifact verification failed: requested ${item.expectedKind} was not found at ${join(tempDir, item.data.path)}.`);
+ 		assert.equal(presentation.resultCategory, "failure");
+ 		assert.equal(presentation.failureCategory, "artifact-missing");
+ 		assert.equal(presentation.artifacts?.length, 1);
+ 		assert.equal(presentation.artifacts?.[0]?.kind, item.expectedKind);
+ 		assert.equal(presentation.artifacts?.[0]?.path, item.data.path);
+-		assert.equal(presentation.artifacts?.[0]?.absolutePath, join("/tmp/pi-agent-browser-artifact-tests", item.data.path));
++		assert.equal(presentation.artifacts?.[0]?.absolutePath, join(tempDir, item.data.path));
+ 		assert.equal(presentation.artifacts?.[0]?.mediaType, undefined);
+ 		assert.equal(presentation.artifacts?.[0]?.exists, false);
+ 		assert.equal(presentation.artifactVerification?.missingCount, 1);
+ 		assert.equal(presentation.artifactVerification?.verified, false);
+ 		assert.equal(presentation.artifactVerification?.artifacts[0]?.state, "missing");
+-		assert.equal(presentation.artifactVerification?.artifacts[0]?.absolutePath, join("/tmp/pi-agent-browser-artifact-tests", item.data.path));
++		assert.equal(presentation.artifactVerification?.artifacts[0]?.absolutePath, join(tempDir, item.data.path));
+ 		assert.equal(presentation.imagePath, undefined);
+ 		assert.equal(presentation.imagePaths, undefined);
+ 		if (item.commandInfo.command === "pdf") {
+@@ -207,14 +212,16 @@ test("buildToolPresentation does not classify state load paths as saved artifact
+ 	assert.match((presentation.content[0] as { text: string }).text, /auth-state\.json/);
+ });
+ 
+-test("buildToolPresentation records path-bearing diff screenshots without inlining them as trusted screenshots", async () => {
++test("buildToolPresentation records path-bearing diff screenshots without inlining them as trusted screenshots", async (t) => {
++	const tempDir = await mkdtemp(join(tmpdir(), "piab-missing-diff-"));
++	t.after(() => rm(tempDir, { force: true, recursive: true }));
+ 	const presentation = await buildToolPresentation({
+ 		commandInfo: { command: "diff", subcommand: "screenshot" },
+-		cwd: "/tmp/pi-agent-browser-artifact-tests",
++		cwd: tempDir,
+ 		envelope: { success: true, data: { baselinePath: "baseline.png", diffPath: "diff.png", mismatchPixels: 12 } },
+ 	});
+ 
+-	assert.equal(presentation.summary, "Artifact verification failed: requested image was not found at /tmp/pi-agent-browser-artifact-tests/diff.png.");
++	assert.equal(presentation.summary, `Artifact verification failed: requested image was not found at ${join(tempDir, "diff.png")}.`);
+ 	assert.equal(presentation.resultCategory, "failure");
+ 	assert.equal(presentation.failureCategory, "artifact-missing");
+ 	assert.equal(presentation.content[0]?.type, "text");
+@@ -226,17 +233,19 @@ test("buildToolPresentation records path-bearing diff screenshots without inlini
+ 	assert.equal(presentation.artifacts?.length, 1);
+ 	assert.equal(presentation.artifacts?.[0]?.kind, "image");
+ 	assert.equal(presentation.artifacts?.[0]?.path, "diff.png");
+-	assert.equal(presentation.artifacts?.[0]?.absolutePath, join("/tmp/pi-agent-browser-artifact-tests", "diff.png"));
++	assert.equal(presentation.artifacts?.[0]?.absolutePath, join(tempDir, "diff.png"));
+ 	assert.equal(presentation.artifactVerification?.artifacts[0]?.state, "missing");
+ 	assert.equal(presentation.artifactVerification?.artifacts[0]?.path, "diff.png");
+ 	assert.equal(presentation.imagePath, undefined);
+ 	assert.equal(presentation.imagePaths, undefined);
+ });
+ 
+-test("buildToolPresentation renders record start as a lifecycle state without missing-file copy", async () => {
++test("buildToolPresentation renders record start as a lifecycle state without missing-file copy", async (t) => {
++	const tempDir = await mkdtemp(join(tmpdir(), "piab-pending-record-"));
++	t.after(() => rm(tempDir, { force: true, recursive: true }));
+ 	const presentation = await buildToolPresentation({
+ 		commandInfo: { command: "record", subcommand: "start" },
+-		cwd: "/tmp/pi-agent-browser-artifact-tests",
++		cwd: tempDir,
+ 		envelope: { success: true, data: { path: "recording.webm" } },
+ 	});
+ 
+@@ -252,7 +261,7 @@ test("buildToolPresentation renders record start as a lifecycle state without mi
+ 	assert.equal(presentation.artifacts?.length, 1);
+ 	assert.equal(presentation.artifacts?.[0]?.kind, "video");
+ 	assert.equal(presentation.artifacts?.[0]?.path, "recording.webm");
+-	assert.equal(presentation.artifacts?.[0]?.absolutePath, join("/tmp/pi-agent-browser-artifact-tests", "recording.webm"));
++	assert.equal(presentation.artifacts?.[0]?.absolutePath, join(tempDir, "recording.webm"));
+ 	assert.equal(presentation.artifacts?.[0]?.mediaType, undefined);
+ 	assert.equal(presentation.artifacts?.[0]?.exists, undefined);
+ 	assert.equal(presentation.artifacts?.[0]?.status, "pending");
+@@ -904,7 +913,10 @@ test("buildToolPresentation does not inline non-screenshot path records with ima
+ 	}
+ });
+ 
+-test("buildToolPresentation preserves wait --download saved-file metadata inside batch output", async () => {
++test("buildToolPresentation preserves wait --download saved-file metadata inside batch output", async (t) => {
++	const tempDir = await mkdtemp(join(tmpdir(), "piab-missing-batch-download-"));
++	t.after(() => rm(tempDir, { force: true, recursive: true }));
++	const downloadPath = join(tempDir, "export.csv");
+ 	const presentation = await buildToolPresentation({
+ 		commandInfo: { command: "batch" },
+ 		cwd: process.cwd(),
+@@ -912,7 +924,7 @@ test("buildToolPresentation preserves wait --download saved-file metadata inside
+ 			success: true,
+ 			data: [
+ 				{ command: ["click", "#export"], result: { clicked: true }, success: true },
+-				{ command: ["wait", "--download", "/tmp/export.csv"], result: { path: "/tmp/export.csv", elapsedMs: 75 }, success: true },
++				{ command: ["wait", "--download", downloadPath], result: { path: downloadPath, elapsedMs: 75 }, success: true },
+ 			],
+ 		},
+ 	});
+@@ -921,25 +933,25 @@ test("buildToolPresentation preserves wait --download saved-file metadata inside
+ 	assert.match(text, /Batch failed: 1\/2 succeeded/);
+ 	assert.doesNotMatch(text, /Batch: 2\/2 succeeded/);
+ 	assert.match(text, /Step 1 — click #export/);
+-	assert.match(text, /Step 2 — wait --download \/tmp\/export\.csv/);
+-	assert.match(text, /Download event reported; file not verified: \/tmp\/export\.csv/);
++	assert.ok(text.includes(`Step 2 — wait --download ${downloadPath}`));
++	assert.ok(text.includes(`Download event reported; file not verified: ${downloadPath}`));
+ 	assert.equal(presentation.batchSteps?.[1]?.artifacts?.[0]?.kind, "download");
+-	assert.equal(presentation.batchSteps?.[1]?.savedFilePath, "/tmp/export.csv");
++	assert.equal(presentation.batchSteps?.[1]?.savedFilePath, downloadPath);
+ 	assert.deepEqual(presentation.batchSteps?.[1]?.savedFile, {
+ 		command: "wait",
+ 		kind: "download",
+ 		metadata: { elapsedMs: 75 },
+-		path: "/tmp/export.csv",
++		path: downloadPath,
+ 		subcommand: "--download",
+ 	});
+-	assert.equal(presentation.summary, "Artifact verification failed: requested download was not found at /tmp/export.csv.");
++	assert.equal(presentation.summary, `Artifact verification failed: requested download was not found at ${downloadPath}.`);
+ 	assert.equal(presentation.batchFailure?.successCount, 1);
+ 	assert.equal(presentation.batchFailure?.totalCount, 2);
+ 	assert.equal(presentation.batchSteps?.[1]?.artifactVerification?.missingCount, 1);
+ 	assert.equal(presentation.artifactVerification?.missingCount, 1);
+-	assert.deepEqual(presentation.batchSteps?.[1]?.nextActions?.[0]?.params?.args, ["wait", "--download", "/tmp/export.csv"]);
++	assert.deepEqual(presentation.batchSteps?.[1]?.nextActions?.[0]?.params?.args, ["wait", "--download", downloadPath]);
+ 	assert.equal(presentation.batchSteps?.[1]?.pageChangeSummary?.changeType, "artifact");
+-	assert.equal(presentation.batchSteps?.[1]?.pageChangeSummary?.savedFilePath, "/tmp/export.csv");
++	assert.equal(presentation.batchSteps?.[1]?.pageChangeSummary?.savedFilePath, downloadPath);
+ });
+ 
+ test("buildToolPresentation does not re-append old artifact retention noise for routine explicit batch files", async () => {
+diff --git a/test/agent-browser.snapshot-presentation.test.ts b/test/agent-browser.snapshot-presentation.test.ts
+index 47e815f..a928a63 100644
+--- a/test/agent-browser.snapshot-presentation.test.ts
++++ b/test/agent-browser.snapshot-presentation.test.ts
+@@ -7,7 +7,7 @@
+  */
+ 
+ import assert from "node:assert/strict";
+-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
++import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import { dirname, join } from "node:path";
+ import test from "node:test";
+@@ -103,14 +103,19 @@ test("buildToolPresentation compacts oversized snapshots and spills a redacted s
+ 	assert.ok(spillPath);
+ 	assert.match(text, new RegExp(spillPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+ 	const spillText = await readFile(spillPath, "utf8");
+-	const spillStats = await stat(spillPath);
+-	const spillDirStats = await stat(dirname(spillPath));
++	const spillStats = await lstat(spillPath);
++	const spillDirStats = await lstat(dirname(spillPath));
+ 	assert.match(spillText, /Large snapshot row 120/);
+ 	assert.match(spillText, /Actionable control 1/);
+ 	assert.match(spillText, /SAMLRequest=%5BREDACTED%5D&RelayState=%5BREDACTED%5D/);
+ 	assert.doesNotMatch(spillText, /saml-secret|relay-secret/);
+-	assert.equal(spillStats.mode & 0o777, 0o600);
+-	assert.equal(spillDirStats.mode & 0o777, 0o700);
++	assert.equal(spillStats.isFile(), true);
++	assert.equal(spillDirStats.isDirectory(), true);
++	// Windows mode bits do not represent POSIX owner-only access; retain type and content proof there.
++	if (process.platform !== "win32") {
++		assert.equal(spillStats.mode & 0o777, 0o600);
++		assert.equal(spillDirStats.mode & 0o777, 0o700);
++	}
+ 	await rm(spillPath, { force: true });
+ });
+ 
+@@ -145,8 +150,15 @@ test("buildToolPresentation keeps compact snapshot spill files in the persisted
+ 		assert.equal(spillPath?.startsWith(join(sessionDir, ".pi-agent-browser-artifacts", TEST_SESSION_ID)), true);
+ 		await cleanupSecureTempArtifacts();
+ 		assert.match(await readFile(String(spillPath), "utf8"), /Persisted snapshot row 120/);
+-		assert.equal((await stat(String(spillPath))).mode & 0o777, 0o600);
+-		assert.equal((await stat(dirname(String(spillPath)))).mode & 0o777, 0o700);
++		const spillStats = await lstat(String(spillPath));
++		const spillDirStats = await lstat(dirname(String(spillPath)));
++		assert.equal(spillStats.isFile(), true);
++		assert.equal(spillDirStats.isDirectory(), true);
++		// NTFS access is governed by ACLs, not the POSIX permission bits exposed by stat.
++		if (process.platform !== "win32") {
++			assert.equal(spillStats.mode & 0o777, 0o600);
++			assert.equal(spillDirStats.mode & 0o777, 0o700);
++		}
+ 	} finally {
+ 		await cleanupSecureTempArtifacts();
+ 		await rm(sessionDir, { force: true, recursive: true });
+diff --git a/test/doctor.test.ts b/test/doctor.test.ts
+index 65f16a8..7e83976 100644
+--- a/test/doctor.test.ts
++++ b/test/doctor.test.ts
+@@ -7,7 +7,9 @@
+  */
+ 
+ import assert from "node:assert/strict";
++import { resolve } from "node:path";
+ import test from "node:test";
++import { pathToFileURL } from "node:url";
+ 
+ import { CAPABILITY_BASELINE } from "../scripts/agent-browser-capability-baseline.mjs";
+ 
+@@ -137,8 +139,8 @@ test("doctor warns instead of failing when Pi version cannot be inspected", asyn
+ 
+ test("doctor reports duplicate package and checkout sources with remediation", async () => {
+ 	const settingsByPath = new Map([
+-		["/agent/settings.json", JSON.stringify({ packages: ["npm:pi-agent-browser-native"] })],
+-		["/repo/.pi/settings.json", JSON.stringify({ extensions: ["/repo/extensions/agent-browser/index.ts"] })],
++		[resolve("/agent/settings.json"), JSON.stringify({ packages: ["npm:pi-agent-browser-native"] })],
++		[resolve("/repo/.pi/settings.json"), JSON.stringify({ extensions: ["../extensions/agent-browser/index.ts"] })],
+ 	]);
+ 	const report = await evaluateDoctorWithPi({
+ 		agentDir: "/agent",
+@@ -159,7 +161,7 @@ test("doctor reports duplicate package and checkout sources with remediation", a
+ });
+ 
+ test("doctor passes the source check when exactly one configured source is active", async () => {
+-	const settingsByPath = new Map([["/agent/settings.json", JSON.stringify({ packages: ["npm:pi-agent-browser-native"] })]]);
++	const settingsByPath = new Map([[resolve("/agent/settings.json"), JSON.stringify({ packages: ["npm:pi-agent-browser-native"] })]]);
+ 	const report = await evaluateDoctorWithPi({
+ 		agentDir: "/agent",
+ 		cwd: "/repo",
+@@ -175,7 +177,7 @@ test("doctor passes the source check when exactly one configured source is activ
+ });
+ 
+ test("doctor resolves relative package sources from their settings file directory", async () => {
+-	const settingsByPath = new Map([["/home/user/.pi/agent/settings.json", JSON.stringify({ packages: ["../../Projects/AI/pi-agent-browser"] })]]);
++	const settingsByPath = new Map([[resolve("/home/user/.pi/agent/settings.json"), JSON.stringify({ packages: ["../../Projects/AI/pi-agent-browser"] })]]);
+ 	const report = await evaluateDoctorWithPi({
+ 		agentDir: "/home/user/.pi/agent",
+ 		cwd: "/home/user/Projects/AI/pi-agent-browser",
+@@ -192,7 +194,7 @@ test("doctor resolves relative package sources from their settings file director
+ 
+ test("doctor resolves relative extension sources from their settings file directory", async () => {
+ 	const settingsByPath = new Map([
+-		["/home/user/.pi/agent/settings.json", JSON.stringify({ extensions: ["../../Projects/AI/pi-agent-browser/extensions/agent-browser/index.ts"] })],
++		[resolve("/home/user/.pi/agent/settings.json"), JSON.stringify({ extensions: ["../../Projects/AI/pi-agent-browser/extensions/agent-browser/index.ts"] })],
+ 	]);
+ 	const report = await evaluateDoctorWithPi({
+ 		agentDir: "/home/user/.pi/agent",
+@@ -210,7 +212,7 @@ test("doctor resolves relative extension sources from their settings file direct
+ 
+ test("doctor recognizes compiled extension entrypoint sources", async () => {
+ 	const settingsByPath = new Map([
+-		["/home/user/.pi/agent/settings.json", JSON.stringify({ extensions: ["../../Projects/AI/pi-agent-browser/dist/extensions/agent-browser/index.js"] })],
++		[resolve("/home/user/.pi/agent/settings.json"), JSON.stringify({ extensions: ["../../Projects/AI/pi-agent-browser/dist/extensions/agent-browser/index.js"] })],
+ 	]);
+ 	const report = await evaluateDoctorWithPi({
+ 		agentDir: "/home/user/.pi/agent",
+@@ -243,7 +245,7 @@ test("doctor treats no configured source as an informational warning, not a fail
+ 
+ test("doctor remains read-only through injected I/O", async () => {
+ 	const calls: string[] = [];
+-	const settingsByPath = new Map([["/agent/settings.json", JSON.stringify({ packages: ["npm:pi-agent-browser-native"] })]]);
++	const settingsByPath = new Map([[resolve("/agent/settings.json"), JSON.stringify({ packages: ["npm:pi-agent-browser-native"] })]]);
+ 	const report = await evaluateDoctorWithPi({
+ 		agentDir: "/agent",
+ 		cwd: "/repo",
+@@ -267,15 +269,16 @@ test("doctor remains read-only through injected I/O", async () => {
+ });
+ 
+ test("isDirectRun resolves npm bin symlinks before comparing the entrypoint", () => {
+-	const metaUrl = "file:///package/scripts/doctor.mjs";
+-	const resolveRealPath = (path: string) => {
+-		if (path === "/tmp/node_modules/.bin/pi-agent-browser-doctor") return "/package/scripts/doctor.mjs";
+-		return path;
+-	};
++	const entrypoint = resolve("/package with spaces/#tools/scripts/doctor.mjs");
++	const binPath = resolve("/tmp/node_modules/.bin/pi-agent-browser-doctor");
++	const metaUrl = pathToFileURL(entrypoint).href;
++	const resolveRealPath = (path: string) => path === binPath ? entrypoint : path;
+ 
+-	assert.equal(isDirectRun(metaUrl, "/tmp/node_modules/.bin/pi-agent-browser-doctor", resolveRealPath), true);
+-	assert.equal(isDirectRun(metaUrl, "/other/script.mjs", resolveRealPath), false);
++	assert.equal(isDirectRun(metaUrl, binPath, resolveRealPath), true);
++	assert.equal(isDirectRun(metaUrl, entrypoint, resolveRealPath), true);
++	assert.equal(isDirectRun(metaUrl, resolve("/other/script.mjs"), resolveRealPath), false);
+ 	assert.equal(isDirectRun(metaUrl, undefined, resolveRealPath), false);
++	assert.equal(isDirectRun(metaUrl, binPath, () => { throw new Error("missing entrypoint"); }), false);
+ });
+ 
+ test("parseCliArgs supports help, paths, repeated settings, and skip-source-check", () => {
+diff --git a/test/verify-lifecycle.test.ts b/test/verify-lifecycle.test.ts
+index ed74f11..4e62e1d 100644
+--- a/test/verify-lifecycle.test.ts
++++ b/test/verify-lifecycle.test.ts
+@@ -8,7 +8,7 @@
+ 
+ import assert from "node:assert/strict";
+ import { execFile as execFileCallback } from "node:child_process";
+-import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
++import { appendFile, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import { pathToFileURL } from "node:url";
+@@ -277,7 +277,9 @@ test("lifecycle wait discovers the initial transcript for observed open validati
+ 			describe: "initial open", sessionDir: directory, timeoutMs: 2000, sinceCount: 0,
+ 			predicate: (result) => matchesSuccessfulPageResult(result, "open", "https://react.dev/"),
+ 		});
+-		assert.equal(opened.sessionFile, sessionFile);
++		// Native find may return mixed separators; assert the discovered file's identity, not its spelling.
++		assert.equal(await realpath(opened.sessionFile), await realpath(sessionFile));
++		assert.equal(matchesSuccessfulPageResult(opened.result, "open", "https://react.dev/"), true);
+ 	} finally {
+ 		await rm(directory, { force: true, recursive: true });
+ 	}
