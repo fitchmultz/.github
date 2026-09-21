@@ -33,7 +33,13 @@ try {
   closeSync(stdout);closeSync(stderr);Object.assign(report.runs[name],result,{finished:Date.now()});save(); console.log(name,result);return result;
  };
  const testArgs=['--import','tsx','--test','--test-reporter=tap','--test-concurrency=1'];
- if(process.env.MANAGED_TRACE_ONLY==='1') {
+ if(process.env.MANAGED_FOLLOWUP==='1') {
+  const focused=[...testArgs,'--test-name-pattern=competing cross-process reclaimers stay serialized after a stale claim','test/agent-browser.managed-session-policy-lock.test.ts'];
+  await check('unchanged-focused-once',focused);
+  // Fixed diagnostic sample count, independent of outcome; not qualification.
+  for(let iteration=1;iteration<=8;iteration++) await check(`contention-trace-${iteration}`,focused,true);
+  report.result='diagnostic-complete';
+ } else if(process.env.MANAGED_TRACE_ONLY==='1') {
   await check('old-locks',[...testArgs,'test/agent-browser.managed-session-policy-lock.test.ts'],true);
   await check('old-contention',[...testArgs,'--test-name-pattern=cross-instance lock contention','test/agent-browser.extension-errors-artifacts.test.ts'],true);
   await check('old-restore',[...testArgs,'test/agent-browser.managed-session-restore.test.ts']);

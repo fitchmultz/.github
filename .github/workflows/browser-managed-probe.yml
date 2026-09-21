@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: '24.21.0'
           check-latest: true
           package-manager-cache: false
       - name: Initialize native Windows module discovery for bash
@@ -40,9 +40,9 @@ jobs:
       - name: Use the same native npm toolchain
         shell: bash
         run: npm install --global npm@11.19.0
-      - name: Qualify full managed-session files and original-production controls
+      - name: One unchanged focused retry and eight bounded native observations
         shell: bash
-        run: node probe/check.mjs "$GITHUB_WORKSPACE/automation" "$GITHUB_WORKSPACE/browser" official "$GITHUB_WORKSPACE/probe/evidence"
+        run: MANAGED_FOLLOWUP=1 node probe/check.mjs "$GITHUB_WORKSPACE/automation" "$GITHUB_WORKSPACE/browser" official "$GITHUB_WORKSPACE/probe/evidence"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
         if: always()
         with:
