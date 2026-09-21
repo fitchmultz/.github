@@ -5,9 +5,9 @@ on:
 permissions:
   contents: read
 jobs:
-  probe:
+  oracle-profile:
     runs-on: windows-latest
-    timeout-minutes: 8
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -16,53 +16,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: fitchmultz/.github
-          ref: 00794928f9df8e56fdc7f6fbed69ce986e7d8f3c
+          ref: a78d00c02fa2f3c05fe53b082f0a338150981a65
           path: automation
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: fitchmultz/.github
-          ref: 425f6367e5c5d997cac271b011d9cce76cd57d6c
-          path: previous
+          repository: fitchmultz/pi-oracle
+          ref: a98097c81a9355c5138ac26cb2c9b8b8e15bf5b6
+          path: oracle
+          sparse-checkout: |
+            extensions/oracle/shared/browser-profile-helpers.mjs
+            package.json
+          sparse-checkout-cone-mode: false
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           check-latest: true
           package-manager-cache: false
-      - name: Initialize the runner native PowerShell module path for following bash steps
+      - name: Initialize native Windows module discovery for bash
         shell: pwsh
-        run: |
-          node probe/windows-shell-probe.mjs pwsh-before-bash
-          "PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Exact Windows regression fails before the environment repair and passes afterward
+        run: '"PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+      - name: Compare original and corrected private Oracle cleanup fixture paths
         shell: bash
-        run: |
-          set -euo pipefail
-          cp automation/scripts/common.mjs automation/scripts/common.candidate.mjs
-          trap 'mv -f automation/scripts/common.candidate.mjs automation/scripts/common.mjs' EXIT
-          cp previous/scripts/common.mjs automation/scripts/common.mjs
-          set +e
-          node --test --test-reporter=tap automation/test/windows-environment.native.mjs > before.tap 2>&1
-          before_status=$?
-          set -e
-          printf 'Previous environment exit status: %s\n' "$before_status"
-          cat before.tap
-          test "$before_status" -ne 0
-          grep -q ETIMEDOUT before.tap
-          cp automation/scripts/common.candidate.mjs automation/scripts/common.mjs
-          cmp automation/scripts/common.candidate.mjs automation/scripts/common.mjs
-          node --test --test-reporter=tap automation/test/windows-environment.native.mjs | tee after.tap
-          git -C automation diff --exit-code -- scripts/common.mjs test/windows-environment.native.mjs
-      - name: Inspect exact inherited OS module paths and single-variable controls under bash
-        if: always()
-        shell: bash
-        run: node probe/windows-shell-probe.mjs bash
-      - name: Compare the same native boundaries under PowerShell
-        if: always()
-        shell: pwsh
-        run: node probe/windows-shell-probe.mjs pwsh
-      - name: Execute the exact candidate native regression under PowerShell
-        if: always()
-        shell: pwsh
-        run: node --test --test-reporter=tap automation/test/windows-environment.native.mjs
+        run: node probe/oracle-profile-path-probe.mjs
