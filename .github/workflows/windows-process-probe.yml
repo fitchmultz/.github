@@ -5,9 +5,9 @@ on:
 permissions:
   contents: read
 jobs:
-  oracle-profile:
+  browser-boundaries:
     runs-on: windows-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -21,13 +21,9 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: fitchmultz/pi-oracle
-          ref: a98097c81a9355c5138ac26cb2c9b8b8e15bf5b6
-          path: oracle
-          sparse-checkout: |
-            extensions/oracle/shared/browser-profile-helpers.mjs
-            package.json
-          sparse-checkout-cone-mode: false
+          repository: fitchmultz/pi-agent-browser-native
+          ref: 6075283fea803fb5d002700852e591ef7d3a2caa
+          path: browser
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -37,6 +33,15 @@ jobs:
       - name: Initialize native Windows module discovery for bash
         shell: pwsh
         run: '"PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
-      - name: Compare original and corrected private Oracle cleanup fixture paths
+      - name: Use the same native npm toolchain
         shell: bash
-        run: node probe/oracle-profile-path-probe.mjs
+        run: npm install --global npm@11.19.0
+      - name: Observe actual isolated Browser subprocess and artifact boundaries
+        shell: bash
+        run: node probe/browser-boundaries.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        if: always()
+        with:
+          name: browser-native-boundaries
+          path: probe/evidence
+          if-no-files-found: error
