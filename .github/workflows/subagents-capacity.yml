@@ -1,0 +1,90 @@
+name: Subagents native capacity diagnostic
+on:
+  push:
+    branches: [compatibility/subagents-capacity-probe]
+permissions:
+  contents: read
+jobs:
+  measure:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    env:
+      npm_config_cache: ${{ github.workspace }}/.npm-cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: diagnostic
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: fitchmultz/.github
+          ref: a78d00c02fa2f3c05fe53b082f0a338150981a65
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: fitchmultz/pi-subagents
+          ref: 0f90560e9ea4dfe7377cf103b2142336d8141162
+          path: extension
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: fitchmultz/pi
+          ref: f371064864ef239d66a81ee645a6774dc525be40
+          path: fork
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        id: node
+        with:
+          node-version: '24.21.0'
+          check-latest: true
+          cache: npm
+          cache-dependency-path: fork/package-lock.json
+      - name: Reviewed toolchain and native prerequisites
+        run: |
+          npm install --global "$(node -p 'require("./automation/package.json").packageManager')"
+          test "$(node --version)" = v24.21.0
+          test "$(npm --version)" = 11.19.0
+          node --version
+          npm --version
+          for tool in fd ripgrep zstd; do
+            brew list "$tool" >/dev/null 2>&1 || brew install "$tool"
+          done
+      - name: Canonical model-data hydration
+        working-directory: fork
+        run: |
+          npm ci --ignore-scripts
+          npm run hydrate:model-data
+          git diff --exit-code
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        id: package-cache
+        with:
+          path: ${{ runner.temp }}/fork-package
+          key: pi-fork-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-f371064864ef239d66a81ee645a6774dc525be40-a78d00c02fa2f3c05fe53b082f0a338150981a65-${{ hashFiles('fork/package-lock.json', 'fork/packages/ai/src/providers/data/*.json', 'fork/packages/ai/src/providers/data/.manifest.json') }}
+      - name: Canonical offline build and native package helpers
+        if: steps.package-cache.outputs.cache-hit != 'true'
+        working-directory: fork
+        env:
+          PI_OFFLINE: '1'
+          PI_TELEMETRY: '0'
+        run: |
+          npm run build:offline
+          node ../automation/scripts/pack-fork.mjs . "$RUNNER_TEMP/fork-package" f371064864ef239d66a81ee645a6774dc525be40
+          git diff --exit-code
+      - name: Measure full canonical check in private development copy
+        run: node diagnostic/measure.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: subagents-native-capacity-evidence
+          path: evidence
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: subagents-capacity-fork-host
+          path: ${{ runner.temp }}/fork-package
+          if-no-files-found: error
+          retention-days: 14
