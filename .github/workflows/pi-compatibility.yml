@@ -14,6 +14,10 @@ on:
       source-ref:
         default: ''
         type: string
+      host:
+        description: 'Host selection: both for normal qualification, fork for fork reverse dependencies'
+        default: both
+        type: string
       official-version:
         description: Exact stable version, latest, or the caller's declared development version
         default: ''
@@ -55,6 +59,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ inputs.repository || github.repository }}
           SOURCE_REF: ${{ inputs.source-ref || github.sha }}
+          HOST: ${{ inputs.host }}
           OFFICIAL_VERSION: ${{ inputs.official-version }}
           FORK_REF: ${{ inputs.fork-ref }}
         run: node scripts/resolve-matrix.mjs
