@@ -1,0 +1,46 @@
+name: Windows literal argv diagnostic
+on:
+  push:
+    branches: [compatibility/windows-argv-probe]
+permissions:
+  contents: read
+jobs:
+  argv:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: probe
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/.github
+          ref: a78d00c02fa2f3c05fe53b082f0a338150981a65
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/pi-agent-browser-native
+          ref: 6075283fea803fb5d002700852e591ef7d3a2caa
+          path: browser
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.21.0'
+          package-manager-cache: false
+      - name: Initialize native Windows module discovery for bash
+        shell: pwsh
+        run: '"PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+      - name: Exact npm toolchain
+        shell: bash
+        run: npm install --global npm@11.19.0
+      - name: Native argument transport controls without a browser
+        shell: bash
+        run: node probe/windows-argv.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        if: always()
+        with:
+          name: browser-windows-argv
+          path: probe/evidence
+          if-no-files-found: error
