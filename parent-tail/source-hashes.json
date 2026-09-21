@@ -1,9 +1,9 @@
 {
   "base": "6075283fea803fb5d002700852e591ef7d3a2caa",
-  "label": "process-fixture immutable candidate cf7 plus parent nine late fixture corrections; excludes other workers new changes and parent docs",
-  "source": "/tmp/browser-parent-tail-rqs6zjzh",
-  "patch": "be8a0e108fde692488a28230b88d12264533ae55267ab8b17d871b23fd9b232e",
-  "ownedPatch": "f0d3bf293de36441504f25730946a564a71a5db4494a37c7841f1cffd568caaa",
+  "label": "process-fixture immutable candidate cf7 plus parent nine late fixture corrections; excludes other workers new changes and parent docs; v2 missing test writeFile import corrected",
+  "source": "/tmp/browser-parent-tail-import-fixed",
+  "patch": "3c2f1c3b29b2e9eb8d607be7ea6fb45449537bedd33271720df348ab77e43f8a",
+  "ownedPatch": "e0bc50dcf27027595ad1427deab187eb62712f50ce09df588cc448d221832fc1",
   "parentFiles": [
     "test/agent-browser.extension-source-lookup.test.ts",
     "test/agent-browser.extension-validation.test.ts",
@@ -225,7 +225,7 @@
     "test/agent-browser.resume-state.test.ts": "58229aeafe0a7b14b8a0f32bb1b612c5d2bdbda48ce75d7759c64ffba344431e",
     "test/agent-browser.runtime.test.ts": "376f3739795b778e3152c02b58ef64665480bcbaacb51d6d4176f964389d4936",
     "test/agent-browser.schema.test.ts": "da717957a0f1fec54f160910c7c47d88d9bb33b3023ed333a62fb546fd3995d1",
-    "test/agent-browser.script.test.ts": "cdc1bc9eb34bd08efae0ccd5b4e311723ba2de78cd3153f7b947f617d8cb7889",
+    "test/agent-browser.script.test.ts": "06dfd315db08349d67e34dd886806a699a339129ca7929f59a96779b5c7a47e6",
     "test/agent-browser.selector-recovery.test.ts": "44f4350771ef644076af00d55d2698353e24a8160eac72586a3c26f9161719bc",
     "test/agent-browser.session-page-state.test.ts": "cf199db817683941172828d1e480ee31e9e02443991fd608f83464f061e91ddb",
     "test/agent-browser.shared-defaults.test.ts": "7c1ce17dd3fce8e5d7917db7e5ed5c1e1dead028f5158c7a22934bc3dedb9755",
