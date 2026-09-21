@@ -155,7 +155,7 @@ test("doctor reports duplicate package and checkout sources with remediation", a
 	assert.match(text, /Duplicate pi-agent-browser-native sources detected/);
 	assert.match(text, /`agent_browser`/);
 	assert.match(text, /npm:pi-agent-browser-native/);
-	assert.match(text, /extensions\/agent-browser\/index\.ts/);
+	assert.ok(text.includes(resolve("/repo/extensions/agent-browser/index.ts")));
 	assert.match(text, /pi --approve --no-extensions -e <source>/);
 	assert.match(text, /keep exactly one active source/i);
 });
