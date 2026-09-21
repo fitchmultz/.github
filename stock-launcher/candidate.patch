@@ -2262,7 +2262,7 @@
  						const pid = Number(await readFile(marker, "utf8"));
 --- /dev/null
 +++ b/test/agent-browser.windows-stock-launcher.test.ts
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,216 @@
 +import assert from "node:assert/strict";
 +import { spawnSync } from "node:child_process";
 +import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -2351,11 +2351,14 @@
 +		}
 +		await writeFakeAgentBrowserBinary(custom, "process.stdout.write('custom-cmd');");
 +		const ambiguous = { ...childEnv(prefix), PATH: custom, Path: prefix };
-+		const ambiguousRaw = original(cwd, ambiguous, ["probe"]);
-+		assert.equal(ambiguousRaw.stdout, "custom-cmd");
++		// which sees Path's EXE and requests shell-free spawn, but Node selects
++		// PATH (only a CMD). The real original result is ENOENT, not that CMD.
++		const ambiguousRaw = crossSpawn.sync("agent-browser", ["probe"], { cwd, env: buildAgentBrowserProcessEnv(process.env, ambiguous), encoding: "utf8", timeout: 10_000 });
++		assert.equal((ambiguousRaw.error as NodeJS.ErrnoException)?.code, "ENOENT");
 +		assert.equal(resolveWindowsStockLauncher(cwd, ambiguous), undefined);
 +		const ambiguousResult = await runAgentBrowserProcess({ cwd, env: ambiguous, args: ["probe"] });
-+		assert.equal(ambiguousResult.exitCode, ambiguousRaw.status); assert.equal(ambiguousResult.stdout, ambiguousRaw.stdout);
++		assert.equal(ambiguousResult.exitCode, 127); assert.equal((ambiguousResult.spawnError as NodeJS.ErrnoException)?.code, "ENOENT");
++		assert.equal(ambiguousResult.agentBrowserStarted, false);
 +		for (const location of [custom, cwd]) {
 +			if (location === cwd) await writeFakeAgentBrowserBinary(cwd, "process.stdout.write('cwd-cmd');");
 +			const env = childEnv(`${custom};${prefix}`);

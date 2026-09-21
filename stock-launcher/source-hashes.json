@@ -1,7 +1,7 @@
 {
   "base": "6075283fea803fb5d002700852e591ef7d3a2caa",
-  "patch": "f5ad5a919f114fbf13676346ece0b46d7bebdd94e8665c60c629b931d357ea88",
-  "ownedPatch": "de2309116197311e2f6efc024eee97719192533bf125a104945b70075d818c42",
+  "patch": "a69801320e71232952c316ca25d5671cdde48e97578cc7a552c5a1b44d6ffefe",
+  "ownedPatch": "021fcb7d770118424b7416084514d4ffd797c9f0b9ae0d06382faf94b5aa4f96",
   "files": {
     ".github/workflows/native-checkpoint.yml": "9fd4d63db6a3aa2a777d7e300bc9cab3cb53ac7991567b0fc18d0cdc5b16e0cf",
     ".github/workflows/pi-compatibility.yml": "62cb6a32d670cb9df7722a1078f01deb27289b7e7401cd4d7de9e34ca1065a54",
@@ -225,7 +225,7 @@
     "test/agent-browser.wait-timeouts.test.ts": "badda81ddb9f454598de3e0383c9fbac4939bf2598c87a2d14c9f4d13ad9547c",
     "test/agent-browser.web-search.test.ts": "bb8efd1b95caaead9f2af7585602ca746e3a89dd2886ab9ebb8b50352dce508d",
     "test/agent-browser.windows-argv.test.ts": "761bc7ee28177d4185a0f1a4068dc47739d063e01e1e55278ecdbc3b7b1bebac",
-    "test/agent-browser.windows-stock-launcher.test.ts": "c69ec4cd0e4f6aff6f2598bfba291a20fa9196414297f845e20502f93de538e3",
+    "test/agent-browser.windows-stock-launcher.test.ts": "bdf8845f5fde26e2a89a5ba67864e422d62f98e13560809f6faea24738a1d7f5",
     "test/doctor.test.ts": "116d362885c77de2539b31dae3b2990a8e0ef59d7f225ebcbaa84be9aaadba81",
     "test/fixtures/agent-browser-argv-grammar.json": "d3afc5316e1bd8a138d651b7bd0bd92072a235c13bc6afc7ae658c45dc4a1864",
     "test/fixtures/agent-browser-real-output-shapes.json": "3b395bec34a64dbcf0099772b52ec124c3bcf9fbccdcde7612b2362d2206cf8d",

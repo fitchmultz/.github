@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { copyFileSync, createWriteStream, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 const [automation, source, outArg, flavor = 'official', fork, floor] = process.argv.slice(2);
 const here = dirname(fileURLToPath(import.meta.url)), out = resolve(outArg);
@@ -40,7 +41,14 @@ try {
   assert.equal((await check('npm-ci', 'npm', ['ci', '--ignore-scripts', '--timing', '--loglevel=http'])).status, 0);
   const host = await prepareHost(join(root, 'h'), flavor, flavor === 'official' ? '0.86.1' : fork, env);
   const selected = selectDevelopmentHost(dev, host, env);
-  report.host = host; report.selected = selected; report.phase = 'checks'; save();
+  report.host = host; report.selected = selected; report.phase = 'checks';
+  const require = createRequire(join(dev, 'package.json'));
+  const fromCrossSpawn = createRequire(require.resolve('cross-spawn/package.json'));
+  report.launcherDependencies = Object.fromEntries(['cross-spawn', 'which', 'path-key'].map(name => [name, {
+    version: require(name + '/package.json').version, entry: require.resolve(name), sha256: sha256(require.resolve(name)),
+  }]));
+  assert.equal(require('which'), fromCrossSpawn('which')); assert.equal(require('path-key'), fromCrossSpawn('path-key'));
+  save();
   const testEnv = { ...env, PI_COMPAT_HOST: flavor, PI_COMPAT_EXPECTED_VERSION: host.version,
     PI_COMPAT_EXPECTED_PACKAGE_DIR: selected.packageDir, PI_PACKAGE_DIR: selected.packageDir,
     PI_HOST_INDEX: selected.index, PI_HOST_CLI: selected.cli };
@@ -82,7 +90,7 @@ finally {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const file = join(directory, entry.name);
       if (entry.isDirectory() && !['node_modules', '.git'].includes(entry.name)) preserve(file);
-      else if (entry.isFile() && (entry.name.endsWith('.jsonl') || file.replaceAll('\\\\', '/').includes('/npm-cache/_logs/'))) {
+      else if (entry.isFile() && (entry.name.endsWith('.jsonl') || file.split(sep).join('/').includes('/npm-cache/_logs/'))) {
         const rel = relative(root, file), destination = join(out, 'retained', rel);
         mkdirSync(dirname(destination), { recursive: true }); copyFileSync(file, destination);
         (entry.name.endsWith('.jsonl') ? report.journals : report.installLogs).push(rel);
