@@ -137,7 +137,7 @@ index 65bf1f2..93fc0f2 100644
  		const recordStdinError = (error: unknown) => {
  			const stdinError = error instanceof Error ? error : new Error(String(error));
 diff --git a/test/agent-browser.extension-electron-discovery.test.ts b/test/agent-browser.extension-electron-discovery.test.ts
-index 3ce86a7..3eacfc0 100644
+index 3ce86a7..2e12569 100644
 --- a/test/agent-browser.extension-electron-discovery.test.ts
 +++ b/test/agent-browser.extension-electron-discovery.test.ts
 @@ -12,7 +12,7 @@ import { once } from "node:events";
@@ -318,7 +318,18 @@ index 3ce86a7..3eacfc0 100644
  test("agentBrowserExtension restores Electron launch records and cleans them on shutdown", { concurrency: false }, async () => {
  	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-electron-restore-"));
  	const applicationsDir = join(tempDir, "Applications");
-@@ -565,7 +636,7 @@ test("agentBrowserExtension restores Electron launch records and cleans them on
+@@ -556,16 +627,17 @@ test("agentBrowserExtension restores Electron launch records and cleans them on
+ 	const launchLogPath = join(tempDir, "electron-launch.log");
+ 	const basePath = process.env.PATH ?? "";
+ 	let launchedPid: number | undefined;
++	let firstHarness: ReturnType<typeof createExtensionHarness> | undefined;
+ 	try {
+ 		await mkdir(applicationsDir, { recursive: true });
+ 		const app = await writeFakeLaunchableElectronApp({ applicationsDir, bundleId: "com.example.RestoreElectron", launchLogPath, name: "Restore Electron" });
+ 		await writeFakeAgentBrowserBinary(tempDir, fakeAgentBrowserLifecycleScript(upstreamLogPath));
+ 		await withPatchedEnv({ PATH: `${tempDir}:${basePath}` }, async () => {
+-			const firstHarness = createExtensionHarness({ cwd: tempDir });
++			firstHarness = createExtensionHarness({ cwd: tempDir });
  			await runExtensionEvent(firstHarness.handlers, "session_start", { reason: "new" }, firstHarness.ctx);
  			const launchResult = await executeRegisteredTool(firstHarness.tool, firstHarness.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs, handoff: "connect" } });
  			assert.equal(launchResult.isError, false);
@@ -327,7 +338,7 @@ index 3ce86a7..3eacfc0 100644
  			launchedPid = launch.pid;
  
  			const restoredHarness = createExtensionHarness({ cwd: tempDir, branch: [createToolBranchEntry({ details: launchResult.details as Record<string, unknown> })] });
-@@ -577,6 +648,10 @@ test("agentBrowserExtension restores Electron launch records and cleans them on
+@@ -577,8 +649,21 @@ test("agentBrowserExtension restores Electron launch records and cleans them on
  			await runExtensionEvent(restoredHarness.handlers, "session_shutdown", { reason: "quit" }, restoredHarness.ctx);
  			await assert.rejects(stat(launch.userDataDir));
  			assert.equal(await waitForTestPidExit(launch.pid), true, "restored shutdown cleanup should terminate the wrapper-owned Electron process");
@@ -337,8 +348,19 @@ index 3ce86a7..3eacfc0 100644
 +			assert.equal(stopped.userDataDirState, "absent");
  		});
  	} finally {
++		// The assertions above use only the restored harness. Before deleting the
++		// fixture executable, also reap the original tracked child's actual exit:
++		// Windows kill(pid, 0) can report ESRCH while its image is still in use.
++		const originalHarness = firstHarness;
++		if (originalHarness) {
++			await withPatchedEnv({ PATH: `${tempDir}:${basePath}` }, async () => {
++				await runExtensionEvent(originalHarness.handlers, "session_shutdown", { reason: "quit" }, originalHarness.ctx);
++			});
++		}
  		await stopTestPid(launchedPid);
-@@ -680,11 +755,18 @@ test("electron discovery annotates likely sensitive apps without blocking discov
+ 		await rm(tempDir, { force: true, recursive: true });
+ 	}
+@@ -680,11 +765,18 @@ test("electron discovery annotates likely sensitive apps without blocking discov
  	}
  });
  
@@ -358,7 +380,7 @@ index 3ce86a7..3eacfc0 100644
  		await mkdir(desktopDir, { recursive: true });
  		const electronExecutable = await writeFakeLinuxElectronBinary(appRoot, "demo-electron");
  		const realElectronExecutable = await realpath(electronExecutable);
-@@ -697,30 +779,30 @@ test("electron discovery scans Linux desktop files and applies Electron evidence
+@@ -697,30 +789,30 @@ test("electron discovery scans Linux desktop files and applies Electron evidence
  Type=Application
  Name=Demo Electron
  Comment=Demo comment
@@ -394,7 +416,7 @@ index 3ce86a7..3eacfc0 100644
  `, "utf8");
  
  		const result = await discoverElectronApps({
-@@ -743,7 +825,7 @@ Exec=${JSON.stringify(electronExecutable)}
+@@ -743,7 +835,7 @@ Exec=${JSON.stringify(electronExecutable)}
  		await writeFile(join(desktopDir, "symlink.desktop"), `[Desktop Entry]
  Type=Application
  Name=Symlink Electron

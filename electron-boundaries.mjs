@@ -39,8 +39,10 @@ try{
  const candidate=readFileSync(join(development,cleanupFile));writeFileSync(join(development,cleanupFile),run('git',['show',`HEAD:${cleanupFile}`],{cwd:development,quiet:true}));
  const originalTrace='test/electron-original-trace.test.ts';
  const originalTests=readFileSync(join(development,discovery),'utf8');
- const assertion='await assert.rejects(stat(launch.userDataDir));';assert.equal(originalTests.split(assertion).length,2);
- writeFileSync(join(development,originalTrace),originalTests.replace(assertion,'await assert.rejects(stat(launch.userDataDir)).catch(error => { console.log(JSON.stringify({phase: "original-restored-primary-error", error: String(error)})); throw error; });'));
+ const assertion='await assert.rejects(stat(launch.userDataDir));';
+ const start=originalTests.indexOf('test("agentBrowserExtension restores Electron launch records'),end=originalTests.indexOf('\ntest(',start+1);
+ const block=originalTests.slice(start,end);assert.equal(block.split(assertion).length,2);
+ writeFileSync(join(development,originalTrace),originalTests.slice(0,start)+block.replace(assertion,'await assert.rejects(stat(launch.userDataDir)).catch(error => { console.log(JSON.stringify({phase: "original-restored-primary-error", error: String(error)})); throw error; });')+originalTests.slice(end));
  await observe('original-restored',['--import','tsx','--test','--test-reporter=tap','--test-name-pattern=restores Electron launch records|native command-line profile ownership',originalTrace],60000,testEnv);
  rmSync(join(development,originalTrace));writeFileSync(join(development,cleanupFile),candidate);
  report.finalHashes=Object.fromEntries(Object.keys(manifest.files).map(f=>[f,sha256(join(development,f))]));assert.deepEqual(report.finalHashes,manifest.files);

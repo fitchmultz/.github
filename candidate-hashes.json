@@ -1,10 +1,10 @@
 {
   "base": "6075283fea803fb5d002700852e591ef7d3a2caa",
-  "patch": "8f769f062dba73915adbdc7d52cd18c24b41bdff4815e6c590d2baa4c1db0932",
+  "patch": "824a9d59958d8d643f7710e94396562cf5e685a0ea1bc6eaf557fe0550d04509",
   "files": {
     "extensions/agent-browser/lib/process.ts": "0742068e2850e147fd05d6ed46d24efd4d43229c1bb7a88f3d5e3dfb6b6185b0",
     "extensions/agent-browser/lib/electron/cleanup.ts": "0e20deefb148be6800d3ad6e3b7a2eca7119f95c17e856f3b0f90f3a238b5092",
-    "test/agent-browser.extension-electron-discovery.test.ts": "06fe8ab638cb5e765e9077da18a17b3f692a28913cdbb8eb2828374b24360b67",
+    "test/agent-browser.extension-electron-discovery.test.ts": "12b85b8126dafe02fc8e51d24ff04ce74dabb8371dc0a77cc453185de781a8ca",
     "test/agent-browser.extension-electron-lifecycle.test.ts": "e24d7fcf9fdd315198dc4fe5c81242e2a73bd4223f19f09fcb120af3d0b04d13",
     "test/agent-browser.extension-ref-guards.test.ts": "df52d8822a32df128ae059071cc21783638713dd0dd0f7d4883db369e4783f0d"
   }
