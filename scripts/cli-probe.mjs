@@ -26,7 +26,7 @@ export function probeCli(host, packageDir, directory, env, { expectedRefusal = f
     "--no-session", "-e", packageDir, "-e", observer];
   const result = spawnSync(process.execPath, args, {
     cwd: directory,
-    env: { ...env, PI_PACKAGE_DIR: host.packageDir, PI_COMPAT_OBSERVATION: observation },
+    env: { ...env, PI_COMPAT_OBSERVATION: observation },
     encoding: "utf8",
     input: `${JSON.stringify({ id: "qualification", type: "prompt", message: "/compatibility-probe-internal" })}\n`,
     timeout: 45_000,

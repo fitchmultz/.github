@@ -24,7 +24,7 @@ const root = mkdtempSync(join(process.platform === "win32" ? tmpdir() : "/tmp", 
 // macOS temporary directories can inherit wheel; permission fixtures need the executing user's group.
 if (process.getgid) chownSync(root, process.getuid(), process.getgid());
 const env = isolatedEnvironment(root);
-const report = { repo: values.repo, flavor: values.host, lane: process.env.PI_COMPAT_LANE_LABEL ?? values.host, node: process.version, platform: process.platform,
+const report = { repo: values.repo, flavor: values.host, lane: process.env.PI_COMPAT_LANE_LABEL ?? values.host, node: process.version, npm: run("npm", ["--version"], { env, quiet: true }).trim(), platform: process.platform,
   source: run("git", ["rev-parse", "HEAD"], { cwd: source, quiet: true }).trim(),
   sourceDirty: run("git", ["status", "--porcelain"], { cwd: source, quiet: true }).trim() !== "",
   target: values.host === "fork" ? process.env.PI_COMPAT_FORK_REF : values.target, checks: {} };

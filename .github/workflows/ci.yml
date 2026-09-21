@@ -33,6 +33,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
+      - run: npm install --global "$(node -p 'require("./package.json").packageManager')"
       - run: npm test
       - name: Install a real official host in an empty profile
         run: |
@@ -58,6 +59,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - run: npm install --global "$(node -p 'require("./package.json").packageManager')"
       - run: npm ci --ignore-scripts
       - run: npm rebuild re2
       - run: npm run check:renovate

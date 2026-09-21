@@ -18,6 +18,7 @@ const tarballs = packReleasePackages(packages, output);
 writeJson(join(output, "receipt.json"), {
   ref,
   node: process.version,
+  npm: run("npm", ["--version"], { cwd: source, quiet: true }).trim(),
   lockSha256: sha256(join(source, "package-lock.json")),
   modelDataManifestSha256: sha256(join(source, "packages/ai/src/providers/data/.manifest.json")),
   packages: packages.map(({ name, version }) => ({ name, version, file: basename(tarballs.get(name)), sha256: sha256(tarballs.get(name)) })),

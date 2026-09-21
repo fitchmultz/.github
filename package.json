@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "packageManager": "npm@11.19.0",
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:native": "node --test test/*.native.mjs",
