@@ -38,7 +38,7 @@ jobs:
           trap 'mv -f automation/scripts/common.candidate.mjs automation/scripts/common.mjs' EXIT
           cp previous/scripts/common.mjs automation/scripts/common.mjs
           set +e
-          node --test automation/test/windows-environment.native.mjs > before.tap 2>&1
+          node --test --test-reporter=tap automation/test/windows-environment.native.mjs > before.tap 2>&1
           before_status=$?
           set -e
           printf 'Previous environment exit status: %s\n' "$before_status"
@@ -47,5 +47,17 @@ jobs:
           grep -q ETIMEDOUT before.tap
           cp automation/scripts/common.candidate.mjs automation/scripts/common.mjs
           cmp automation/scripts/common.candidate.mjs automation/scripts/common.mjs
-          node --test automation/test/windows-environment.native.mjs | tee after.tap
+          node --test --test-reporter=tap automation/test/windows-environment.native.mjs | tee after.tap
           git -C automation diff --exit-code -- scripts/common.mjs test/windows-environment.native.mjs
+      - name: Inspect exact inherited OS module paths and single-variable controls under bash
+        if: always()
+        shell: bash
+        run: node probe/windows-shell-probe.mjs bash
+      - name: Compare the same native boundaries under PowerShell
+        if: always()
+        shell: pwsh
+        run: node probe/windows-shell-probe.mjs pwsh
+      - name: Execute the exact candidate native regression under PowerShell
+        if: always()
+        shell: pwsh
+        run: node --test --test-reporter=tap automation/test/windows-environment.native.mjs
