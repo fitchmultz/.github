@@ -21,18 +21,13 @@ try {
  const testEnv={...env,PI_COMPAT_HOST:'official',PI_HOST_INDEX:selected.index,PI_HOST_CLI:selected.cli,PI_PACKAGE_DIR:selected.packageDir,PI_COMPAT_EXPECTED_PACKAGE_DIR:selected.packageDir,PI_COMPAT_EXPECTED_VERSION:host.version};
  report.hostHashes={index:sha256(selected.index),cli:sha256(selected.cli)};
  function observe(name,args,timeout=60000){const r=spawnSync(process.execPath,args,{cwd:development,env:testEnv,encoding:'utf8',timeout,maxBuffer:32*1024*1024});writeFileSync(join(out,name+'.stdout.log'),r.stdout??'');writeFileSync(join(out,name+'.stderr.log'),r.stderr??'');report.runs[name]={args,status:r.status,signal:r.signal,error:r.error?.message};console.log(JSON.stringify({name,...report.runs[name]}));console.log(r.stdout??'');console.error(r.stderr??'');return r;}
- observe('node-lifetime',[join(here,'lifetime.mjs')]);
+ writeFileSync(join(development,'direct-cleanup.ts'),readFileSync(join(here,'direct-cleanup.ts')));
+ observe('direct-cleanup-control',['--import','tsx','direct-cleanup.ts']);rmSync(join(development,'direct-cleanup.ts'));
  const discovery='test/agent-browser.extension-electron-discovery.test.ts',lifecycle='test/agent-browser.extension-electron-lifecycle.test.ts';
  const focused=['--import','tsx','--test','--test-reporter=tap','--test-concurrency=1','--test-name-pattern=live writer|retains headed autosave'];
- observe('original-focused',[...focused,discovery,lifecycle]);
- let liveText=readFileSync(join(development,discovery),'utf8');
- liveText=liveText.replace('console.log(JSON.stringify({ result, siblingKept, sibling }));',`const pid=result.failure?.diagnostics?.pid;
- const alive=()=>{try{process.kill(pid,0);return true}catch{return false}};
- const output=result.failure.userDataDir+'/stdout.log';const before=await stat(output);await new Promise(r=>setTimeout(r,80));
- console.log(JSON.stringify({ result, siblingKept, sibling, preExit:{pid,alive:alive(),growth:(await stat(output)).size-before.size} }));`);
- liveText=liveText.replace('assert.equal((await exited)[0], 0);','console.log(JSON.stringify({phase:"direct-launch-receipt",receipt})); assert.equal((await exited)[0], 0);');
- const liveTrace='test/electron-live-diagnostic.test.ts';writeFileSync(join(development,liveTrace),liveText);
- observe('direct-launch-lifetime-trace',[...focused,liveTrace]);rmSync(join(development,liveTrace));
+ observe('corrected-focused',[...focused,discovery,lifecycle]);
+ const sequence=['--import','tsx','--test','--test-reporter=tap','--test-concurrency=1','--test-name-pattern=abort|cancel|timeout|overlap|kill|cleanup|exits|exit'];
+ observe('original-lifecycle-sequence',[...sequence,lifecycle]);
  // Keep original failure and every assertion. Trace primary error before finally can mask it,
  // and use the independent app receipt solely for failure cleanup.
  let text=readFileSync(join(development,lifecycle),'utf8');
@@ -44,7 +39,9 @@ try {
  block=block.replace('await rm(tempDir, { force: true, recursive: true });', 'try { await rm(tempDir, { force: true, recursive: true }); } catch (error) { console.log(JSON.stringify({phase:"rm-error",error:String(error)})); for(const row of rows) { console.log(JSON.stringify({phase:"rescue-owned",pid:row.pid})); await stopTestPid(row.pid); } await rm(tempDir,{force:true,recursive:true}); throw error; }');
  text=text.slice(0,start)+block+text.slice(end);text=text.replace('fakeAgentBrowserLifecycleScript,','readOptionalFakeElectronLaunchLog,\n\tfakeAgentBrowserLifecycleScript,');
  const trace='test/electron-lifecycle-diagnostic.test.ts';writeFileSync(join(development,trace),text);
- observe('headed-primary-trace',[...focused,trace]);rmSync(join(development,trace));
+ observe('headed-sequence-primary-trace',[...sequence,trace]);rmSync(join(development,trace));
+ observe('typecheck',['node_modules/typescript/bin/tsc','--noEmit'],120000);
+ observe('build',['scripts/build.mjs'],120000);
  report.finalHashes=Object.fromEntries(Object.keys(manifest.files).map(f=>[f,sha256(join(development,f))]));assert.deepEqual(report.finalHashes,manifest.files);
  assert.equal(run('git',['status','--porcelain'],{cwd:source,quiet:true}).trim(),'');
 } finally {

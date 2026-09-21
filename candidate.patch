@@ -151,7 +151,7 @@ index a8224b7..cfe9f00 100644
  			AGENT_BROWSER_NAMESPACE: "", PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1",
  		}, async () => {
 diff --git a/test/agent-browser.extension-electron-discovery.test.ts b/test/agent-browser.extension-electron-discovery.test.ts
-index 3ce86a7..01d0cae 100644
+index 3ce86a7..5fab807 100644
 --- a/test/agent-browser.extension-electron-discovery.test.ts
 +++ b/test/agent-browser.extension-electron-discovery.test.ts
 @@ -12,7 +12,7 @@ import { once } from "node:events";
@@ -163,7 +163,12 @@ index 3ce86a7..01d0cae 100644
  import test from "node:test";
  import { setTimeout as delay } from "node:timers/promises";
  
-@@ -308,6 +308,8 @@ test("failed Electron startup preserves a live writer after injected kill denial
+@@ -304,10 +304,12 @@ process.exit(42);
+ 	}
+ });
+ 
+-test("failed Electron startup preserves a live writer after injected kill denial, temp cleanup, and host exit", { concurrency: false }, async () => {
++test("failed Electron startup preserves a live writer after kill denial and temp cleanup, with native host-exit lifetime", { concurrency: false }, async () => {
  	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-electron-live-output-"));
  	const launchLogPath = join(tempDir, "launch.json");
  	const app = await writeFakeElectronProcessApp({ applicationsDir: tempDir, bundleId: "com.example.LiveOutput", name: "Live Output" });
@@ -172,7 +177,13 @@ index 3ce86a7..01d0cae 100644
  	await writeFile(app.scriptPath, `#!/usr/bin/env node
  const fs = require("node:fs");
  const path = require("node:path");
-@@ -331,7 +333,7 @@ setInterval(() => { fs.writeSync(1, "stdout-live\\n"); fs.writeSync(2, "stderr-l
+@@ -327,11 +329,13 @@ setInterval(() => { fs.writeSync(1, "stdout-live\\n"); fs.writeSync(2, "stderr-l
+ 				import { stat } from "node:fs/promises";
+ 				import { launchElectronApp } from "./extensions/agent-browser/lib/electron/launch.ts";
+ 				import { cleanupSecureTempArtifacts, writeSecureTempFile } from "./extensions/agent-browser/lib/temp.ts";
++				// Keep the host alive until the parent verifies the denied-kill writer.
++				process.once("message", () => process.disconnect());
+ 				const sibling = await writeSecureTempFile({ content: "keep until sweep", prefix: "sibling", suffix: ".txt" });
  				const kill = ChildProcess.prototype.kill;
  				// The process is real; only its kill request is denied at the OS boundary.
  				ChildProcess.prototype.kill = function (signal) {
@@ -181,16 +192,56 @@ index 3ce86a7..01d0cae 100644
  					return kill.call(this, signal);
  				};
  				const result = await launchElectronApp({ appPath: ${JSON.stringify(app.appPath)}, appArgs: ${JSON.stringify([...app.appArgs, ...(breakMarker ? ["--break-marker"] : [])])}, timeoutMs: 500 });
-@@ -356,7 +358,7 @@ setInterval(() => { fs.writeSync(1, "stdout-live\\n"); fs.writeSync(2, "stderr-l
+@@ -340,9 +344,9 @@ setInterval(() => { fs.writeSync(1, "stdout-live\\n"); fs.writeSync(2, "stderr-l
+ 				await cleanupSecureTempArtifacts();
+ 				console.log(JSON.stringify({ result, siblingKept, sibling }));
+ 			`;
+-			const host = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
++			const host = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe", "ipc"] });
+ 			let launch: { pid: number; userDataDir: string } | undefined;
+-			// The detached app writes its own receipt independently of the short launch timeout.
++			// The app writes its own receipt independently of the short launch timeout.
+ 			const readLaunchReceipt = async () => {
+ 				for (let attempt = 0; attempt < 100; attempt++) {
+ 					const receipt = await readFile(launchLogPath, "utf8").then(JSON.parse, () => undefined);
+@@ -352,11 +356,9 @@ setInterval(() => { fs.writeSync(1, "stdout-live\\n"); fs.writeSync(2, "stderr-l
+ 				return undefined;
+ 			};
+ 			try {
+-				const exited = once(host, "exit");
  				const receipt = await readChildStdoutJsonLine<{ result: { ok: false; failure: ElectronLaunchFailure }; siblingKept: boolean; sibling: string }>(host);
- 				assert.equal((await exited)[0], 0);
+-				assert.equal((await exited)[0], 0);
  				launch = await readLaunchReceipt();
 -				assert.ok(launch, "fixture app must record its pid and profile");
 +				assert.ok(launch, `fixture app must record its pid and profile: ${JSON.stringify(receipt)}`);
  				assert.equal(receipt.result.ok, false);
  				assert.equal(receipt.result.failure.reason, "timeout");
  				assert.match(receipt.result.failure.cleanupError ?? "", /fixture: child\.kill denied/);
-@@ -680,11 +682,18 @@ test("electron discovery annotates likely sensitive apps without blocking discov
+@@ -366,7 +368,22 @@ setInterval(() => { fs.writeSync(1, "stdout-live\\n"); fs.writeSync(2, "stderr-l
+ 					const path = join(launch.userDataDir, `${stream}.log`);
+ 					const before = await stat(path);
+ 					await delay(60);
+-					assert.ok((await stat(path)).size > before.size, "detached app must still write after the host exits");
++					assert.ok((await stat(path)).size > before.size, "live app must still write after kill denial and temp cleanup");
++				}
++				const exited = once(host, "exit", { signal: AbortSignal.timeout(5_000) });
++				host.send("exit");
++				assert.equal((await exited)[0], 0, "preserved output must not wedge host exit");
++				// Node/libuv puts non-detached Windows children in a kill-on-host-exit job.
++				// POSIX launches are detached; neither lifetime is an output-pipe contract.
++				if (process.platform === "win32") assert.equal(await waitForTestPidExit(launch.pid), true);
++				else assert.equal(isTestPidAlive(launch.pid), true);
++				for (const stream of ["stdout", "stderr"]) {
++					const path = join(launch.userDataDir, `${stream}.log`);
++					const before = await stat(path);
++					await delay(60);
++					const after = await stat(path);
++					if (process.platform === "win32") assert.equal(after.size, before.size, "host-owned app has stopped, but its protected logs remain");
++					else assert.ok(after.size > before.size, "detached app must still write after the host exits");
+ 				}
+ 				const markerPath = join(dirname(launch.userDataDir), ".pi-agent-browser-owner.json");
+ 				if (breakMarker) assert.match(receipt.result.failure.cleanupError ?? "", /preserv/i);
+@@ -680,11 +697,18 @@ test("electron discovery annotates likely sensitive apps without blocking discov
  	}
  });
  
@@ -210,7 +261,7 @@ index 3ce86a7..01d0cae 100644
  		await mkdir(desktopDir, { recursive: true });
  		const electronExecutable = await writeFakeLinuxElectronBinary(appRoot, "demo-electron");
  		const realElectronExecutable = await realpath(electronExecutable);
-@@ -697,30 +706,30 @@ test("electron discovery scans Linux desktop files and applies Electron evidence
+@@ -697,30 +721,30 @@ test("electron discovery scans Linux desktop files and applies Electron evidence
  Type=Application
  Name=Demo Electron
  Comment=Demo comment
@@ -246,7 +297,7 @@ index 3ce86a7..01d0cae 100644
  `, "utf8");
  
  		const result = await discoverElectronApps({
-@@ -743,7 +752,7 @@ Exec=${JSON.stringify(electronExecutable)}
+@@ -743,7 +767,7 @@ Exec=${JSON.stringify(electronExecutable)}
  		await writeFile(join(desktopDir, "symlink.desktop"), `[Desktop Entry]
  Type=Application
  Name=Symlink Electron
