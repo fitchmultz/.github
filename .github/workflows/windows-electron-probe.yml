@@ -1,0 +1,50 @@
+name: Windows Electron boundary diagnostic
+on:
+  push:
+    branches: [compatibility/windows-electron-probe]
+permissions:
+  contents: read
+jobs:
+  electron-boundaries:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: probe
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: fitchmultz/.github
+          ref: a78d00c02fa2f3c05fe53b082f0a338150981a65
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: fitchmultz/pi-agent-browser-native
+          ref: 6075283fea803fb5d002700852e591ef7d3a2caa
+          path: browser
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.21.0'
+          package-manager-cache: false
+      - name: Initialize native Windows module discovery for bash
+        shell: pwsh
+        run: '"PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+      - name: Assert toolchain
+        shell: bash
+        run: node --version && npm --version
+      - name: Native lifetime and focused Electron trace
+        shell: bash
+        run: node probe/electron-boundaries.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: electron-boundaries
+          path: probe/evidence
+          if-no-files-found: error
