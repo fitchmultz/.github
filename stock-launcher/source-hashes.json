@@ -1,7 +1,7 @@
 {
   "base": "6075283fea803fb5d002700852e591ef7d3a2caa",
-  "patch": "2b4c5f2a15195277b2776822678623b8c85d6f91ea9cf8cbb980b32032c821f1",
-  "ownedPatch": "872ac3e4b54122c7e94d9927657ea763884019f8f480a9fae0bc87d26c03485c",
+  "patch": "ad0dd7868654a40db37d84e29d392eb1565a18c634e354d2332b9d56b4922865",
+  "ownedPatch": "5e4def46563395c4d7b457f840f8207f6b20e645ffb927da15c5fff7ec44e502",
   "files": {
     ".github/workflows/native-checkpoint.yml": "9fd4d63db6a3aa2a777d7e300bc9cab3cb53ac7991567b0fc18d0cdc5b16e0cf",
     ".github/workflows/pi-compatibility.yml": "62cb6a32d670cb9df7722a1078f01deb27289b7e7401cd4d7de9e34ca1065a54",
@@ -125,7 +125,7 @@
     "extensions/agent-browser/lib/webmcp-observation.ts": "7f531a103a69d22c722b72662c9fe755d32b8add787517de8653b785266fb1ac",
     "extensions/agent-browser/lib/windows-stock-launcher.ts": "bcb8d75bde40422d1c1d46dac5499eca568c73a44f2756b84894809f0beb90c3",
     "extensions/agent-browser/script-worker.ts": "c0b12483732186260b25519045ea4917d93bc03d9cc8f0468f86baabe011a52c",
-    "package-lock.json": "e0ff6941323a56bac7e22821cfc7b1e56feed46a6bc7f7766117288dba7e64e4",
+    "package-lock.json": "7ba91a2081ea7ef5d0bcd0552d07eedc0fe8bea17a6cb4ad50b7d3a7c78c82fd",
     "package.json": "4ca9a2a02ded42454162a10a66f64a0e8e62d095d4032d4a665a29732fc269d4",
     "platform-smoke.config.mjs": "a23ba91cecc25285a3031ecc508db9b4fcd8e7e2448654ce859b6537b3ce9793",
     "renovate.json": "c184377089226603e8e6d31cefc9ad83a1994284a8c1a0088e54a01bf391ecb6",

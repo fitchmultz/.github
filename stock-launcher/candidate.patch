@@ -407,7 +407,7 @@
      },
 +    "node_modules/@types/which": {
 +      "version": "2.0.2",
-+      "resolved": "https://socket-firewall.workos.dev/@types/which/-/which-2.0.2.tgz",
++      "resolved": "https://registry.npmjs.org/@types/which/-/which-2.0.2.tgz",
 +      "integrity": "sha512-113D3mDkZDjo+EeUEHCFy0qniNc1ZpecGiAU7WSo7YDoSzolZIQKpYFHrPpjkB2nuyahcKfrmLXeQlh7gqJYdw==",
 +      "dev": true,
 +      "license": "MIT"
@@ -415,24 +415,6 @@
      "node_modules/agent-base": {
        "version": "9.0.0",
        "resolved": "https://registry.npmjs.org/agent-base/-/agent-base-9.0.0.tgz",
-@@ -3705,7 +3715,7 @@
-     },
-     "node_modules/path-key": {
-       "version": "3.1.1",
--      "resolved": "https://registry.npmjs.org/path-key/-/path-key-3.1.1.tgz",
-+      "resolved": "https://socket-firewall.workos.dev/path-key/-/path-key-3.1.1.tgz",
-       "integrity": "sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q==",
-       "license": "MIT",
-       "engines": {
-@@ -3901,7 +3911,7 @@
-     },
-     "node_modules/which": {
-       "version": "2.0.2",
--      "resolved": "https://registry.npmjs.org/which/-/which-2.0.2.tgz",
-+      "resolved": "https://socket-firewall.workos.dev/which/-/which-2.0.2.tgz",
-       "integrity": "sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==",
-       "license": "ISC",
-       "dependencies": {
 --- a/package.json
 +++ b/package.json
 @@ -70,6 +70,7 @@
