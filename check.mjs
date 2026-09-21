@@ -43,7 +43,17 @@ try {
   await check('build',['scripts/build.mjs']);
   await check('managed',[...testArgs,'test/agent-browser.managed-session-policy-lock.test.ts','test/agent-browser.managed-session-restore.test.ts']);
   await check('extension',[...testArgs,'test/agent-browser.extension-errors-artifacts.test.ts']);
-  assert.ok(Object.values(report.runs).every(r=>r.status===0),'all corrected checks must pass');report.result='passed';
+  if (process.platform==='win32') {
+   const policy=join(dev,'extensions/agent-browser/lib/managed-session-policy-lock.ts'),candidate=readFileSync(policy);
+   assert.equal(sha256(join(here,'policy.before.ts')),manifest.oldPolicy);
+   try {
+    writeFileSync(policy,readFileSync(join(here,'policy.before.ts')));
+    await check('old-production-locks',[...testArgs,'test/agent-browser.managed-session-policy-lock.test.ts']);
+    await check('old-production-contention',[...testArgs,'--test-name-pattern=cross-instance lock contention','test/agent-browser.extension-errors-artifacts.test.ts']);
+   } finally {writeFileSync(policy,candidate);}
+   if(report.runs.managed.status!==0) await check('new-locks-trace',[...testArgs,'test/agent-browser.managed-session-policy-lock.test.ts'],true);
+  }
+  assert.ok(Object.entries(report.runs).filter(([name])=>!name.startsWith('old-production-')).every(([,r])=>r.status===0),'all corrected checks must pass');report.result='passed';
  }
  assert.deepEqual(hashes(),manifest.files);report.finalHashes=hashes();
 } catch(e){report.result='failed';report.error=String(e);process.exitCode=1;console.error(e);}
