@@ -12,6 +12,7 @@ jobs:
       GIT_CONFIG_COUNT: '1'
       GIT_CONFIG_KEY_0: core.autocrlf
       GIT_CONFIG_VALUE_0: 'false'
+      npm_config_cache: ${{ github.workspace }}/.npm-cache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -39,9 +40,13 @@ jobs:
       - name: Assert toolchain
         shell: bash
         run: node --version && npm --version
-      - name: Native lifetime and focused Electron trace
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .npm-cache
+          key: windows-electron-node24-npm-${{ hashFiles('browser/package-lock.json') }}
+      - name: Native restored cleanup and all three owned files
         shell: bash
-        run: node probe/command-line-control.mjs
+        run: node probe/electron-boundaries.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

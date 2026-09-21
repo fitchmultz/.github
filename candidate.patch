@@ -1,8 +1,15 @@
 diff --git a/extensions/agent-browser/lib/electron/cleanup.ts b/extensions/agent-browser/lib/electron/cleanup.ts
-index 35cffbd..0ec73dd 100644
+index 35cffbd..a4e423e 100644
 --- a/extensions/agent-browser/lib/electron/cleanup.ts
 +++ b/extensions/agent-browser/lib/electron/cleanup.ts
-@@ -84,13 +84,18 @@ export async function inspectElectronLaunchStatus(record: ElectronLaunchRecord,
+@@ -1,5 +1,6 @@
+ import { execFile, type ChildProcess } from "node:child_process";
+ import { lstat, rm } from "node:fs/promises";
++import { win32 } from "node:path";
+ import { promisify } from "node:util";
+ 
+ import { fetchCdpJson, parseCdpTargets, parseCdpVersion } from "./cdp.js";
+@@ -84,19 +85,35 @@ export async function inspectElectronLaunchStatus(record: ElectronLaunchRecord,
  	};
  }
  
@@ -24,7 +31,25 @@ index 35cffbd..0ec73dd 100644
  }
  
  async function readPidCommandLine(pid: number | undefined): Promise<string | undefined> {
-@@ -146,7 +151,7 @@ function signalRestoredLaunchProcess(record: ElectronLaunchRecord, signal: NodeJ
+ 	if (!pid || !Number.isSafeInteger(pid) || pid <= 0) return undefined;
+ 	try {
+-		const { stdout } = await execFileAsync("ps", ["-ww", "-p", String(pid), "-o", "command="], {
++		// Win32_Process.CommandLine is the native ownership evidence; process
++		// start time (used by daemon-policy locks) cannot prove profile ownership.
++		const systemRoot = process.env.SystemRoot;
++		const windowsRoot = systemRoot && win32.isAbsolute(systemRoot) ? systemRoot : "C:\\Windows";
++		const file = process.platform === "win32"
++			? win32.join(windowsRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
++			: "ps";
++		const args = process.platform === "win32"
++			? ["-NoProfile", "-NonInteractive", "-Command",
++				`[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $p = [wmi]"Win32_Process.Handle='${pid}'"; [Console]::WriteLine($p.CommandLine)`]
++			: ["-ww", "-p", String(pid), "-o", "command="];
++		const { stdout } = await execFileAsync(file, args, {
+ 			timeout: RESTORED_PROCESS_COMMAND_TIMEOUT_MS,
+ 		});
+ 		return stdout.trim() || undefined;
+@@ -146,7 +163,7 @@ function signalRestoredLaunchProcess(record: ElectronLaunchRecord, signal: NodeJ
  
  async function cleanupProcess(record: ElectronLaunchRecord, child: ChildProcess | undefined, deadlineMs: number): Promise<ElectronCleanupStep> {
  	if (!record.pid) return { resource: "process", state: "skipped" };
@@ -111,82 +136,8 @@ index 65bf1f2..93fc0f2 100644
  		};
  		const recordStdinError = (error: unknown) => {
  			const stdinError = error instanceof Error ? error : new Error(String(error));
-diff --git a/test/agent-browser.artifact-diagnostics.test.ts b/test/agent-browser.artifact-diagnostics.test.ts
-index afe73e3..18f5cad 100644
---- a/test/agent-browser.artifact-diagnostics.test.ts
-+++ b/test/agent-browser.artifact-diagnostics.test.ts
-@@ -42,9 +42,9 @@ function execute(row) {
-     return { path: row[2], restarted: subcommand === 'restart' };
-   }
-   if (command === 'screenshot' || command === 'download' || command === 'network') {
--    const output = command === 'download' ? row[2] : command === 'network' ? row[3] : row[1];
-+    const output = command === 'download' ? row[2] : command === 'network' ? row[3] : row[2] ?? row[1];
-     fs.writeFileSync(output, command === 'screenshot' ? Buffer.from(${JSON.stringify(png.toString("base64"))}, 'base64') : '{}');
--    return { path: command === 'download' || output.includes('canonical') ? fs.realpathSync(output) : output };
-+    return { path: command === 'download' || output.includes('canonical') ? fs.realpathSync.native(output) : output };
-   }
-   if (command === 'snapshot') return { origin: ${JSON.stringify(pageUrl)}, snapshot: '- textbox "Name" [ref=e1]', refs: { e1: { role: 'textbox', name: 'Name' } } };
-   if (command === 'eval') return { result: { status: 'no-anchor' } };
-@@ -285,7 +285,8 @@ test("registered artifacts retain requested and reported paths without new argv
- 		const canonicalRoot = await realpath(root);
- 		const lexicalRoot = process.platform === "darwin" ? canonicalRoot.replace(/^\/private\/tmp\//, "/tmp/") : root;
- 		if (process.platform === "darwin") assert.notEqual(lexicalRoot, canonicalRoot, "exercise the native /tmp alias");
--		for (const step of [["screenshot", "screen.png"], ["screenshot", "canonical.png"], ["screenshot", "png.webm"], ["download", "#download", "download.txt"], ["network", "har", "stop", "network.har"]]) {
-+		// Native screenshot's two-operand form disambiguates a non-image extension on Windows.
-+		for (const step of [["screenshot", "screen.png"], ["screenshot", "canonical.png"], ["screenshot", "body", "png.webm"], ["download", "#download", "download.txt"], ["network", "har", "stop", "network.har"]]) {
- 			const requestedPath = join(lexicalRoot, step.at(-1)!);
- 			const args = [...step.slice(0, -1), requestedPath];
- 			const result = await executeRegisteredTool(harness.tool, harness.ctx, { args });
-diff --git a/test/agent-browser.cold-boundaries.test.ts b/test/agent-browser.cold-boundaries.test.ts
-index 44584d1..4c1025d 100644
---- a/test/agent-browser.cold-boundaries.test.ts
-+++ b/test/agent-browser.cold-boundaries.test.ts
-@@ -111,6 +111,8 @@ process.exitCode = failed ? 1 : 0;
- 		await withPatchedEnv({
- 			PATH: `${root}${delimiter}${process.env.PATH ?? ""}`,
- 			HOME: home, USERPROFILE: home, AGENT_BROWSER_NAMESPACE: "",
-+			// Automatic restore requires upstream encryption on Windows; this is fixture data only.
-+			AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
- 			PI_AGENT_BROWSER_SOCKET_DIR: join(root, "s"),
- 			PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: options.restoreDisabled ? "0" : undefined,
- 			PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1",
-@@ -173,7 +175,7 @@ for (const state of ["cold", "known", "unknown", "reopen"]) {
- 			try { timedOut = await page.call({ args, timeoutMs: 800 }); }
- 			finally { await page.patch({ timeoutInfo: false }); }
- 			assert.equal(timedOut.isError, true);
--			assert.equal(timedOut.details?.exitCode, 124);
-+			assert.equal(timedOut.details?.exitCode, process.platform === "win32" ? 1 : 124);
- 			assert.equal(timedOut.details?.timedOut, true);
- 			assert.equal(timedOut.details?.failureCategory, "timeout");
- 			assert.deepEqual((await page.calls()).slice(offset).map(row => row.args), [["--json", ...args]]);
-diff --git a/test/agent-browser.cold-resume.test.ts b/test/agent-browser.cold-resume.test.ts
-index 1184c78..ba7c3c9 100644
---- a/test/agent-browser.cold-resume.test.ts
-+++ b/test/agent-browser.cold-resume.test.ts
-@@ -65,6 +65,8 @@ process.stdout.write(JSON.stringify({ success: true, data }));`);
- 			PATH: `${root}${delimiter}${process.env.PATH ?? ""}`,
- 			HOME: home,
- 			USERPROFILE: home,
-+			// Exercise enabled automatic restore on Windows as well as POSIX.
-+			AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
- 			AGENT_BROWSER_NAMESPACE: "",
- 			AGENT_BROWSER_CONFIG: undefined,
- 			PI_AGENT_BROWSER_SOCKET_DIR: join(root, "s"),
-diff --git a/test/agent-browser.destination-cancel.test.ts b/test/agent-browser.destination-cancel.test.ts
-index a8224b7..cfe9f00 100644
---- a/test/agent-browser.destination-cancel.test.ts
-+++ b/test/agent-browser.destination-cancel.test.ts
-@@ -116,6 +116,8 @@ save(); process.stdout.write(JSON.stringify(output)); process.exitCode = failed
- 	try {
- 		await withPatchedEnv({
- 			PATH: `${root}${delimiter}${process.env.PATH ?? ""}`, HOME: home, USERPROFILE: home,
-+			// Enabled-restore scenarios need the native Windows storage prerequisite too.
-+			AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
- 			PI_CODING_AGENT_DIR: join(root, "pi"), PI_AGENT_BROWSER_SOCKET_DIR: join(root, "s"),
- 			AGENT_BROWSER_NAMESPACE: "", PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1",
- 		}, async () => {
 diff --git a/test/agent-browser.extension-electron-discovery.test.ts b/test/agent-browser.extension-electron-discovery.test.ts
-index 3ce86a7..5fab807 100644
+index 3ce86a7..93712f1 100644
 --- a/test/agent-browser.extension-electron-discovery.test.ts
 +++ b/test/agent-browser.extension-electron-discovery.test.ts
 @@ -12,7 +12,7 @@ import { once } from "node:events";
@@ -276,7 +227,76 @@ index 3ce86a7..5fab807 100644
  				}
  				const markerPath = join(dirname(launch.userDataDir), ".pi-agent-browser-owner.json");
  				if (breakMarker) assert.match(receipt.result.failure.cleanupError ?? "", /preserv/i);
-@@ -680,11 +697,18 @@ test("electron discovery annotates likely sensitive apps without blocking discov
+@@ -540,6 +557,7 @@ test("agentBrowserExtension keeps restored Electron profile when process ownersh
+ 		});
+ 		assert.equal(cleanupResult.partial, true);
+ 		assert.equal(cleanupResult.steps.find((step) => step.resource === "process")?.state, "failed");
++		assert.match(cleanupResult.steps.find((step) => step.resource === "process")?.error ?? "", /command line does not include wrapper-owned user data dir/);
+ 		assert.equal(cleanupResult.steps.find((step) => step.resource === "user-data-dir")?.state, "skipped");
+ 		assert.deepEqual(cleanupResult.remainingResources.sort(), ["process", "user-data-dir"]);
+ 		await stat(userDataDir);
+@@ -549,6 +567,40 @@ test("agentBrowserExtension keeps restored Electron profile when process ownersh
+ });
+ 
+ 
++test("restored Electron cleanup verifies native command-line profile ownership with spaces and Unicode", { concurrency: false }, async () => {
++	const userDataDir = await createSecureTempDirectory("electron-profile-space é-");
++	const otherProfile = await createSecureTempDirectory("electron-profile-other-");
++	const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "--", `--user-data-dir=${userDataDir}`], { stdio: "ignore" });
++	try {
++		await once(child, "spawn");
++		assert.ok(child.pid);
++		const record: ElectronLaunchRecord = {
++			appName: "Native ownership", cleanupState: "active", createdAtMs: Date.now(),
++			executablePath: process.execPath, launchId: "electron-native-ownership", launchedByWrapper: true,
++			pid: child.pid, port: 9, userDataDir, version: 1,
++		};
++		// No child handle is supplied: both decisions must inspect the real OS command line.
++		const refused = await cleanupElectronLaunchResources({ record: { ...record, userDataDir: otherProfile } });
++		assert.equal(refused.partial, true, JSON.stringify(refused));
++		assert.match(refused.steps.find((step) => step.resource === "process")?.error ?? "", /command line does not include wrapper-owned user data dir/);
++		assert.equal(refused.steps.find((step) => step.resource === "user-data-dir")?.state, "skipped");
++		assert.equal(isTestPidAlive(child.pid), true);
++		await stat(userDataDir);
++		await stat(otherProfile);
++
++		const cleaned = await cleanupElectronLaunchResources({ record });
++		assert.equal(cleaned.partial, false, JSON.stringify(cleaned));
++		assert.equal(cleaned.steps.find((step) => step.resource === "process")?.state, "removed");
++		assert.equal(await waitForTestPidExit(child.pid), true);
++		await assert.rejects(stat(userDataDir), { code: "ENOENT" });
++		await stat(otherProfile);
++	} finally {
++		await stopChildProcess(child);
++		await rm(userDataDir, { force: true, recursive: true });
++		await rm(otherProfile, { force: true, recursive: true });
++	}
++});
++
+ test("agentBrowserExtension restores Electron launch records and cleans them on shutdown", { concurrency: false }, async () => {
+ 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-electron-restore-"));
+ 	const applicationsDir = join(tempDir, "Applications");
+@@ -565,7 +617,7 @@ test("agentBrowserExtension restores Electron launch records and cleans them on
+ 			await runExtensionEvent(firstHarness.handlers, "session_start", { reason: "new" }, firstHarness.ctx);
+ 			const launchResult = await executeRegisteredTool(firstHarness.tool, firstHarness.ctx, { electron: { action: "launch", appPath: app.appPath, appArgs: app.appArgs, handoff: "connect" } });
+ 			assert.equal(launchResult.isError, false);
+-			const launch = (launchResult.details?.electron as { launch: { launchId: string; pid: number; userDataDir: string } }).launch;
++			const launch = (launchResult.details?.electron as { launch: ElectronLaunchRecord }).launch;
+ 			launchedPid = launch.pid;
+ 
+ 			const restoredHarness = createExtensionHarness({ cwd: tempDir, branch: [createToolBranchEntry({ details: launchResult.details as Record<string, unknown> })] });
+@@ -577,6 +629,10 @@ test("agentBrowserExtension restores Electron launch records and cleans them on
+ 			await runExtensionEvent(restoredHarness.handlers, "session_shutdown", { reason: "quit" }, restoredHarness.ctx);
+ 			await assert.rejects(stat(launch.userDataDir));
+ 			assert.equal(await waitForTestPidExit(launch.pid), true, "restored shutdown cleanup should terminate the wrapper-owned Electron process");
++			const stopped = await inspectElectronLaunchStatus(launch);
++			assert.equal(stopped.pidAlive, false);
++			assert.equal(stopped.portAlive, false);
++			assert.equal(stopped.userDataDirState, "absent");
+ 		});
+ 	} finally {
+ 		await stopTestPid(launchedPid);
+@@ -680,11 +736,18 @@ test("electron discovery annotates likely sensitive apps without blocking discov
  	}
  });
  
@@ -296,7 +316,7 @@ index 3ce86a7..5fab807 100644
  		await mkdir(desktopDir, { recursive: true });
  		const electronExecutable = await writeFakeLinuxElectronBinary(appRoot, "demo-electron");
  		const realElectronExecutable = await realpath(electronExecutable);
-@@ -697,30 +721,30 @@ test("electron discovery scans Linux desktop files and applies Electron evidence
+@@ -697,30 +760,30 @@ test("electron discovery scans Linux desktop files and applies Electron evidence
  Type=Application
  Name=Demo Electron
  Comment=Demo comment
@@ -332,7 +352,7 @@ index 3ce86a7..5fab807 100644
  `, "utf8");
  
  		const result = await discoverElectronApps({
-@@ -743,7 +767,7 @@ Exec=${JSON.stringify(electronExecutable)}
+@@ -743,7 +806,7 @@ Exec=${JSON.stringify(electronExecutable)}
  		await writeFile(join(desktopDir, "symlink.desktop"), `[Desktop Entry]
  Type=Application
  Name=Symlink Electron
@@ -413,211 +433,27 @@ index 7bd4a6c..80627e7 100644
  			ALL_PROXY: undefined,
  			HTTP_PROXY: undefined,
  			HTTPS_PROXY: undefined,
-diff --git a/test/agent-browser.extension-errors-artifacts.test.ts b/test/agent-browser.extension-errors-artifacts.test.ts
-index f542c4b..e04e367 100644
---- a/test/agent-browser.extension-errors-artifacts.test.ts
-+++ b/test/agent-browser.extension-errors-artifacts.test.ts
-@@ -11,7 +11,7 @@ import { withAgentBrowserProcessEnvironment } from "../extensions/agent-browser/
- import { execFileSync } from "node:child_process";
- import { access, link, mkdir, mkdtemp, readFile, readdir, rm, utimes, watch, writeFile } from "node:fs/promises";
- import { tmpdir } from "node:os";
--import { dirname, join } from "node:path";
-+import { delimiter, dirname, join, resolve } from "node:path";
- import test from "node:test";
- import { pathToFileURL } from "node:url";
+diff --git a/test/agent-browser.extension-ref-guards.test.ts b/test/agent-browser.extension-ref-guards.test.ts
+index db7e273..5370792 100644
+--- a/test/agent-browser.extension-ref-guards.test.ts
++++ b/test/agent-browser.extension-ref-guards.test.ts
+@@ -45,7 +45,7 @@ function pidIsAlive(pid: number | undefined): boolean {
+ }
  
-@@ -576,7 +576,7 @@ if (args.includes("session") && args.includes("info")) {
-   process.stdout.write(JSON.stringify({ success: true, data: { title: "safe", url: "https://example.com/safe" } }));
- }`);
- 	try {
--		await withPatchedEnv({ HOME: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
-+		await withPatchedEnv({ AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), HOME: tempDir, USERPROFILE: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
- 			const first = createExtensionHarness({ cwd: tempDir });
- 			await runExtensionEvent(first.handlers, "session_start", { reason: "new" }, first.ctx);
- 			const seeded = await executeRegisteredTool(first.tool, first.ctx, { args: ["get", "url"], sessionMode: "fresh" });
-@@ -628,7 +628,7 @@ if (args.includes("session") && args.includes("info")) {
-   process.stdout.write(JSON.stringify({ success: true, data: { title: "safe", url: "https://example.com/safe" } }));
- }`);
- 	try {
--		await withPatchedEnv({ HOME: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
-+		await withPatchedEnv({ AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), HOME: tempDir, USERPROFILE: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
- 			const harness = createExtensionHarness({ cwd: tempDir });
- 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
- 			const initial = await executeRegisteredTool(harness.tool, harness.ctx, { args: ["open", "https://example.com/safe"], sessionMode: "fresh" });
-@@ -813,7 +813,7 @@ if (args.includes("session") && args.includes("info")) {
-   process.stdout.write(JSON.stringify({ success: true, data: { title: "Example", url: "https://example.com" } }));
- }`);
- 	try {
--		await withPatchedEnv({ HOME: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
-+		await withPatchedEnv({ AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64), HOME: tempDir, USERPROFILE: tempDir, PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1" }, async () => {
- 			const first = createExtensionHarness({ cwd: tempDir });
- 			await runExtensionEvent(first.handlers, "session_start", { reason: "new" }, first.ctx);
- 			const opened = await executeRegisteredTool(first.tool, first.ctx, { args: ["open", "https://example.com"], sessionMode: "fresh" });
-@@ -957,14 +957,15 @@ if (args.includes("session") && args.includes("info")) {
- 		try {
- 			await withPatchedEnv({
- 				AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
-+				// Clear case aliases before applying the selected uppercase value on Windows.
-+				all_proxy: undefined,
-+				http_proxy: undefined,
-+				https_proxy: undefined,
- 				ALL_PROXY: undefined,
- 				HTTP_PROXY: undefined,
- 				HTTPS_PROXY: undefined,
- 				PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: undefined,
- 				PI_AGENT_BROWSER_TEST_CUSTOM_SESSION_INFO: "1",
--				all_proxy: undefined,
--				http_proxy: undefined,
--				https_proxy: undefined,
- 				...testCase.env,
- 				HOME: tempDir,
- 				PATH: `${tempDir}:${basePath}`,
-@@ -1019,13 +1020,15 @@ test("agentBrowserExtension does not sticky-disable restore when a suppressed sp
- 	const basePath = process.env.PATH ?? "";
- 	try {
- 		await withPatchedEnv({
--			ALL_PROXY: undefined,
--			HTTP_PROXY: undefined,
--			HTTPS_PROXY: "http://127.0.0.1:8080",
--			PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: undefined,
- 			all_proxy: undefined,
- 			http_proxy: undefined,
- 			https_proxy: undefined,
-+			ALL_PROXY: undefined,
-+			HTTP_PROXY: undefined,
-+			HTTPS_PROXY: "http://127.0.0.1:8080",
-+			AGENT_BROWSER_ENCRYPTION_KEY: "a".repeat(64),
-+			USERPROFILE: tempDir,
-+			PI_AGENT_BROWSER_MANAGED_SESSION_RESTORE: undefined,
- 			HOME: tempDir,
- 			PATH: "",
- 		}, async () => {
-@@ -1036,7 +1039,7 @@ test("agentBrowserExtension does not sticky-disable restore when a suppressed sp
- 			assert.notEqual(failed.details?.managedSessionRestoreDisabled, true);
+ function spawnElectronFixtureProcess(userDataDir: string): ChildProcess {
+-	const child = spawn("/bin/sh", ["-c", "while true; do sleep 1; done", "pi-agent-browser-electron-fixture", `--user-data-dir=${userDataDir}`], { detached: true, stdio: "ignore" });
++	const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "--", `--user-data-dir=${userDataDir}`], { detached: process.platform !== "win32", stdio: "ignore" });
+ 	child.unref();
+ 	return child;
+ }
+@@ -2979,7 +2979,9 @@ if (args.includes("snapshot")) {
  
- 			delete process.env.HTTPS_PROXY;
--			process.env.PATH = `${tempDir}:${basePath}`;
-+			process.env.PATH = `${tempDir}${delimiter}${basePath}`;
- 			await writeFakeAgentBrowserBinary(
- 				tempDir,
- 				`const fs = require("node:fs");
-@@ -1365,8 +1368,11 @@ test("agentBrowserExtension reports managed-session outcomes after failed fresh
- 	});
- 	initializeGitProject(tempDir);
- 	const basePath = process.env.PATH ?? "";
-+	// Windows searches cwd even with an empty PATH: keep the fixture shim only on PATH.
-+	const binaryDir = join(tempDir, "bin");
-+	await mkdir(binaryDir);
- 	await writeFakeAgentBrowserBinary(
--		tempDir,
-+		binaryDir,
- 		`const args = process.argv.slice(2);
- if (args.includes("session") && args.includes("info")) {
-   process.stdout.write(JSON.stringify({ success: true, data: { active: false, runtime: null } }));
-@@ -1380,7 +1386,7 @@ process.stdout.write(JSON.stringify({ success: true, data: { title: "ok", url: a
- 
- 	try {
- 		const missingBinaryDir = await mkdtemp(join(tempDir, "missing-agent-browser-"));
--		await withPatchedEnv({ PATH: `${tempDir}:${basePath}`, PI_AGENT_BROWSER_SOCKET_DIR: socketDir }, async () => {
-+		await withPatchedEnv({ PATH: `${binaryDir}${delimiter}${basePath}`, PI_AGENT_BROWSER_SOCKET_DIR: socketDir }, async () => {
- 			const harness = createExtensionHarness({ cwd: tempDir });
- 			await runExtensionEvent(harness.handlers, "session_start", { reason: "new" }, harness.ctx);
- 
-@@ -2126,7 +2132,7 @@ test("agentBrowserExtension forwards wait --download saved-file metadata in deta
- 
- 			assert.equal(result.isError, true);
- 			assert.equal(result.content[0]?.type, "text");
--			assert.match((result.content[0] as { text: string }).text, /Artifact verification failed: requested download was not found at \/tmp\/export\.csv/);
-+			assert.ok((result.content[0] as { text: string }).text.includes(`Artifact verification failed: requested download was not found at ${resolve(tempDir, "/tmp/export.csv")}.`));
- 			assert.match((result.content[0] as { text: string }).text, /Download event reported; file not verified: \/tmp\/export\.csv/);
- 			assert.equal(result.details?.savedFilePath, "/tmp/export.csv");
- 			assert.deepEqual(result.details?.savedFile, {
-diff --git a/test/agent-browser.process.test.ts b/test/agent-browser.process.test.ts
-index 116b37b..9f06b92 100644
---- a/test/agent-browser.process.test.ts
-+++ b/test/agent-browser.process.test.ts
-@@ -461,13 +461,58 @@ test("runAgentBrowserProcess stops a hung upstream client at the wrapper watchdo
- 		assert.equal(processResult.timedOut, true);
- 		assert.equal(processResult.timeoutMs, 100);
- 		assert.equal(processResult.aborted, false);
--		assert.equal(processResult.exitCode, 124);
-+		// The observed Windows shell close code wins over the timeout fallback.
-+		assert.equal(processResult.exitCode, process.platform === "win32" ? 1 : 124);
- 		assert.ok(Date.now() - startedAt < 2_000);
- 	} finally {
- 		await rm(tempDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
- 	}
- });
- 
-+for (const mode of ["timeout", "abort"] as const) {
-+	test(`runAgentBrowserProcess reaps its fixture before returning from ${mode}`, async () => {
-+		const root = await mkdtemp(join(tmpdir(), "piab-reap-"));
-+		const pidPath = join(root, "pid");
-+		const controller = new AbortController();
-+		await writeFakeAgentBrowserBinary(root, `require("node:fs").writeFileSync(${JSON.stringify(pidPath)}, String(process.pid)); setInterval(() => {}, 1000);`);
-+		const pending = runAgentBrowserProcess({
-+			args: ["get", "url"],
-+			cwd: root,
-+			env: { PATH: `${root}${delimiter}${process.env.PATH ?? ""}` },
-+			signal: controller.signal,
-+			timeoutMs: mode === "timeout" ? 800 : 0,
-+		});
-+		let pid: number | undefined;
-+		try {
-+			const deadline = Date.now() + 5_000;
-+			while (Date.now() < deadline) {
-+				try { pid = Number(await readFile(pidPath, "utf8")); break; }
-+				catch { await new Promise((resolve) => setTimeout(resolve, 5)); }
-+			}
-+			assert.ok(pid && Number.isInteger(pid), "fixture must start before cancellation");
-+			if (mode === "abort") controller.abort();
-+			const result = await pending;
-+			assert.equal(result.spawnError, undefined);
-+			assert.equal(result.timedOut, mode === "timeout");
-+			assert.equal(result.aborted, mode === "abort");
-+			assert.equal(getEventListeners(controller.signal, "abort").length, 0);
-+			assert.throws(() => process.kill(pid as number, 0), { code: "ESRCH" }, "fixture must be gone at return, not eventually");
-+			await rm(root, { recursive: true, force: true });
-+		} finally {
-+			controller.abort();
-+			await pending;
-+			if (pid) {
-+				try {
-+					process.kill(pid, 0);
-+					if (process.platform === "win32") execFileSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
-+					else process.kill(pid, "SIGKILL");
-+				} catch { /* Already reaped. */ }
-+			}
-+			await rm(root, { recursive: true, force: true });
-+		}
-+	});
-+}
-+
- test("runAgentBrowserProcess handles closed stdin pipe without an unhandled EPIPE", async () => {
- 	const tempDir = await mkdtemp(join(tmpdir(), "pi-agent-browser-test-"));
- 	const basePath = process.env.PATH ?? "";
-@@ -591,7 +636,7 @@ test("runAgentBrowserProcess returns timeout exit code when descendants keep std
- 		lingerPid = Number((await readFile(lingerPidPath, "utf8")).trim());
- 		assert.equal(processResult.timedOut, true);
- 		assert.equal(processResult.timeoutMs, timeoutMs);
--		assert.equal(processResult.exitCode, 124);
-+		assert.equal(processResult.exitCode, process.platform === "win32" ? 1 : 124);
- 		assert.equal(processResult.spawnError, undefined);
- 		assert.ok(
- 			elapsedMs < timeoutMs + 2_000,
-@@ -650,13 +695,8 @@ test("runAgentBrowserProcess removes abort listeners after spawn errors", async
- 			signal: controller.signal,
- 		});
- 
--		if (process.platform === "win32") {
--			assert.equal(processResult.exitCode, 1);
--			assert.match(processResult.stderr, /agent-browser|not recognized/);
--		} else {
--			assert.equal(processResult.exitCode, 127);
--			assert.match(processResult.spawnError?.message ?? "", /ENOENT|agent-browser/);
--		}
-+		assert.equal(processResult.exitCode, 127);
-+		assert.match(processResult.spawnError?.message ?? "", /ENOENT|agent-browser/);
- 		assert.equal(processResult.aborted, false);
- 		assert.equal(processResult.agentBrowserStarted, false);
- 		assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+ 			// Upstream-effective raw artifact rows get parent directories prepared.
+ 			const rawScreenshot = await executeRegisteredTool(harness.tool, harness.ctx, {
+-				args: ["batch", `screenshot ${join(tempDir, "raw", "dir", "shot.png")}`, "wait 10"],
++				// Native batch raw rows use shell-word syntax on every OS: quote
++				// backslashes/spaces rather than passing an unquoted Windows path.
++				args: ["batch", `screenshot '${join(tempDir, "raw", "dir", "shot.png").replaceAll("'", "'\\''")}'`, "wait 10"],
+ 			});
+ 			assert.equal(rawScreenshot.isError, false, JSON.stringify(rawScreenshot));
+ 			assert.equal(await directoryExists(join(tempDir, "raw", "dir")), true);
