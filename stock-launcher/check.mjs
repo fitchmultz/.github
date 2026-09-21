@@ -37,7 +37,7 @@ try {
   report.sourceHashes = hashes(); assert.deepEqual(report.sourceHashes, manifest.files); save();
   report.npm = run('npm', ['--version'], { cwd: dev, env, quiet: true }).trim(); assert.equal(report.npm, '11.19.0');
   report.phase = 'install'; save();
-  assert.equal((await check('npm-ci', 'npm', ['ci', '--ignore-scripts'])).status, 0);
+  assert.equal((await check('npm-ci', 'npm', ['ci', '--ignore-scripts', '--timing', '--loglevel=http'])).status, 0);
   const host = await prepareHost(join(root, 'h'), flavor, flavor === 'official' ? '0.86.1' : fork, env);
   const selected = selectDevelopmentHost(dev, host, env);
   report.host = host; report.selected = selected; report.phase = 'checks'; save();
@@ -77,14 +77,15 @@ try {
   if (report.result !== 'passed') process.exitCode = 1;
 } catch (error) { report.result = 'failed'; report.error = String(error); process.exitCode = 1; console.error(error); }
 finally {
-  report.journals = [];
+  report.journals = []; report.installLogs = [];
   function preserve(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const file = join(directory, entry.name);
       if (entry.isDirectory() && !['node_modules', '.git'].includes(entry.name)) preserve(file);
-      else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
-        const rel = relative(root, file), destination = join(out, 'journals', rel);
-        mkdirSync(dirname(destination), { recursive: true }); copyFileSync(file, destination); report.journals.push(rel);
+      else if (entry.isFile() && (entry.name.endsWith('.jsonl') || file.replaceAll('\\\\', '/').includes('/npm-cache/_logs/'))) {
+        const rel = relative(root, file), destination = join(out, 'retained', rel);
+        mkdirSync(dirname(destination), { recursive: true }); copyFileSync(file, destination);
+        (entry.name.endsWith('.jsonl') ? report.journals : report.installLogs).push(rel);
       }
     }
   }

@@ -338,9 +338,9 @@
  			const stdinError = error instanceof Error ? error : new Error(String(error));
 --- /dev/null
 +++ b/extensions/agent-browser/lib/windows-stock-launcher.ts
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,57 @@
 +import { readFileSync, statSync } from "node:fs";
-+import { dirname, join, resolve } from "node:path";
++import { dirname, isAbsolute, join, resolve } from "node:path";
 +import { isMainThread } from "node:worker_threads";
 +import pathKey from "path-key";
 +import which from "which";
@@ -357,7 +357,16 @@
 +	const values = (name: string) => Object.entries(env)
 +		.filter(([key, value]) => key.toUpperCase() === name && value !== undefined).map(([, value]) => value);
 +	const paths = values("PATH"), extensions = values("PATHEXT");
-+	if (paths.length !== 1 || !paths[0] || extensions.length !== 1 || extensions[0] !== process.env.PATHEXT) return undefined;
++	if (paths.length !== 1 || !paths[0] || extensions.length !== 1 || extensions[0] !== process.env.PATHEXT
++		|| values("NODEFAULTCURRENTDIRECTORYINEXEPATH").length) return undefined;
++	// A custom COMSPEC can implement different command selection/semantics.
++	// Compare filesystem identity, not short/long Windows path spellings.
++	try {
++		if (!process.env.comspec || !isAbsolute(process.env.comspec) || !process.env.SystemRoot) return undefined;
++		const shell = statSync(process.env.comspec, { bigint: true });
++		const native = statSync(join(process.env.SystemRoot, "System32", "cmd.exe"), { bigint: true });
++		if (shell.dev !== native.dev || shell.ino !== native.ino) return undefined;
++	} catch { return undefined; }
 +	const previousCwd = process.cwd();
 +	let selected: string | null;
 +	try {
@@ -2253,7 +2262,7 @@
  						const pid = Number(await readFile(marker, "utf8"));
 --- /dev/null
 +++ b/test/agent-browser.windows-stock-launcher.test.ts
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,210 @@
 +import assert from "node:assert/strict";
 +import { spawnSync } from "node:child_process";
 +import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -2362,6 +2371,19 @@
 +			const integrated = await runAgentBrowserProcess({ cwd, env, args: [script, "probe"] });
 +			await sameFile(JSON.parse(integrated.stdout).exe, join(custom, "agent-browser.exe"));
 +		});
++		const stockCwd = join(root, "stock-cwd"); await stock(stockCwd);
++		const noCwd = { ...childEnv(custom), NoDefaultCurrentDirectoryInExePath: "1" };
++		const noCwdRaw = original(stockCwd, noCwd, [script, "probe"]);
++		assert.equal(noCwdRaw.status, 0, noCwdRaw.stderr);
++		assert.equal(resolveWindowsStockLauncher(stockCwd, noCwd), undefined);
++		const noCwdResult = await runAgentBrowserProcess({ cwd: stockCwd, env: noCwd, args: [script, "probe"] });
++		assert.equal(noCwdResult.exitCode, noCwdRaw.status); assert.deepEqual(JSON.parse(noCwdResult.stdout), JSON.parse(noCwdRaw.stdout));
++		await withPatchedEnv({ ComSpec: process.execPath }, async () => {
++			const env = childEnv(stockCwd), raw = original(stockCwd, env, [script, "probe"]);
++			assert.equal(resolveWindowsStockLauncher(stockCwd, env), undefined);
++			const result = await runAgentBrowserProcess({ cwd: stockCwd, env, args: [script, "probe"] });
++			assert.equal(result.exitCode, raw.status); assert.equal(result.stdout, raw.stdout);
++		});
 +	} finally { await rm(root, { recursive: true, force: true }); }
 +});
 +
@@ -2439,7 +2461,7 @@
 +		await sameFile(resolveWindowsStockLauncher(root, env)!, exe);
 +		for (const operand of ["--no-startup-window,--disable-gpu\n--no-sandbox", "--no-startup-window,--disable-gpu\r\n--no-sandbox", ...vector]) {
 +			const args = ["--json", "dashboard", operand];
-+			const expected = `${operand.startsWith("-") ? "Unknown dashboard option" : "Unexpected dashboard argument"}: ${operand}`;
++			const expected = `${operand.startsWith("-") ? "Unknown dashboard option" : "Unknown dashboard subcommand"}: ${operand}`;
 +			const direct = spawnSync(exe, args, { cwd: root, env, encoding: "utf8", timeout: 10_000 });
 +			assert.equal(direct.status, 1, direct.stderr); assert.equal(JSON.parse(direct.stdout).error, expected);
 +			const old = original(root, env, args);

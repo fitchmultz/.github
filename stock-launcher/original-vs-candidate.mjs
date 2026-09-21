@@ -15,7 +15,7 @@ const cases = [];
 try {
   for (const operand of ['--no-startup-window,--disable-gpu\n--no-sandbox', '--no-startup-window,--disable-gpu\r\n--no-sandbox', '', 'one two', '"quoted"', 'C:\\path with space\\', '雪 🐎', 'one\ntwo', 'one\r\ntwo', '%PATH%', 'a&b', 'a^b']) {
     const args = ['--json', 'dashboard', operand];
-    const expected = `${operand.startsWith('-') ? 'Unknown dashboard option' : 'Unexpected dashboard argument'}: ${operand}`;
+    const expected = `${operand.startsWith('-') ? 'Unknown dashboard option' : 'Unknown dashboard subcommand'}: ${operand}`;
     const original = await old.runAgentBrowserProcess({ args, cwd, env });
     const fixed = await candidate.runAgentBrowserProcess({ args, cwd, env });
     const row = { args, hex: Buffer.from(operand).toString('hex'), expected, original, candidate: fixed };
