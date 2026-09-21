@@ -1,4 +1,4 @@
-name: Combined Browser Windows diagnostic
+name: Browser final identity sequence diagnostic
 on:
   push:
     branches: [compatibility/windows-process-probe]
@@ -40,12 +40,12 @@ jobs:
       - name: Use the same native npm toolchain
         shell: bash
         run: npm install --global npm@11.19.0
-      - name: Run unmodified combined package contracts and retain all failures
+      - name: Run unchanged affected files once without identity warmup
         shell: bash
-        run: node probe/combined/check.mjs "$GITHUB_WORKSPACE/automation" "$GITHUB_WORKSPACE/browser" "$GITHUB_WORKSPACE/probe/evidence"
+        run: node probe/identity-final/check.mjs "$GITHUB_WORKSPACE/automation" "$GITHUB_WORKSPACE/browser" "$GITHUB_WORKSPACE/probe/evidence"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
         if: always()
         with:
-          name: browser-combined-windows
+          name: browser-identity-final
           path: probe/evidence
           if-no-files-found: error
