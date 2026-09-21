@@ -1,14 +1,17 @@
-name: Windows native command candidate
+name: Stock launcher Windows qualification
 on:
   push:
     branches: [compatibility/windows-argv-probe]
-    paths-ignore: ['stock-launcher/**', '.github/workflows/windows-stock-launcher.yml', '.github/workflows/windows-argv-probe.yml']
 permissions:
   contents: read
 jobs:
-  argv:
+  stock-launcher:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    env:
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -17,7 +20,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: fitchmultz/.github
-          ref: a78d00c02fa2f3c05fe53b082f0a338150981a65
+          ref: 736c45701fe96157644479a91fe507bea3135d22
           path: automation
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,19 +32,20 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24.21.0'
+          check-latest: true
           package-manager-cache: false
       - name: Initialize native Windows module discovery for bash
         shell: pwsh
         run: '"PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
-      - name: Exact npm toolchain
+      - name: Use the same native npm toolchain
         shell: bash
         run: npm install --global npm@11.19.0
-      - name: Private native resolver and unchanged Chromium assertions
+      - name: Qualify stock launcher and unchanged Chromium assertions
         shell: bash
-        run: node probe/browser-native-command-candidate.mjs
+        run: node probe/stock-launcher/check.mjs "$GITHUB_WORKSPACE/automation" "$GITHUB_WORKSPACE/browser" "$GITHUB_WORKSPACE/probe/evidence"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
         if: always()
         with:
-          name: browser-native-command-candidate
-          path: probe/candidate-evidence
+          name: browser-stock-launcher-fix
+          path: probe/evidence
           if-no-files-found: error
