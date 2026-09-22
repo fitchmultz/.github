@@ -1,6 +1,8 @@
 # Pi release compatibility
 
-Shared Renovate policy and native GitHub Actions qualification for the Pi packages in `fleet.json`. Official stable releases are the primary host. The maintained `fitchmultz/pi` fork is a separate required host; Posthorse intentionally supports only that fork.
+Shared host targets, native package qualification and Renovate policy for the Pi packages in `fleet.json`. Official stable releases are the primary host. The maintained `fitchmultz/pi` fork is a separate required host; Posthorse intentionally supports only that fork.
+
+**GitHub Actions are disabled.** Run the local checks below and retain exact source and host provenance with the PR. The workflow descriptions document retained configuration; do not enable, trigger or wait for remote workflows.
 
 ## Repository callers
 
@@ -50,8 +52,8 @@ Repairs use the repository's ordinary PR process. A fixture or host-selection fa
 1. Qualify the full candidate fleet on PR branches. `PI_COMPATIBILITY_SOURCE_REF` may temporarily select the coordinated rollout branch in this repository and the fork; clear it after the extension branches merge.
 2. Obtain the required owner-designated reviews before merging or activating the rollout. Publish the shared workflow's version tag only after approval, then keep callers pinned to its reviewed commit.
 3. Install the managed Renovate App for the selected repositories, using the owner's normal GitHub authentication. Do not run a second dependency updater.
-4. Require each repository's actual successful aggregate compatibility check on its default branch, preserving existing protection and useful required checks. The fork includes reverse-dependency qualification in its existing `build-check-test` aggregate.
-5. Set this repository's `PI_COMPATIBILITY_ENABLED` Actions variable to `true` to enable the canary, and run it once manually. Until then both its scheduled and manual entrypoints remain disabled.
+4. Use local verification. For rollout repositories already approved to merge, remove only required Actions checks while preserving other branch protections.
+5. Keep GitHub Actions disabled, including the canary and manual workflow entrypoints.
 
 A dev-baseline-only change does not require a new npm release. For a shipped fix on an owned npm channel, publish the exact checked tarball and verify package/tag/source identity; retain any package-specific live release gates. Git-only packages stay Git-delivered. Consumer updates use normal Pi package updates and a fresh process or the fork's native restart. Qualification itself never activates code.
 
@@ -68,10 +70,11 @@ actionlint
 PI_TEST_HOST=/path/to/installed/pi-consumer npm run test:native
 
 node scripts/qualify.mjs --repo pi-calculator --source /path/to/checkout \
-  --host official --target 0.86.1 --output /tmp/pi-qualification
+  --host official --target 0.87.0 --output /tmp/pi-qualification
 
 node scripts/pack-fork.mjs /path/to/built/fork /tmp/fork-package FULL_FORK_SHA
-node scripts/qualify.mjs --repo pi-calculator --source /path/to/checkout \
+PI_COMPAT_FORK_REF=FULL_FORK_SHA node scripts/qualify.mjs \
+  --repo pi-calculator --source /path/to/checkout \
   --host fork --target /tmp/fork-package --output /tmp/pi-fork-qualification
 ```
 
