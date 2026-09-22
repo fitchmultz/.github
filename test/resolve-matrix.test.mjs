@@ -13,7 +13,7 @@ let invocation = 0;
 
 // Execute the actual script, including environment parsing and GITHUB_OUTPUT writes.
 // Only external HTTP is replaced; no matrix-selection logic is reimplemented here.
-async function resolveFixture(t, environment = {}, { official = true, candidate = "0.87.0" } = {}) {
+async function resolveFixture(t, environment = {}, { official = true, candidate = "0.88.0" } = {}) {
   const root = mkdtempSync(join(tmpdir(), "pi-resolve-"));
   const output = join(root, "output");
   const env = { REPOSITORY: "all", HOST: undefined, SOURCE_REF: undefined, OFFICIAL_VERSION: undefined,
@@ -120,7 +120,7 @@ test("an individual PR still resolves its manifest candidate and diagnostic offi
   passed(result);
   assert.equal(result.lanes.length, 6);
   assert.deepEqual(result.lanes.slice(0, 3).map(({ host, label, version }) => ({ host, label, version })), [
-    { host: "official", label: "official", version: "0.87.0" },
+    { host: "official", label: "official", version: "0.88.0" },
     { host: "fork", label: "fork", version: "" },
     { host: "official", label: "baseline", version: targets.official },
   ]);
@@ -134,7 +134,7 @@ test("the default canary resolves latest once, retains baseline comparisons and 
   assert.equal(result.lanes.length, 191);
   assert.equal(new Set(result.lanes.map((lane) => lane.repo)).size, 26);
   assert.equal(result.requests.filter((url) => url.endsWith("/latest")).length, 1);
-  assert.ok(result.lanes.filter((lane) => lane.label === "official").every((lane) => lane.version === "0.87.0"));
+  assert.ok(result.lanes.filter((lane) => lane.label === "official").every((lane) => lane.version === "0.88.0"));
   assert.ok(result.lanes.filter((lane) => lane.label === "baseline").every((lane) => lane.version === targets.official));
   assert.deepEqual(platformLabels(result.lanes, "pi-evidence"), ["ubuntu-latest/20", "ubuntu-latest/24"]);
 });
