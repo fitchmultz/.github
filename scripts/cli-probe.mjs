@@ -17,7 +17,7 @@ export function checkResources(packageDir) {
   }
 }
 
-export function probeCli(host, packageDir, directory, env, { expectedRefusal = false } = {}) {
+export function probeCli(host, packageDir, directory, env) {
   mkdirSync(directory, { recursive: true });
   const observer = join(directory, "observe.ts");
   cpSync(fileURLToPath(new URL("observe.ts", import.meta.url)), observer);
@@ -38,14 +38,7 @@ export function probeCli(host, packageDir, directory, env, { expectedRefusal = f
   if (result.error) throw result.error;
   assert.equal(result.status, 0, result.stderr);
   const events = result.stdout.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line));
-  const errors = events.filter((event) => event.type === "extension_error");
-  if (expectedRefusal) {
-    assert.equal(errors.length, 1, JSON.stringify(errors));
-    assert.equal(errors[0].event, "session_start");
-    assert.match(errors[0].error, /^Posthorse requires the fitchmultz\/pi fork with native context windows/);
-  } else {
-    assert.deepEqual(errors, [], "Native extension lifecycle errors");
-  }
+  assert.deepEqual(events.filter((event) => event.type === "extension_error"), [], "Native extension lifecycle errors");
   assert.ok(events.some((event) => event.id === "qualification" && event.type === "response" && event.success === true), "Probe command did not complete");
   assert.ok(!events.some((event) => event.type === "agent_start"), "Fixture unexpectedly started a model turn");
   const observed = readJson(observation);
@@ -53,5 +46,5 @@ export function probeCli(host, packageDir, directory, env, { expectedRefusal = f
   assert.equal(observed.version, host.version);
   assert.equal(observed.indexSha256, host.indexSha256);
   assert.equal(observed.cliSha256, host.cliSha256);
-  return { expectedRefusal, ...observed };
+  return observed;
 }
