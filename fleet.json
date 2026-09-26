@@ -15,7 +15,7 @@
   { "repo": "pi-mcp-adapter", "kind": "extension", "npmPackage": "@fitchmultz/pi-mcp-adapter", "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-codex-goal", "kind": "extension", "npmPackage": "pi-codex-goal", "nodes": ["24"], "extraPlatforms": ["macos-latest", "windows-latest"] },
   { "repo": "pi-cursor-sdk", "kind": "extension", "npmPackage": "pi-cursor-sdk", "extraPlatforms": ["macos-latest", "windows-latest"] },
-  { "repo": "pi-calculator", "kind": "extension" },
+  { "repo": "pi-calculator", "kind": "extension", "nodes": ["24"] },
   { "repo": "macuse", "kind": "extension", "os": "macos-latest" },
   { "repo": "pi-agent-skills", "kind": "assets" },
   { "repo": "pi-ask-question", "kind": "extension" },
