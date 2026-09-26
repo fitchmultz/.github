@@ -68,7 +68,7 @@ actionlint
 PI_TEST_HOST=/path/to/installed/pi-consumer npm run test:native
 
 node scripts/qualify.mjs --repo pi-calculator --source /path/to/checkout \
-  --host official --target 0.86.1 --output /tmp/pi-qualification
+  --host official --target 0.87.1 --output /tmp/pi-qualification
 
 node scripts/pack-fork.mjs /path/to/built/fork /tmp/fork-package FULL_FORK_SHA
 node scripts/qualify.mjs --repo pi-calculator --source /path/to/checkout \
