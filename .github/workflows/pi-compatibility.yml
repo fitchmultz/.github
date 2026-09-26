@@ -144,7 +144,7 @@ jobs:
       matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
     name: ${{ matrix.repo }} / ${{ matrix.label }} / ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.repo == 'pi-agent-browser-native' && matrix.os == 'windows-latest' && 35 || 25 }}
+    timeout-minutes: ${{ (matrix.repo == 'pi-agent-browser-native' || matrix.repo == 'pi-cursor-sdk') && matrix.os == 'windows-latest' && 35 || 25 }}
     # Previous official baselines are diagnostic; the owner waived Windows qualification on 2026-09-21.
     # Keep Windows failures and artifacts visible without blocking the rollout.
     continue-on-error: ${{ matrix.label == 'baseline' || matrix.os == 'windows-latest' }}
