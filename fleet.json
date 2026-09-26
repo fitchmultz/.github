@@ -5,7 +5,7 @@
   { "repo": "pi-change-working-dir", "kind": "extension", "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-stash", "kind": "extension", "npmPackage": "@fitchmultz/pi-stash" },
   { "repo": "pi-fitch-kit", "kind": "extension", "nodes": ["24", "26"], "extraPlatforms": ["macos-latest"] },
-  { "repo": "pi-edit-session-in-place", "kind": "extension", "npmPackage": "pi-edit-session-in-place" },
+  { "repo": "pi-edit-session-in-place", "kind": "extension", "npmPackage": "pi-edit-session-in-place", "nodes": ["24"] },
   { "repo": "pi-ctx-info", "kind": "extension" },
   { "repo": "pi-tool-duration", "kind": "extension", "npmPackage": "pi-tool-duration" },
   { "repo": "pi-apply-edits", "kind": "extension", "extraPlatforms": ["macos-latest"] },
