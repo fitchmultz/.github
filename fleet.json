@@ -19,7 +19,7 @@
   { "repo": "macuse", "kind": "extension", "os": "macos-latest" },
   { "repo": "pi-agent-skills", "kind": "assets" },
   { "repo": "pi-ask-question", "kind": "extension" },
-  { "repo": "pi-copy-message", "kind": "extension", "npmPackage": "pi-copy-message" },
+  { "repo": "pi-copy-message", "kind": "extension", "npmPackage": "pi-copy-message", "nodes": ["24"] },
   { "repo": "pi-zai-mcp", "kind": "extension", "npmPackage": "pi-zai-mcp" },
   { "repo": "pi-workflows", "kind": "project" },
   { "repo": "pi-evidence", "kind": "cli", "nodes": ["20", "24"] },
