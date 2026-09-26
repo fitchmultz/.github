@@ -11,5 +11,5 @@
     "qualify": "node scripts/qualify.mjs"
   },
   "engines": { "node": ">=20" },
-  "devDependencies": { "renovate": "44.104.2" }
+  "devDependencies": { "renovate": "44.115.10" }
 }
