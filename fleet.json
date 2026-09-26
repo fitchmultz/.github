@@ -12,7 +12,7 @@
   { "repo": "pi-oracle", "kind": "extension", "npmPackage": "pi-oracle", "extraPlatforms": ["macos-latest", "windows-latest"] },
   { "repo": "pi-todo-list", "kind": "extension" },
   { "repo": "pi-posthorse", "kind": "extension", "npmPackage": "pi-posthorse", "forkOnly": true, "extraPlatforms": ["macos-latest"] },
-  { "repo": "pi-mcp-adapter", "kind": "extension", "npmPackage": "@fitchmultz/pi-mcp-adapter", "extraPlatforms": ["macos-latest"] },
+  { "repo": "pi-mcp-adapter", "kind": "extension", "npmPackage": "@fitchmultz/pi-mcp-adapter", "nodes": ["24"], "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-codex-goal", "kind": "extension", "npmPackage": "pi-codex-goal", "nodes": ["24"], "extraPlatforms": ["macos-latest", "windows-latest"] },
   { "repo": "pi-cursor-sdk", "kind": "extension", "npmPackage": "pi-cursor-sdk", "extraPlatforms": ["macos-latest", "windows-latest"] },
   { "repo": "pi-calculator", "kind": "extension" },

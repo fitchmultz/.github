@@ -82,7 +82,7 @@ test("default and explicit both preserve all 26 repositories and existing Node/p
   assert.deepEqual(result.outputs, explicit.outputs);
   assert.equal(result.outputs.forkRef, targets.forkRef);
   assert.equal(result.outputs.needsFork, "true");
-  assert.equal(result.lanes.length, 128);
+  assert.equal(result.lanes.length, 126);
   assert.deepEqual([...new Set(result.lanes.map((lane) => lane.repo))], fleet.map((entry) => entry.repo));
   for (const entry of fleet) {
     const lanes = result.lanes.filter((lane) => lane.repo === entry.repo);
@@ -93,11 +93,12 @@ test("default and explicit both preserve all 26 repositories and existing Node/p
   assert.deepEqual(platformLabels(fork, "pi-fitch-kit"), ["ubuntu-latest/24", "ubuntu-latest/26", "macos-latest/24"]);
   assert.deepEqual(platformLabels(fork, "pi-agent-browser-native"), ["ubuntu-latest/22.19.0", "ubuntu-latest/24", "macos-latest/24", "windows-latest/24"]);
   assert.deepEqual(platformLabels(fork, "macuse"), ["macos-latest/22.19.0", "macos-latest/24"]);
+  assert.deepEqual(platformLabels(fork, "pi-mcp-adapter"), ["ubuntu-latest/24", "macos-latest/24"]);
   assert.ok(result.requests.filter((url) => url.includes("/commits/")).every((url) => url.endsWith("/commits/main")));
   assert.equal(result.requests.filter((url) => url.startsWith("https://registry.npmjs.org/")).length, 2, "Cohort preflight is cached across the fleet");
 });
 
-test("fork reverse dependencies preserve all 63 fork lanes without any official npm or CLI lookup", async (t) => {
+test("fork reverse dependencies preserve all 62 fork lanes without any official npm or CLI lookup", async (t) => {
   const both = await resolveFixture(t);
   const fork = await resolveFixture(t, { HOST: "fork", FORK_REF: forkSha, SOURCE_REF: "compatibility/pi-releases", OFFICIAL_VERSION: "latest" }, { official: false });
   passed(both);
@@ -105,7 +106,7 @@ test("fork reverse dependencies preserve all 63 fork lanes without any official 
   assert.deepEqual(fork.lanes, both.lanes.filter((lane) => lane.host === "fork"));
   assert.equal(fork.outputs.forkRef, forkSha);
   assert.equal(fork.outputs.needsFork, "true");
-  assert.equal(fork.lanes.length, 63);
+  assert.equal(fork.lanes.length, 62);
   assert.equal(new Set(fork.lanes.map((lane) => lane.repo)).size, 25);
   assert.ok(fork.lanes.some((lane) => lane.repo === "pi-posthorse"));
   assert.ok(fork.lanes.some((lane) => lane.repo === "pi-agent-skills"));
@@ -131,7 +132,7 @@ test("an individual PR still resolves its manifest candidate and diagnostic offi
 test("the default canary resolves latest once, retains baseline comparisons and the standalone CLI", async (t) => {
   const result = await resolveFixture(t, { OFFICIAL_VERSION: "latest", SOURCE_REF: "main" });
   passed(result);
-  assert.equal(result.lanes.length, 191);
+  assert.equal(result.lanes.length, 188);
   assert.equal(new Set(result.lanes.map((lane) => lane.repo)).size, 26);
   assert.equal(result.requests.filter((url) => url.endsWith("/latest")).length, 1);
   assert.ok(result.lanes.filter((lane) => lane.label === "official").every((lane) => lane.version === "0.87.0"));
