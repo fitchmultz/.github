@@ -38,7 +38,6 @@ try {
   if (entry.npmPackage) assert.equal(manifest.name, entry.npmPackage, "Owned npm channel differs from the source manifest");
   assert.ok(manifest.scripts?.["check:compat"], "Repository must supply its package-specific check:compat contract");
   let host;
-  const expectedRefusal = entry.forkOnly === true && values.host === "official";
   if (values.host !== "none") {
     phase = "host-install";
     const target = values.target ?? readJson(new URL("../host-targets.json", import.meta.url)).official;
@@ -48,18 +47,14 @@ try {
     phase = "development-host-selection";
     const selected = selectDevelopmentHost(development, host, env);
     report.developmentHost = selected;
-    if (!expectedRefusal) {
-      phase = "package-contracts";
-      run("npm", ["run", "check:compat"], { cwd: development, timeout: contractTimeoutMs, env: {
-        ...env, PI_COMPAT_HOST: values.host, PI_COMPAT_EXPECTED_VERSION: host.version,
-        PI_COMPAT_EXPECTED_PACKAGE_DIR: selected.packageDir, PI_PACKAGE_DIR: selected.packageDir,
-        PI_HOST_INDEX: selected.index, PI_HOST_CLI: selected.cli,
-        PI_COMPAT_EVIDENCE_DIR: join(root, "probes", "contracts"),
-      } });
-      report.checks.contracts = "passed";
-    } else {
-      report.checks.contracts = "fork-only; official refusal checked through native CLI";
-    }
+    phase = "package-contracts";
+    run("npm", ["run", "check:compat"], { cwd: development, timeout: contractTimeoutMs, env: {
+      ...env, PI_COMPAT_HOST: values.host, PI_COMPAT_EXPECTED_VERSION: host.version,
+      PI_COMPAT_EXPECTED_PACKAGE_DIR: selected.packageDir, PI_PACKAGE_DIR: selected.packageDir,
+      PI_HOST_INDEX: selected.index, PI_HOST_CLI: selected.cli,
+      PI_COMPAT_EVIDENCE_DIR: join(root, "probes", "contracts"),
+    } });
+    report.checks.contracts = "passed";
   } else {
     phase = "standalone-cli-contracts";
     run("npm", ["run", "check:compat"], { cwd: development, env, timeout: contractTimeoutMs });
@@ -74,7 +69,7 @@ try {
   report.checks.gitInstall = "passed (fresh checkout, production dependencies and native lifecycle)";
   if (entry.kind === "extension") {
     phase = "git-consumer-cli";
-    report.checks.gitCli = probeCli(host, gitConsumer, join(root, "probes", "git"), env, { expectedRefusal });
+    report.checks.gitCli = probeCli(host, gitConsumer, join(root, "probes", "git"), env);
   }
 
   if (entry.npmPackage || entry.kind === "cli") {
@@ -94,7 +89,7 @@ try {
     report.checks.npmInstall = "passed";
     if (entry.kind === "extension") {
       phase = "npm-consumer-cli";
-      report.checks.npmCli = probeCli(host, installed, join(root, "probes", "npm"), env, { expectedRefusal });
+      report.checks.npmCli = probeCli(host, installed, join(root, "probes", "npm"), env);
       for (const key of ["tools", "activeTools", "commands", "providers"]) {
         const names = (observation) => observation[key].map((value) => typeof value === "string" ? value : value.name).sort();
         assert.deepEqual(names(report.checks.npmCli), names(report.checks.gitCli), `npm and Git expose different ${key}`);
@@ -117,7 +112,7 @@ try {
     const installed = join(consumer, "node_modules", entry.npmPackage);
     checkResources(installed);
     report.published = { name: entry.npmPackage, version: metadata.version, integrity: metadata.dist.integrity, gitHead: metadata.gitHead };
-    report.checks.publishedCli = probeCli(host, installed, join(root, "probes", "published"), env, { expectedRefusal });
+    report.checks.publishedCli = probeCli(host, installed, join(root, "probes", "published"), env);
   }
   report.result = "passed";
 } catch (error) {
