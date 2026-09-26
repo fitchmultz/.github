@@ -11,7 +11,7 @@
   { "repo": "pi-apply-edits", "kind": "extension", "nodes": ["24"], "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-oracle", "kind": "extension", "npmPackage": "pi-oracle", "extraPlatforms": ["macos-latest", "windows-latest"] },
   { "repo": "pi-todo-list", "kind": "extension", "nodes": ["24"] },
-  { "repo": "pi-posthorse", "kind": "extension", "npmPackage": "pi-posthorse", "forkOnly": true, "extraPlatforms": ["macos-latest"] },
+  { "repo": "pi-posthorse", "kind": "extension", "npmPackage": "pi-posthorse", "nodes": ["24"], "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-mcp-adapter", "kind": "extension", "npmPackage": "@fitchmultz/pi-mcp-adapter", "nodes": ["24"], "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-codex-goal", "kind": "extension", "npmPackage": "pi-codex-goal", "nodes": ["24"], "extraPlatforms": ["macos-latest", "windows-latest"] },
   { "repo": "pi-cursor-sdk", "kind": "extension", "npmPackage": "pi-cursor-sdk", "extraPlatforms": ["macos-latest", "windows-latest"] },
@@ -24,5 +24,6 @@
   { "repo": "pi-workflows", "kind": "project" },
   { "repo": "pi-evidence", "kind": "cli", "nodes": ["20", "24"] },
   { "repo": "pi-zai-agents", "kind": "extension", "npmPackage": "pi-zai-agents" },
-  { "repo": "pi-local-agents-only", "kind": "extension", "npmPackage": "pi-local-agents-only" }
+  { "repo": "pi-local-agents-only", "kind": "extension", "npmPackage": "pi-local-agents-only" },
+  { "repo": "ponytail", "kind": "extension", "nodes": ["24.15.0", "24"] }
 ]
