@@ -2,7 +2,7 @@
   { "repo": "pi-subagents", "kind": "extension", "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-agent-browser-native", "kind": "extension", "npmPackage": "pi-agent-browser-native", "extraPlatforms": ["macos-latest", "windows-latest"], "contractTimeoutMs": { "win32": 900000 } },
   { "repo": "pi-verbosity-control", "kind": "extension" },
-  { "repo": "pi-change-working-dir", "kind": "extension", "extraPlatforms": ["macos-latest"] },
+  { "repo": "pi-change-working-dir", "kind": "extension", "nodes": ["24.15.0", "24"], "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-stash", "kind": "extension", "npmPackage": "@fitchmultz/pi-stash" },
   { "repo": "pi-fitch-kit", "kind": "extension", "nodes": ["24", "26"], "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-edit-session-in-place", "kind": "extension", "npmPackage": "pi-edit-session-in-place" },
