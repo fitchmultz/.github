@@ -8,7 +8,7 @@
   { "repo": "pi-edit-session-in-place", "kind": "extension", "npmPackage": "pi-edit-session-in-place" },
   { "repo": "pi-ctx-info", "kind": "extension" },
   { "repo": "pi-tool-duration", "kind": "extension", "npmPackage": "pi-tool-duration" },
-  { "repo": "pi-apply-edits", "kind": "extension", "extraPlatforms": ["macos-latest"] },
+  { "repo": "pi-apply-edits", "kind": "extension", "nodes": ["24"], "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-oracle", "kind": "extension", "npmPackage": "pi-oracle", "extraPlatforms": ["macos-latest", "windows-latest"] },
   { "repo": "pi-todo-list", "kind": "extension" },
   { "repo": "pi-posthorse", "kind": "extension", "npmPackage": "pi-posthorse", "forkOnly": true, "extraPlatforms": ["macos-latest"] },
