@@ -24,5 +24,6 @@
   { "repo": "pi-workflows", "kind": "project" },
   { "repo": "pi-evidence", "kind": "cli", "nodes": ["20", "24"] },
   { "repo": "pi-zai-agents", "kind": "extension", "npmPackage": "pi-zai-agents" },
-  { "repo": "pi-local-agents-only", "kind": "extension", "npmPackage": "pi-local-agents-only" }
+  { "repo": "pi-local-agents-only", "kind": "extension", "npmPackage": "pi-local-agents-only" },
+  { "repo": "ponytail", "kind": "extension", "nodes": ["24.15.0", "24"] }
 ]
