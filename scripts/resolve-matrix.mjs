@@ -11,8 +11,9 @@ assert.ok(["both", "fork"].includes(host), "Host must be both or fork");
 const selected = fleet.filter((entry) => (requested === "all" || `fitchmultz/${entry.repo}` === requested)
   && (host !== "fork" || entry.kind !== "cli"));
 assert.ok(selected.length, `No applicable fleet repository: ${requested} (host: ${host})`);
-const forkRef = process.env.FORK_REF || targets.forkRef;
-assert.match(forkRef, /^[a-f0-9]{40}$/, "Fork host must be pinned to a full commit SHA");
+const needsFork = selected.some((entry) => entry.kind !== "cli");
+const forkRef = process.env.FORK_REF || (needsFork ? (await github("fitchmultz/pi/commits/main")).sha : "");
+if (needsFork || forkRef) assert.match(forkRef, /^[a-f0-9]{40}$/, "Fork host must be pinned to a full commit SHA");
 const versions = new Map();
 async function release(version) {
   if (!versions.has(version)) versions.set(version, await officialRelease(version));

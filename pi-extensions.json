@@ -32,6 +32,14 @@
       "matchStrings": ["(?:automation-ref|PI_AUTOMATION_REF): (?<currentDigest>[a-f0-9]{40}) # (?<currentValue>v[0-9.]+)"],
       "depNameTemplate": "fitchmultz/.github",
       "datasourceTemplate": "github-tags"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      "matchStrings": ["(?:automation-ref|PI_AUTOMATION_REF): (?<currentDigest>[a-f0-9]{40}) # (?<currentValue>main)\\b"],
+      "depNameTemplate": "fitchmultz/.github",
+      "datasourceTemplate": "github-digest",
+      "versioningTemplate": "exact"
     }
   ]
 }
