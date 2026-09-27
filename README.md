@@ -6,6 +6,8 @@ Shared Renovate policy and native GitHub Actions qualification for the Pi packag
 
 Each repository owns its source, lockfile, package-specific `check:compat` command, and release channel. Its small workflow calls `.github/workflows/pi-compatibility.yml` at a reviewed commit and passes that same commit as `automation-ref`. Keep both pins together. The shared Renovate preset groups those references and groups declared Pi development dependencies into one stable-version update PR. It pins only the Pi development cohort to exact test baselines, not unrelated development-tool ranges. It leaves wildcard host peers alone and does not enable automerge.
 
+For reviewed automation revisions on `main` without a release tag, annotate both immutable SHA pins with `# main`. Renovate tracks that branch's digest for both references in the same update group; the workflow still executes the reviewed SHA, never a floating automation branch.
+
 ```json
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
