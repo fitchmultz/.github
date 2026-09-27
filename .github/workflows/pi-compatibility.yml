@@ -23,7 +23,7 @@ on:
         default: ''
         type: string
       fork-ref:
-        description: Exact fork commit; defaults to the reviewed shared target
+        description: Exact fork commit; defaults to maintained fitchmultz/pi main resolved once per run
         default: ''
         type: string
       fork-source-artifact:

@@ -9,11 +9,13 @@ const fleet = readJson(new URL("../fleet.json", import.meta.url));
 const targets = readJson(new URL("../host-targets.json", import.meta.url));
 const sourceSha = "a".repeat(40);
 const forkSha = "b".repeat(40);
+const mainSha = "c".repeat(40);
+const mainUrl = "https://api.github.com/repos/fitchmultz/pi/commits/main";
 let invocation = 0;
 
 // Execute the actual script, including environment parsing and GITHUB_OUTPUT writes.
 // Only external HTTP is replaced; no matrix-selection logic is reimplemented here.
-async function resolveFixture(t, environment = {}, { official = true, candidate = "0.87.0" } = {}) {
+async function resolveFixture(t, environment = {}, { official = true, candidate = "0.87.0", main = { sha: mainSha }, mainStatus = 200 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "pi-resolve-"));
   const output = join(root, "output");
   const env = { REPOSITORY: "all", HOST: undefined, SOURCE_REF: undefined, OFFICIAL_VERSION: undefined,
@@ -33,6 +35,7 @@ async function resolveFixture(t, environment = {}, { official = true, candidate 
         dependencies: name === codingAgent ? { "@earendil-works/pi-ai": `^${version}` } : {} });
     }
     assert.equal(hostname, "api.github.com");
+    if (String(url) === mainUrl) return Response.json(main, { status: mainStatus });
     const match = pathname.match(/^\/repos\/fitchmultz\/([^/]+)\/(commits\/[^/]+|contents\/package\.json)$/);
     assert.ok(match && fleet.some((entry) => entry.repo === match[1]), `Unexpected GitHub request: ${url}`);
     if (match[2].startsWith("commits/")) return Response.json({ sha: sourceSha });
@@ -80,7 +83,8 @@ test("default and explicit both preserve all 27 repositories and existing Node/p
   passed(result);
   passed(explicit);
   assert.deepEqual(result.outputs, explicit.outputs);
-  assert.equal(result.outputs.forkRef, targets.forkRef);
+  for (const run of [result, explicit]) assert.equal(run.requests.filter((url) => url === mainUrl).length, 1);
+  assert.equal(result.outputs.forkRef, mainSha);
   assert.equal(result.outputs.needsFork, "true");
   assert.equal(result.lanes.length, 98);
   assert.deepEqual([...new Set(result.lanes.map((lane) => lane.repo))], fleet.map((entry) => entry.repo));
@@ -139,19 +143,21 @@ test("the default canary resolves latest once, retains baseline comparisons and 
   assert.deepEqual(platformLabels(result.lanes, "pi-evidence"), ["ubuntu-latest/20", "ubuntu-latest/24"]);
 });
 
-test("an individual fork selection needs only its source commit and defaults to the exact shared fork", async (t) => {
+test("an individual fork selection resolves maintained main without official lookups", async (t) => {
   const result = await resolveFixture(t, { HOST: "fork", REPOSITORY: "fitchmultz/pi-calculator" }, { official: false });
   passed(result);
-  assert.equal(result.outputs.forkRef, targets.forkRef);
+  assert.equal(result.outputs.forkRef, mainSha);
   assert.equal(result.lanes.length, 1);
   assert.ok(result.lanes.every((lane) => lane.host === "fork"));
-  assert.deepEqual(result.requests, ["https://api.github.com/repos/fitchmultz/pi-calculator/commits/main"]);
+  assert.deepEqual(result.requests, [mainUrl, "https://api.github.com/repos/fitchmultz/pi-calculator/commits/main"]);
 });
 
 test("standalone CLI callers keep host-free checks but cannot become fork reverse dependencies", async (t) => {
   const both = await resolveFixture(t, { REPOSITORY: "fitchmultz/pi-evidence" }, { official: false });
   passed(both);
   assert.equal(both.outputs.needsFork, "false");
+  assert.equal(both.outputs.forkRef, "");
+  assert.deepEqual(both.requests, ["https://api.github.com/repos/fitchmultz/pi-evidence/commits/main"]);
   assert.equal(both.lanes.length, 2);
   assert.ok(both.lanes.every((lane) => lane.host === "none" && lane.label === "cli"));
   const fork = await resolveFixture(t, { REPOSITORY: "fitchmultz/pi-evidence", HOST: "fork" }, { official: false });
@@ -166,6 +172,15 @@ test("invalid host selectors fail closed before fetching or emitting outputs", a
     assert.match(result.error?.message ?? "", /Host must be both or fork/);
     assert.deepEqual(result.outputs, {});
     assert.deepEqual(result.requests, []);
+  }
+});
+
+test("failed or invalid maintained-main resolution emits no qualification outputs", async (t) => {
+  for (const options of [{ mainStatus: 503 }, { main: { sha: "main" } }, { main: {} }]) {
+    const result = await resolveFixture(t, { HOST: "fork" }, { official: false, ...options });
+    assert.match(result.error?.message ?? "", /HTTP 503|Fork host must be pinned to a full commit SHA/);
+    assert.deepEqual(result.outputs, {});
+    assert.deepEqual(result.requests, [mainUrl]);
   }
 });
 
