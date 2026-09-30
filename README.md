@@ -33,7 +33,7 @@ Required lanes run the repository's contracts, a fresh Git checkout with product
 
 Package contract commands have a 10-minute watchdog by default. The fleet inventory gives Browser's Windows contract command 15 minutes to accommodate its full serial suite and package smoke. That Windows job has a 35-minute limit for cold installation and the remaining consumer checks; other jobs retain 25 minutes. These are whole-command and whole-job CI budgets; individual tests and production deadlines remain unchanged. Each qualification receipt records the selected command budget.
 
-Posthorse's official lane requires compaction-based rollover without a summary request; its fork lane requires native context-window rollover, recovery history and checkpoint restore. Applicable fork capabilities must fail when absent. The kit's Unix terminal contract exercises the current fork's managed launcher restart; its legacy multi-session helper is not activated inside that launcher.
+Posthorse uses public compaction-based rollover without a summary request on both hosts. Its maintained-fork lane also verifies early and after-reset overflow recovery and checkpoint restore; retired native context-window APIs are not required. Applicable fork capabilities must fail when absent. The kit's Unix terminal contract exercises the current fork's managed launcher restart; its legacy multi-session helper is not activated inside that launcher.
 
 **Windows qualification is owner-waived for this rollout (September 21, 2026).** Windows matrix jobs remain visible diagnostics and retain their actual failures and artifacts, but they do not gate merges or releases. The Windows environment self-check is also non-blocking. This waiver is not a Windows pass or a claim that the known Browser process-coordination failures are fixed. Linux/macOS, Node floors, host identity, consumer artifacts and the three owner-designated final reviews remain required. Restore the Windows gate through a reviewed follow-up after the recorded failures are resolved.
 
@@ -72,7 +72,7 @@ actionlint
 PI_TEST_HOST=/path/to/installed/pi-consumer npm run test:native
 
 node scripts/qualify.mjs --repo pi-calculator --source /path/to/checkout \
-  --host official --target 0.87.1 --output /tmp/pi-qualification
+  --host official --target 0.99.1 --output /tmp/pi-qualification
 
 node scripts/pack-fork.mjs /path/to/built/fork /tmp/fork-package FULL_FORK_SHA
 node scripts/qualify.mjs --repo pi-calculator --source /path/to/checkout \
