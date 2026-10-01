@@ -47,6 +47,8 @@ Windows jobs initialize `PSModulePath` through the runner's native PowerShell sh
 
 The scheduled `Pi release canary` checks all default branches against the latest stable release and the maintained fork, including the existing owned npm releases. It uses Actions concurrency and updates one native GitHub issue per affected repository/host identity. A failed runner without package evidence gets an infrastructure issue. A complete green fleet closes resolved reports. The canary creates no repair PR, publishes nothing, and never updates a user's Pi installation.
 
+Published-package metadata uses a fresh npm process and disposable metadata cache after the package checks, avoiding stale HTTP connections and cached-success fallback. The lookup allows one retry, with a 15-second request timeout and a 40-second process limit; source identity and installed tarball integrity remain mandatory.
+
 Repairs use the repository's ordinary PR process. A fixture or host-selection failure is repaired there; a product failure gets a focused regression and source fix. The automation's own native tests deliberately introduce factory/startup failures and require the real bundled CLI to reject them, proving that the gate cannot pass solely because a process started. Metadata tests cover incomplete publication and exact cohort selection; resolver-entrypoint tests cover default and fork-only lanes, source refs and fail-closed selection with mocked external fetches; report tests cover deduplication and distinct official/fork identities.
 
 ## Rollout and administration
