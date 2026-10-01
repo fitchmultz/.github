@@ -10,7 +10,25 @@ import { prepareHost, selectDevelopmentHost } from "./hosts.mjs";
 const { values } = parseArgs({ options: {
   repo: { type: "string" }, source: { type: "string" }, host: { type: "string" },
   target: { type: "string" }, output: { type: "string" }, published: { type: "boolean", default: false },
+  help: { type: "boolean", short: "h" },
 } });
+if (values.help) {
+  console.log(`Usage: node scripts/qualify.mjs --repo NAME --source PATH --host official|fork|none --output PATH [--target VERSION|FORK_ARTIFACT] [--published]
+
+Qualify a fleet package in a disposable checkout and write qualification.json plus consumer evidence.
+--repo       Fleet repository name, without fitchmultz/
+--source     Local source checkout (including uncommitted changes)
+--host       Official Pi, a prepared fork artifact, or none for a standalone CLI
+--target     Exact official version (defaults to host-targets.json) or required fork artifact directory
+--output     Evidence and packed-package directory
+--published  Also verify the owned npm package's current published release
+-h, --help   Show help without installing packages or running checks
+
+Example: node scripts/qualify.mjs --repo pi-calculator --source /path/to/checkout --host official --output /tmp/pi-qualification --published
+Fork: node scripts/qualify.mjs --repo pi-calculator --source /path/to/checkout --host fork --target /path/to/fork-artifact --output /tmp/pi-fork-qualification
+Exit codes: 0 = qualification passed or help shown; 1 = invalid arguments or qualification failed.`);
+  process.exit(0);
+}
 assert.ok(values.repo && values.source && values.host && values.output, "Required: --repo NAME --source PATH --host official|fork|none --output PATH [--target VERSION|FORK_ARTIFACT]");
 const entry = readJson(new URL("../fleet.json", import.meta.url)).find((item) => item.repo === values.repo);
 assert.ok(entry, `Repository is not in the fleet: ${values.repo}`);
