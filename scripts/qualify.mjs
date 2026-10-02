@@ -63,6 +63,8 @@ try {
     host = await prepareHost(join(root, "host"), values.host, target, env);
     report.host = host;
     phase = "development-host-selection";
+    // Rebuild our disposable graph instead of reifying the original host's nested dependencies.
+    rmSync(join(development, "node_modules"), { recursive: true, force: true });
     const selected = selectDevelopmentHost(development, host, env);
     report.developmentHost = selected;
     phase = "package-contracts";

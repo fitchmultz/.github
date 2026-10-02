@@ -81,4 +81,4 @@ node scripts/qualify.mjs --repo pi-calculator --source /path/to/checkout \
   --host fork --target /tmp/fork-package --output /tmp/pi-fork-qualification
 ```
 
-A Pi consumer directory contains its own `node_modules/@earendil-works/pi-coding-agent` installation, not a manually linked dependency tree. Fork packing requires the native offline build first. Local qualification copies uncommitted tracked/untracked source into a disposable checkout; CI checks immutable commits. Evidence records when a local source checkout was dirty.
+A Pi consumer directory contains its own `node_modules/@earendil-works/pi-coding-agent` installation, not a manually linked dependency tree. Fork packing requires the native offline build first. Local qualification copies uncommitted tracked/untracked source into a disposable checkout; CI checks immutable commits. Host selection rebuilds only that disposable dependency tree, leaving the source checkout's dependencies, manifest and lock untouched. Evidence records when a local source checkout was dirty.
