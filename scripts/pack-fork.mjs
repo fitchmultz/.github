@@ -8,6 +8,10 @@ const [sourceArg, outputArg, expectedRef] = process.argv.slice(2);
 assert.ok(sourceArg && outputArg && expectedRef, "Usage: pack-fork.mjs SOURCE OUTPUT EXPECTED_SHA");
 const source = resolve(sourceArg);
 const output = resolve(outputArg);
+// Fork packaging helpers resolve the workspace from process.cwd() (their
+// getPublicWorkspacePackages ignores the argument pack-fork passes), so an
+// invocation from any other directory must anchor the process to the source.
+process.chdir(source);
 const ref = run("git", ["rev-parse", "HEAD"], { cwd: source, quiet: true }).trim();
 assert.equal(ref, expectedRef);
 const { getPublicWorkspacePackages } = await import(pathToFileURL(join(source, "scripts/release-packages.mjs")));

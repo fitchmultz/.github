@@ -10,7 +10,25 @@ import { prepareHost, selectDevelopmentHost } from "./hosts.mjs";
 const { values } = parseArgs({ options: {
   repo: { type: "string" }, source: { type: "string" }, host: { type: "string" },
   target: { type: "string" }, output: { type: "string" }, published: { type: "boolean", default: false },
+  help: { type: "boolean", short: "h" },
 } });
+if (values.help) {
+  console.log(`Usage: node scripts/qualify.mjs --repo NAME --source PATH --host official|fork|none --output PATH [--target VERSION|FORK_ARTIFACT] [--published]
+
+Qualify a fleet package in a disposable checkout and write qualification.json plus consumer evidence.
+--repo       Fleet repository name, without fitchmultz/
+--source     Local source checkout (including uncommitted changes)
+--host       Official Pi, a prepared fork artifact, or none for a standalone CLI
+--target     Exact official version (defaults to host-targets.json) or required fork artifact directory
+--output     Evidence and packed-package directory
+--published  Also verify the owned npm package's current published release
+-h, --help   Show help without installing packages or running checks
+
+Example: node scripts/qualify.mjs --repo pi-calculator --source /path/to/checkout --host official --output /tmp/pi-qualification --published
+Fork: node scripts/qualify.mjs --repo pi-calculator --source /path/to/checkout --host fork --target /path/to/fork-artifact --output /tmp/pi-fork-qualification
+Exit codes: 0 = qualification passed or help shown; 1 = invalid arguments or qualification failed.`);
+  process.exit(0);
+}
 assert.ok(values.repo && values.source && values.host && values.output, "Required: --repo NAME --source PATH --host official|fork|none --output PATH [--target VERSION|FORK_ARTIFACT]");
 const entry = readJson(new URL("../fleet.json", import.meta.url)).find((item) => item.repo === values.repo);
 assert.ok(entry, `Repository is not in the fleet: ${values.repo}`);
@@ -45,6 +63,8 @@ try {
     host = await prepareHost(join(root, "host"), values.host, target, env);
     report.host = host;
     phase = "development-host-selection";
+    // Rebuild our disposable graph instead of reifying the original host's nested dependencies.
+    rmSync(join(development, "node_modules"), { recursive: true, force: true });
     const selected = selectDevelopmentHost(development, host, env);
     report.developmentHost = selected;
     phase = "package-contracts";
@@ -99,9 +119,11 @@ try {
 
   if (values.published && entry.npmPackage) {
     phase = "published-npm";
-    const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(entry.npmPackage)}/latest`);
-    assert.ok(response.ok, `Published package metadata: HTTP ${response.status}`);
-    const metadata = await response.json();
+    // A fresh npm process cannot reuse a fetch socket left idle during synchronous package checks.
+    const metadata = JSON.parse(run("npm", ["view", `${entry.npmPackage}@latest`, "--json",
+      "--cache", join(root, "published-metadata-cache"), "--prefer-online",
+      "--fetch-retries=1", "--fetch-retry-mintimeout=1000", "--fetch-retry-maxtimeout=1000", "--fetch-timeout=15000"],
+    { env, quiet: true, timeout: 40_000 }));
     assert.equal(metadata.repository?.url?.replace(/^git\+/, "").replace(/\.git$/, ""),
       `https://github.com/fitchmultz/${entry.repo}`, "Published npm source identity changed");
     const consumer = join(root, "published-consumer");

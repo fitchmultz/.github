@@ -31,9 +31,9 @@ The fork is built once per workflow and shared as an artifact. Its cache include
 
 Required lanes run the repository's contracts, a fresh Git checkout with production dependencies and normal install lifecycle, and the real bundled Pi CLI. Owned npm channels also pack and install a real tarball, then compare its registered tools, active tools, commands and provider surface with the Git consumer. Skills, project-local workflows and the standalone CLI retain their resource/CLI contracts instead of being treated as fictitious extensions. Package identities in `fleet.json` are explicit: a matching npm name alone is not ownership evidence.
 
-Package contract commands have a 10-minute watchdog by default. The fleet inventory gives Browser's Windows contract command 15 minutes to accommodate its full serial suite and package smoke. That Windows job has a 35-minute limit for cold installation and the remaining consumer checks; other jobs retain 25 minutes. These are whole-command and whole-job CI budgets; individual tests and production deadlines remain unchanged. Each qualification receipt records the selected command budget.
+Package contract commands have a 10-minute watchdog by default. The fleet inventory gives Browser's macOS and Windows contract commands 15 minutes to accommodate its full serial suite and package smoke. Its Windows job has a 35-minute limit for cold installation and the remaining consumer checks; other jobs retain 25 minutes. These are whole-command and whole-job CI budgets; individual tests and production deadlines remain unchanged. Each qualification receipt records the selected command budget.
 
-Posthorse's official lane requires compaction-based rollover without a summary request; its fork lane requires native context-window rollover, recovery history and checkpoint restore. Applicable fork capabilities must fail when absent. The kit's Unix terminal contract exercises the current fork's managed launcher restart; its legacy multi-session helper is not activated inside that launcher.
+Posthorse uses public compaction-based rollover without a summary request on both hosts. Its maintained-fork lane also verifies early and after-reset overflow recovery and checkpoint restore; retired native context-window APIs are not required. Applicable fork capabilities must fail when absent. The kit's Unix terminal contract exercises the current fork's managed launcher restart; its legacy multi-session helper is not activated inside that launcher.
 
 **Windows qualification is owner-waived for this rollout (September 21, 2026).** Windows matrix jobs remain visible diagnostics and retain their actual failures and artifacts, but they do not gate merges or releases. The Windows environment self-check is also non-blocking. This waiver is not a Windows pass or a claim that the known Browser process-coordination failures are fixed. Linux/macOS, Node floors, host identity, consumer artifacts and the three owner-designated final reviews remain required. Restore the Windows gate through a reviewed follow-up after the recorded failures are resolved.
 
@@ -46,6 +46,8 @@ Windows jobs initialize `PSModulePath` through the runner's native PowerShell sh
 `compatibility` is the stable aggregate job. It requires resolution, the fork artifact when applicable, and every required matrix lane. Cancellation, missing jobs and required-lane failures do not become successful qualification. GitHub checks and job summaries show the result; `qualification-*` artifacts contain per-lane provenance, failures, consumer CLI output and tested npm tarballs.
 
 The scheduled `Pi release canary` checks all default branches against the latest stable release and the maintained fork, including the existing owned npm releases. It uses Actions concurrency and updates one native GitHub issue per affected repository/host identity. A failed runner without package evidence gets an infrastructure issue. A complete green fleet closes resolved reports. The canary creates no repair PR, publishes nothing, and never updates a user's Pi installation.
+
+Published-package metadata uses a fresh npm process and disposable metadata cache after the package checks, avoiding stale HTTP connections and cached-success fallback. The lookup allows one retry, with a 15-second request timeout and a 40-second process limit; source identity and installed tarball integrity remain mandatory.
 
 Repairs use the repository's ordinary PR process. A fixture or host-selection failure is repaired there; a product failure gets a focused regression and source fix. The automation's own native tests deliberately introduce factory/startup failures and require the real bundled CLI to reject them, proving that the gate cannot pass solely because a process started. Metadata tests cover incomplete publication and exact cohort selection; resolver-entrypoint tests cover default and fork-only lanes, source refs and fail-closed selection with mocked external fetches; report tests cover deduplication and distinct official/fork identities.
 
@@ -72,11 +74,11 @@ actionlint
 PI_TEST_HOST=/path/to/installed/pi-consumer npm run test:native
 
 node scripts/qualify.mjs --repo pi-calculator --source /path/to/checkout \
-  --host official --target 0.87.1 --output /tmp/pi-qualification
+  --host official --target 1.0.0 --output /tmp/pi-qualification
 
 node scripts/pack-fork.mjs /path/to/built/fork /tmp/fork-package FULL_FORK_SHA
 node scripts/qualify.mjs --repo pi-calculator --source /path/to/checkout \
   --host fork --target /tmp/fork-package --output /tmp/pi-fork-qualification
 ```
 
-A Pi consumer directory contains its own `node_modules/@earendil-works/pi-coding-agent` installation, not a manually linked dependency tree. Fork packing requires the native offline build first. Local qualification copies uncommitted tracked/untracked source into a disposable checkout; CI checks immutable commits. Evidence records when a local source checkout was dirty.
+A Pi consumer directory contains its own `node_modules/@earendil-works/pi-coding-agent` installation, not a manually linked dependency tree. Fork packing requires the native offline build first. Local qualification copies uncommitted tracked/untracked source into a disposable checkout; CI checks immutable commits. Host selection rebuilds only that disposable dependency tree, leaving the source checkout's dependencies, manifest and lock untouched. Evidence records when a local source checkout was dirty.

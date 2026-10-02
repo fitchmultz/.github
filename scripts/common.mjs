@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join, resolve } from "node:path";
 
 export const codingAgent = "@earendil-works/pi-coding-agent";
@@ -27,6 +27,8 @@ export function run(command, args, { quiet = false, ...options } = {}) {
 }
 
 export function isolatedEnvironment(root) {
+  mkdirSync(root, { recursive: true });
+  root = realpathSync.native(root);
   const home = join(root, "home");
   const tmp = join(root, "tmp");
   mkdirSync(join(home, ".pi", "agent"), { recursive: true });
