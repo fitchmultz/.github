@@ -49,6 +49,41 @@ The scheduled `Pi release canary` checks all default branches against the latest
 
 Repairs use the repository's ordinary PR process. A fixture or host-selection failure is repaired there; a product failure gets a focused regression and source fix. The automation's own native tests deliberately introduce factory/startup failures and require the real bundled CLI to reject them, proving that the gate cannot pass solely because a process started. Metadata tests cover incomplete publication and exact cohort selection; resolver-entrypoint tests cover default and fork-only lanes, source refs and fail-closed selection with mocked external fetches; report tests cover deduplication and distinct official/fork identities.
 
+## Automatic npm releases
+
+`fleet.json#npmRelease` enables the twelve existing owned npm channels. Browser Native, Oracle and Cursor use `approval`; the other nine use `automatic`. Archived and Git-only packages are excluded. Standard public GitHub-hosted runners are used; release builds have no cache and candidate artifacts expire after seven days.
+
+### Maintainer flow
+
+1. Choose an intentional **stable `x.y.z` version**, update the lockfile normally, and add its nonempty versioned `CHANGELOG.md` section in a PR. Complete the package's applicable review/manual release requirements before merging; automation does not decide versions or replace those requirements.
+2. Merge the PR to `main`. The package's `npm-release.yml` calls the pinned release plan, its existing offline CI workflows, and the shared publisher. Planning has push access solely because GitHub requires it to read unfinished drafts; it runs pinned automation, never package code, and performs no release writes. Package builds/checks stay read-only. A direct push is not a release authorization. Existing npm versions are never overwritten and unchanged versions do not ship new source changes.
+3. The shared preparation job builds once without publishing credentials, then installs **the same tarball** into independent official-baseline and exact maintained-fork consumers and exercises their real bundled Pi CLIs. The run summary and `npm-candidate-COMMIT` artifact identify its version, commit and checksum.
+4. For the three approval packages, download that candidate and satisfy the existing exact-commit/tarball requirements before approving the **npm** environment. Browser's live-site/lifecycle evidence and reviewer requirements, Oracle's fresh all-preset proof/platform gates, and Cursor's release review/catalog and necessary focused evidence remain local prerequisites. Approval attests that real evidence was checked; it does not manufacture proof or waive a failed/unavailable gate. No browser/provider credentials or paid live campaigns move into CI.
+5. Publication rechecks repository/npm identity, environment protection, source freshness, tag identity and archive checksums. It creates an annotated tag and draft GitHub Release, publishes the verified tarball using npm OIDC with lifecycle hooks disabled, verifies exact registry integrity, then makes the GitHub Release public. npm provenance and per-run verification receipts identify the build.
+
+A daily **12:17 UTC** run and manual dispatch reconcile missed publications. Already-published versions are read-only no-ops, except this automation's matching unfinished draft can be completed without republishing npm. Rerun a failed job while its candidate artifact is retained; a changed archive, conflicting tag, unrecognized release or older version fails closed rather than overwriting user data. If `main` advanced before an unpublished candidate was approved, dispatch a new run on current `main`. A published immutable version can still have its original failed GitHub finalization retried. Never use a version bump just to hide an unknown publication outcome.
+
+### One-time configuration and controls
+
+- Each repository's **npm** environment permits only branch `main`; Browser Native, Oracle and Cursor require `fitchmultz` as reviewer. The publisher checks these protections again before release writes. Other environment settings and automated Cursor PR reviews are not changed.
+- Configure each existing npm package to trust its own repository, caller filename **npm-release.yml**, and environment **npm**, with direct publishing allowed. Reusable workflows authenticate as their caller. This requires an npm account login/2FA, not a bypass-2FA `NPM_TOKEN`:
+
+  ```sh
+  npm trust github PACKAGE --repo fitchmultz/REPO --file npm-release.yml --env npm --allow-publish --yes
+  ```
+
+- After workflows, approval environments and npm trust are verified, enable the repository variable:
+
+  ```sh
+  gh variable set NPM_RELEASE_ENABLED --repo fitchmultz/REPO --body true
+  gh workflow run npm-release.yml --repo fitchmultz/REPO --ref main
+  ```
+
+- Set `NPM_RELEASE_ENABLED=false` to stop new release runs; also cancel any already-running or approval-pending run. Do not delete an existing npm version, move a conflicting tag or replace a release asset to recover an error.
+- Prereleases and non-`latest` channels remain manual until a deliberate version/dist-tag policy is added. Existing manual publishing paths remain available. A configured OIDC relationship is not proof that a first real publication has succeeded; that proof comes from the next qualified, intentionally versioned release, not a fake test release.
+
+The read-only plan and candidate verifier are runnable locally; `node scripts/npm-release.mjs --help` gives commands and exit codes. All package CI keeps its existing contracts through `workflow_call`, including Browser native lifecycle, Cursor native-platform/installed-form checks and MCP extras.
+
 ## Rollout and administration
 
 1. Qualify the full candidate fleet on PR branches. `PI_COMPATIBILITY_SOURCE_REF` may temporarily select the coordinated rollout branch in this repository and the fork; clear it after the extension branches merge.

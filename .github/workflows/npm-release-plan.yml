@@ -1,0 +1,53 @@
+name: npm release plan
+
+on:
+  workflow_call:
+    inputs:
+      automation-ref:
+        description: Exact reviewed automation commit
+        required: true
+        type: string
+    outputs:
+      release:
+        value: ${{ jobs.plan.outputs.release }}
+      source:
+        value: ${{ jobs.plan.outputs.source }}
+      version:
+        value: ${{ jobs.plan.outputs.version }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    # GitHub requires push access to see drafts. This pinned planner never executes package code or writes releases.
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      source: ${{ steps.plan.outputs.source }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/.github
+          ref: ${{ inputs.automation-ref }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: extension
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          check-latest: true
+          package-manager-cache: false
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REF: ${{ github.sha }}
+        run: node automation/scripts/npm-release.mjs plan --source extension --source-ref "$SOURCE_REF"
