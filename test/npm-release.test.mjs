@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import childProcess from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { syncBuiltinESMExports } from "node:module";
 import test from "node:test";
@@ -20,12 +20,12 @@ function exec(command, args, cwd) {
   return result.stdout.trim();
 }
 
-function fixture(t, version = "4.0.1", changelog = `## ${version} - 2026-10-04\n\nFix copying a selected message.\n\n## 4.0.0\n\nEarlier release.\n`) {
+function fixture(t, version = "4.0.1", changelog = `## ${version} - 2026-10-04\n\nFix copying a selected message.\n\n## 4.0.0\n\nEarlier release.\n`, repo = repository, packageName = name) {
   const root = mkdtempSync("/tmp/npm-release-test-");
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const source = join(root, "source");
   mkdirSync(source);
-  writeJson(join(source, "package.json"), { name, version, repository: { type: "git", url: repositoryUrl },
+  writeJson(join(source, "package.json"), { name: packageName, version, repository: { type: "git", url: `git+https://github.com/${repo}.git` },
     scripts: { prepublishOnly: `node -e 'require("fs").writeFileSync("published", "unexpected")'` } });
   writeFileSync(join(source, "CHANGELOG.md"), changelog);
   exec("git", ["init", "--quiet", "--initial-branch=main"], source);
@@ -34,7 +34,7 @@ function fixture(t, version = "4.0.1", changelog = `## ${version} - 2026-10-04\n
   exec("git", ["add", "."], source);
   exec("git", ["commit", "--quiet", "-m", "Release fixture"], source);
   const ref = exec("git", ["rev-parse", "HEAD"], source);
-  return { root, source, ref, output: join(root, "output") };
+  return { root, source, ref, repository: repo, name: packageName, version, output: join(root, "output") };
 }
 
 function metadata(latest = "4.0.0") {
@@ -45,24 +45,26 @@ function metadata(latest = "4.0.0") {
 // Execute the real CLI entry point, including Git cleanliness, HTTP response handling and workflow outputs.
 // HTTP and publication subprocess boundaries are replaced; this is not real host/OIDC qualification.
 async function invoke(t, fixture, command, { data = metadata(), pulls, draft, releasePages, releaseStatus = 200, status = 200, args = [], environment = {}, published } = {}) {
+  const { repository, name } = fixture;
   const argv = process.argv;
   const exitCode = process.exitCode;
   const env = { GITHUB_REPOSITORY: repository, GITHUB_OUTPUT: fixture.output, GH_TOKEN: undefined,
     GITHUB_ACTIONS: undefined, GITHUB_REF: undefined, GITHUB_WORKFLOW_REF: undefined,
     ACTIONS_ID_TOKEN_REQUEST_TOKEN: undefined, ACTIONS_ID_TOKEN_REQUEST_URL: undefined,
-    GITHUB_RUN_ID: undefined, GITHUB_RUN_ATTEMPT: undefined, ...environment };
+    GITHUB_RUN_ID: undefined, GITHUB_RUN_ATTEMPT: undefined, NPM_BOOTSTRAP_TOKEN: undefined,
+    NODE_AUTH_TOKEN: undefined, NPM_TOKEN: undefined, ...environment };
   const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
   const requests = [];
   const errors = [];
   const fetch = t.mock.method(globalThis, "fetch", async (url) => {
     requests.push(String(url));
-    if (String(url) === `https://registry.npmjs.org/${name}/${published?.version}`) return Response.json(published);
-    if (String(url) === `https://registry.npmjs.org/${name}`) return Response.json(typeof data === "function" ? data() : data, { status });
+    if (String(url) === `https://registry.npmjs.org/${encodeURIComponent(name)}`) return Response.json(typeof data === "function" ? data() : data, { status: typeof status === "function" ? status() : status });
+    if (String(url) === `https://registry.npmjs.org/${encodeURIComponent(name)}/${fixture.version}`) return Response.json(published);
     if (String(url) === `https://registry.npmjs.org/${encodeURIComponent(codingAgent)}/latest`) {
       return Response.json({ name: codingAgent, version: "9.8.7", dist: { integrity: "sha512-host-fixture", tarball: "https://registry.npmjs.org/host-fixture.tgz" } });
     }
     if (String(url) === "https://api.github.com/repos/fitchmultz/pi/commits/main") return Response.json({ sha: forkRef });
-    if (String(url) === `https://api.github.com/repos/${repository}/releases/tags/v${data["dist-tags"].latest}`) {
+    if (String(url) === `https://api.github.com/repos/${repository}/releases/tags/v${data?.["dist-tags"]?.latest}`) {
       return draft?.draft === false ? Response.json(draft) : Response.json({ message: "Not Found" }, { status: 404 });
     }
     if (String(url).startsWith(`https://api.github.com/repos/${repository}/releases?per_page=100&page=`)) {
@@ -213,7 +215,7 @@ function artifact(f) {
   const packedJson = JSON.parse(exec("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", directory], f.source));
   const [packed] = Array.isArray(packedJson) ? packedJson : Object.values(packedJson);
   const tarball = join(directory, packed.filename);
-  const candidate = { repository, source: f.ref, name, version: "4.0.1", approval: false, filename: packed.filename,
+  const candidate = { repository: f.repository, source: f.ref, name: f.name, version: f.version, approval: false, filename: packed.filename,
     sha256: createHash("sha256").update(readFileSync(tarball)).digest("hex"), integrity: packed.integrity,
     notes: "Fix copying a selected message.", hosts: { official: { flavor: "official", version: "9.8.7" },
       fork: { flavor: "fork", provenance: { ref: forkRef } } } };
@@ -237,39 +239,116 @@ test("downloaded artifact checksum, commit and manifest mismatches fail before c
   }
 });
 
-test("npm publication receives runner provenance context but no inherited credentials", async (t) => {
-  const f = fixture(t);
+test("each enabled owned scoped channel can plan its real first patch without inventing a previous latest", async (t) => {
+  for (const [repo, version] of [["pi-subagents", "0.44.4"], ["pi-calculator", "4.1.1"],
+    ["pi-ask-question", "0.5.1"], ["pi-workflows", "0.2.1"], ["pi-verbosity-control", "0.6.1"]]) {
+    const f = fixture(t, version, undefined, `fitchmultz/${repo}`, `@fitchmultz/${repo}`);
+    const result = await invoke(t, f, "plan", { status: 404, data: null, args: ["--source-ref", f.ref] });
+    assert.equal(result.failed, false, result.errors);
+    assert.deepEqual(result.outputs, { release: "true", source: f.ref, version,
+      "official-version": "9.8.7", "fork-ref": forkRef });
+    assert.equal(existsSync(join(f.source, "published")), false);
+    assert.equal(exec("git", ["status", "--porcelain"], f.source), "");
+  }
+});
+
+test("first-publication absence never relaxes namespace, registry, merged-source or notes guards", async (t) => {
+  for (const kind of ["unscoped", "namespace", "repository", "private", "prerelease", "direct", "notes", 401, 403, 429, 503]) {
+    const repo = kind === "unscoped" ? repository : "fitchmultz/pi-calculator";
+    const packageName = kind === "unscoped" ? name : kind === "namespace" ? "@someone-else/pi-calculator" : "@fitchmultz/pi-calculator";
+    const f = fixture(t, kind === "prerelease" ? "4.1.1-beta.1" : "4.1.1",
+      kind === "notes" ? "## Unreleased\n\nPending.\n" : undefined, repo, packageName);
+    if (kind === "repository" || kind === "private") {
+      const manifest = JSON.parse(readFileSync(join(f.source, "package.json")));
+      if (kind === "private") manifest.private = true;
+      else manifest.repository.url = "git+https://github.com/other/pi-calculator.git";
+      writeJson(join(f.source, "package.json"), manifest);
+      exec("git", ["add", "."], f.source);
+      exec("git", ["commit", "--quiet", "-m", "Invalid identity"], f.source);
+      f.ref = exec("git", ["rev-parse", "HEAD"], f.source);
+    }
+    const result = await invoke(t, f, "plan", { status: typeof kind === "number" ? kind : 404, data: null,
+      pulls: kind === "direct" ? [] : undefined });
+    const reasons = { unscoped: /HTTP 404/, namespace: /Package name differs/, repository: /repository identity/,
+      private: /Private packages/, prerelease: /stable x.y.z/, direct: /merged PR to main/, notes: /versioned section/ };
+    refused(result, typeof kind === "number" ? new RegExp(`HTTP ${kind}`) : reasons[kind]);
+  }
+});
+
+function publicationFixture(t, existing = false) {
+  const f = existing ? fixture(t) : fixture(t, "4.1.1", undefined, "fitchmultz/pi-calculator", "@fitchmultz/pi-calculator");
   const { directory, candidate } = artifact(f);
-  writeJson(join(directory, "release.json"), candidate);
-  writeFileSync(join(directory, "release-notes.md"), `${candidate.notes}\n`);
+  f.directory = directory;
+  f.candidate = candidate;
+  // This transport receipt exercises publish admission, not real host qualification or registry/OIDC success.
+  writeJson(join(f.directory, "release.json"), f.candidate);
+  writeFileSync(join(f.directory, "release-notes.md"), `${f.candidate.notes}\n`);
+  f.environment = { GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main",
+    GITHUB_WORKFLOW_REF: `${f.repository}/.github/workflows/npm-release.yml@refs/heads/main`,
+    GITHUB_SHA: f.ref, ACTIONS_ID_TOKEN_REQUEST_TOKEN: "fixture", ACTIONS_ID_TOKEN_REQUEST_URL: "https://example.invalid/oidc",
+    GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", RUNNER_ENVIRONMENT: "github-hosted",
+    GH_TOKEN: "github-fixture", AWS_SECRET_ACCESS_KEY: "ambient-fixture" };
+  f.args = ["--artifact", f.directory, "--source-ref", f.ref, "--official-version", "9.8.7", "--fork-ref", forkRef];
+  f.published = { name: f.name, version: f.version, repository: { url: `git+https://github.com/${f.repository}.git` },
+    dist: { integrity: f.candidate.integrity } };
+  f.metadata = (latest = f.version) => ({ name: f.name, maintainers: [{ name: "fitchmultz" }],
+    "dist-tags": { latest }, versions: { [latest]: { ...f.published, version: latest } } });
+  return f;
+}
+
+function publicationBoundary(t, f, { guard, bootstrap = false, recovery = false } = {}) {
   const calls = [];
-  let publishedAtBoundary = false;
+  let published = recovery;
   const nativeSpawnSync = childProcess.spawnSync;
   const mock = t.mock.method(childProcess, "spawnSync", (command, args, options) => {
+    if (command === "tar") {
+      const env = options.env ?? process.env;
+      assert.equal(env.NPM_BOOTSTRAP_TOKEN, undefined, "artifact inspection must not inherit bootstrap credentials");
+      assert.equal(env.NODE_AUTH_TOKEN, undefined);
+      assert.equal(env.NPM_TOKEN, undefined);
+      assert.equal(env.RUNNER_ENVIRONMENT, undefined, "runner context must not reach artifact inspection");
+      assert.equal(env.AWS_SECRET_ACCESS_KEY, undefined);
+    }
     if (command !== "gh" && command !== "npm") return nativeSpawnSync(command, args, options);
     calls.push({ command, args, cwd: options.cwd });
-    for (const key of ["NODE_AUTH_TOKEN", "NPM_TOKEN", "NPM_BOOTSTRAP_TOKEN", "AWS_SECRET_ACCESS_KEY"]) {
-      assert.equal(options.env[key], undefined, `${key} must not reach publication subprocesses`);
-    }
-    assert.equal(readFileSync(options.env.npm_config_userconfig, "utf8"), "");
+    assert.equal(options.env.NPM_BOOTSTRAP_TOKEN, undefined, "bootstrap parent variable must never be inherited");
+    assert.equal(options.env.NPM_TOKEN, undefined, "ambient credentials must never be inherited");
+    assert.equal(options.env.AWS_SECRET_ACCESS_KEY, undefined);
+    assert.equal(readFileSync(options.env.npm_config_globalconfig, "utf8"), "");
     let value;
     if (command === "npm") {
-      assert.equal(options.env.RUNNER_ENVIRONMENT, "github-hosted");
+      const config = readFileSync(options.env.npm_config_userconfig, "utf8");
       assert.equal(options.env.GH_TOKEN, undefined);
-      assert.equal(options.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN, "oidc-fixture");
-      assert.deepEqual(args, ["publish", join(directory, candidate.filename), "--ignore-scripts",
-        "--registry=https://registry.npmjs.org/", "--access=public", "--tag=latest", "--provenance"]);
-      publishedAtBoundary = true;
-      value = "";
+      assert.equal(options.env.NODE_AUTH_TOKEN, bootstrap ? "bootstrap-fixture" : undefined);
+      assert.equal(config, bootstrap ? "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}\n" : "");
+      if (bootstrap) assert.equal(statSync(options.env.npm_config_userconfig).mode & 0o777, 0o600);
+      assert.equal(args.join(" ").includes("bootstrap-fixture"), false);
+      assert.equal(options.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN, "fixture");
+      if (args[0] === "whoami") {
+        assert.equal(options.env.RUNNER_ENVIRONMENT, undefined, "runner context is only needed by final publish");
+        assert.deepEqual(args, ["whoami", "--registry=https://registry.npmjs.org/"]);
+        value = guard === "account" ? "other-user\n" : "fitchmultz\n";
+      } else {
+        assert.equal(options.env.RUNNER_ENVIRONMENT, "github-hosted");
+        assert.deepEqual(args, ["publish", join(f.directory, f.candidate.filename), "--ignore-scripts",
+          "--registry=https://registry.npmjs.org/", "--access=public", "--tag=latest", "--provenance"]);
+        published = true;
+        value = "";
+      }
     } else {
-      assert.equal(options.env.RUNNER_ENVIRONMENT, undefined, "runner context is only needed by npm");
+      assert.equal(options.env.NODE_AUTH_TOKEN, undefined, "GitHub subprocess must never receive npm credentials");
+      assert.equal(options.env.RUNNER_ENVIRONMENT, undefined, "runner context must not reach GitHub subprocesses");
       assert.equal(options.env.GH_TOKEN, "github-fixture");
-      const path = args[1]?.replace(`repos/${repository}/`, "");
-      if (path === "environments/npm") value = { deployment_branch_policy: { custom_branch_policies: true } };
+      assert.equal(readFileSync(options.env.npm_config_userconfig, "utf8"), "");
+      const path = args[1]?.replace(`repos/${f.repository}/`, "");
+      if (path === "environments/npm") value = { deployment_branch_policy: { custom_branch_policies: guard !== "environment" } };
       else if (path === "environments/npm/deployment-branch-policies") value = { branch_policies: [{ name: "main", type: "branch" }] };
-      else if (path === "commits/main") value = { sha: f.ref };
-      else if (path === "releases?per_page=100") value = [[]];
-      else if (path === `git/matching-refs/tags/v${candidate.version}`) value = [];
+      else if (path === "commits/main") value = { sha: guard === "main" ? "a".repeat(40) : f.ref };
+      else if (path === "releases?per_page=100") value = recovery || guard === "release"
+        ? [[{ tag_name: `v${f.version}`, draft: true, assets: [],
+          body: guard === "release" ? "Unrelated" : `<!-- pi-npm-release: ${f.ref} ${f.candidate.integrity} -->` }]] : [[]];
+      else if (path === `git/matching-refs/tags/v${f.version}`) value = guard === "tag" || recovery
+        ? [{ ref: `refs/tags/v${f.version}`, object: { type: "commit", sha: guard === "tag" ? "a".repeat(40) : f.ref } }] : [];
       else if (path === "git/tags") value = { sha: "c".repeat(40) };
       else if (path === "git/refs") value = {};
       else if (path === "releases") value = { draft: true, assets: [] };
@@ -279,20 +358,56 @@ test("npm publication receives runner provenance context but no inherited creden
   });
   syncBuiltinESMExports();
   t.after(() => { mock.mock.restore(); syncBuiltinESMExports(); });
-  const data = metadata();
-  const published = { ...data.versions["4.0.0"], version: candidate.version, dist: { integrity: candidate.integrity } };
-  const result = await invoke(t, f, "publish", { data: () => publishedAtBoundary
-    ? { ...metadata(candidate.version), versions: { [candidate.version]: published } } : data, published,
-    args: ["--artifact", directory, "--source-ref", f.ref, "--official-version", "9.8.7", "--fork-ref", forkRef],
-    environment: { GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_SHA: f.ref,
-      GITHUB_WORKFLOW_REF: `${repository}/.github/workflows/npm-release.yml@refs/heads/main`,
-      ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-fixture", ACTIONS_ID_TOKEN_REQUEST_URL: "https://example.invalid/oidc",
-      GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", RUNNER_ENVIRONMENT: "github-hosted",
-      GH_TOKEN: "github-fixture", NODE_AUTH_TOKEN: "ambient-fixture", NPM_TOKEN: "ambient-fixture",
-      NPM_BOOTSTRAP_TOKEN: "ambient-fixture", AWS_SECRET_ACCESS_KEY: "ambient-fixture" } });
-  assert.equal(result.failed, false, result.errors);
-  assert.equal(calls.filter(({ command }) => command === "npm").length, 1);
-  assert.ok(calls.some(({ args }) => args.includes("--draft=false")));
-  assert.equal(existsSync(join(f.source, "published")), false);
-  for (const { cwd } of calls) assert.equal(existsSync(cwd), false, "publish scratch must be cleaned");
+  return { calls, get published() { return published; } };
+}
+
+test("bootstrap auth is admitted only after all guards and before any GitHub release writes", async (t) => {
+  for (const guard of ["missing-token", "environment", "main", "release", "tag", "account"]) {
+    await t.test(guard, async (t) => {
+      const f = publicationFixture(t);
+      const boundary = publicationBoundary(t, f, { guard, bootstrap: true });
+      const result = await invoke(t, f, "publish", { status: 404, data: null, args: f.args,
+        environment: { ...f.environment, ...(guard === "missing-token" ? {} : { NPM_BOOTSTRAP_TOKEN: "bootstrap-fixture" }) } });
+      const reasons = { "missing-token": /NPM_BOOTSTRAP_TOKEN/, environment: /restrict publication/,
+        main: /Main advanced/, release: /Existing GitHub release/, tag: /different commit/, account: /bootstrap.*fitchmultz/i };
+      refused(result, reasons[guard]);
+      assert.equal(boundary.calls.some(({ command, args }) => command === "gh" && (args.includes("POST") || args[0] === "release")), false);
+      assert.equal(boundary.calls.some(({ command, args }) => command === "npm" && args[0] === "publish"), false);
+      for (const { cwd } of boundary.calls) assert.equal(existsSync(cwd), false, "private publish root must be cleaned");
+    });
+  }
+});
+
+test("first-publication npm child alone gets bootstrap auth; a package appearing since plan uses OIDC only", async (t) => {
+  for (const mode of ["existing", "bootstrap", "later", "recovery", "foreign", "integrity"]) {
+    await t.test(mode, async (t) => {
+      const f = publicationFixture(t, mode === "existing");
+      if (mode === "later") {
+        const plan = await invoke(t, f, "plan", { status: 404, data: null });
+        assert.equal(plan.failed, false, plan.errors);
+        assert.equal(plan.outputs.release, "true");
+        rmSync(f.output);
+      }
+      const boundary = publicationBoundary(t, f, { bootstrap: mode === "bootstrap", recovery: mode === "recovery" });
+      const initial = f.metadata(mode === "existing" ? "4.0.0" : mode === "later" ? "4.1.0" : f.version);
+      if (mode === "foreign") initial.maintainers = [{ name: "someone-else" }];
+      if (mode === "integrity") initial.versions[f.version].dist = { integrity: "sha512-other" };
+      const result = await invoke(t, f, "publish", { args: f.args,
+        environment: { ...f.environment, NPM_BOOTSTRAP_TOKEN: "bootstrap-fixture",
+          NODE_AUTH_TOKEN: "ambient-untrusted", NPM_TOKEN: "ambient-untrusted" },
+        status: () => mode === "bootstrap" && !boundary.published ? 404 : 200,
+        data: () => boundary.published ? f.metadata() : initial, published: f.published });
+      if (mode === "foreign" || mode === "integrity") {
+        refused(result, mode === "foreign" ? /not maintained/ : /different bytes/);
+        assert.equal(boundary.calls.some(({ command, args }) => command === "gh" && (args.includes("POST") || args[0] === "release")), false);
+      } else {
+        assert.equal(result.failed, false, result.errors);
+        assert.equal(boundary.calls.filter(({ command, args }) => command === "npm" && args[0] === "whoami").length, mode === "bootstrap" ? 1 : 0);
+        assert.equal(boundary.calls.filter(({ command, args }) => command === "npm" && args[0] === "publish").length, mode === "recovery" ? 0 : 1);
+        assert.ok(boundary.calls.some(({ command, args }) => command === "gh" && args.includes("--draft=false")));
+      }
+      assert.equal(existsSync(join(f.source, "published")), false, "lifecycle hooks remain disabled");
+      for (const { cwd } of boundary.calls) assert.equal(existsSync(cwd), false);
+    });
+  }
 });

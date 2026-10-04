@@ -93,7 +93,7 @@ jobs:
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # The three approval packages have required reviewers here; all twelve restrict this environment to main.
+    # The three approval packages have required reviewers here; every channel restricts this environment to main.
     environment:
       name: npm
       url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -119,9 +119,10 @@ jobs:
         with:
           name: npm-candidate-${{ inputs.source-ref }}
           path: ${{ runner.temp }}/npm-candidate
-      - name: Publish the verified artifact using OIDC, without lifecycle scripts
+      - name: Publish the verified artifact without lifecycle scripts
         env:
           GH_TOKEN: ${{ github.token }}
+          NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
           SOURCE_REF: ${{ inputs.source-ref }}
           OFFICIAL_VERSION: ${{ inputs.official-version }}
           FORK_REF: ${{ inputs.fork-ref }}

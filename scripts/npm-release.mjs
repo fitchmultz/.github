@@ -64,7 +64,9 @@ function identity(manifest) {
 
 async function metadata(name) {
   const response = await fetch(`${registry}${encodeURIComponent(name)}`, { signal: AbortSignal.timeout(30_000) });
-  assert.ok(response.ok, `Owned npm package metadata: HTTP ${response.status}; new package creation is not automated`);
+  if (response.status === 404 && name === entry?.npmPackage && name === `@fitchmultz/${entry.repo}`
+    && ["automatic", "approval"].includes(entry.npmRelease)) return null;
+  assert.ok(response.ok, `Owned npm package metadata: HTTP ${response.status}`);
   const data = await response.json();
   assert.equal(data.name, name);
   assert.ok(data.maintainers?.some((maintainer) => maintainer.name === "fitchmultz"), "npm package is not maintained by fitchmultz");
@@ -103,7 +105,7 @@ async function plan() {
   const source = resolve(values.source ?? ".");
   const { manifest, ref } = sourceIdentity(source);
   const data = await metadata(manifest.name);
-  const existing = data.versions[manifest.version];
+  const existing = data?.versions[manifest.version];
   const headers = { Accept: "application/vnd.github+json" };
   if (process.env.GH_TOKEN) headers.Authorization = `Bearer ${process.env.GH_TOKEN}`;
   let release = !existing;
@@ -123,7 +125,7 @@ async function plan() {
   }
   let hosts;
   if (release) {
-    if (!existing) assert.ok(newer(manifest.version, data["dist-tags"].latest), "Refusing to move latest backwards; bump to a newer version");
+    if (!existing && data) assert.ok(newer(manifest.version, data["dist-tags"].latest), "Refusing to move latest backwards; bump to a newer version");
     releaseNotes(source, manifest.version);
     const response = await fetch(`https://api.github.com/repos/${repository}/commits/${ref}/pulls`, { headers, signal: AbortSignal.timeout(30_000) });
     assert.ok(response.ok, `Merged release PR lookup: HTTP ${response.status}`);
@@ -199,7 +201,7 @@ async function prepare() {
   }
 }
 
-function verifyArtifact(directory) {
+function verifyArtifact(directory, env) {
   const candidate = readJson(join(directory, "release.json"));
   assert.equal(candidate.repository, repository);
   assert.equal(candidate.name, entry?.npmPackage);
@@ -211,7 +213,7 @@ function verifyArtifact(directory) {
   const tarball = join(directory, candidate.filename);
   assert.equal(sha256(tarball), candidate.sha256, "Release tarball checksum changed");
   assert.equal(`sha512-${createHash("sha512").update(readFileSync(tarball)).digest("base64")}`, candidate.integrity, "Release tarball integrity changed");
-  const manifest = JSON.parse(run("tar", ["-xOf", tarball, "package/package.json"], { quiet: true }));
+  const manifest = JSON.parse(run("tar", ["-xOf", tarball, "package/package.json"], { env, quiet: true }));
   identity(manifest);
   assert.equal(manifest.version, candidate.version);
   assert.equal(readFileSync(join(directory, "release-notes.md"), "utf8").trim(), candidate.notes);
@@ -222,7 +224,7 @@ function verifyArtifact(directory) {
 }
 
 async function publish() {
-  assert.equal(process.env.GITHUB_ACTIONS, "true", "Publication only runs in GitHub Actions through OIDC");
+  assert.equal(process.env.GITHUB_ACTIONS, "true", "Publication only runs in GitHub Actions");
   assert.equal(process.env.GITHUB_REF, "refs/heads/main", "Publication only runs from main");
   assert.equal(process.env.GITHUB_WORKFLOW_REF, `${repository}/.github/workflows/npm-release.yml@refs/heads/main`, "Unexpected trusted publisher caller");
   assert.ok(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN && process.env.ACTIONS_ID_TOKEN_REQUEST_URL, "OIDC permission is missing");
@@ -232,17 +234,17 @@ async function publish() {
   assert.match(values["official-version"] ?? "", /^\d+\.\d+\.\d+$/, "publish requires exact --official-version from this run's planner");
   assert.match(values["fork-ref"] ?? "", /^[a-f0-9]{40}$/, "publish requires exact --fork-ref from this run's planner");
   const directory = resolve(values.artifact);
-  const candidate = verifyArtifact(directory);
-  assert.equal(process.env.GITHUB_SHA, candidate.source, "Caller commit differs from the verified artifact");
   const root = mkdtempSync("/tmp/npm-publish-");
   const env = isolatedEnvironment(root);
-  for (const [name, value] of Object.entries(process.env)) {
-    if (name.startsWith("GITHUB_") || name.startsWith("ACTIONS_ID_TOKEN_REQUEST_")) env[name] = value;
-  }
-  const githubEnv = { ...env, GH_TOKEN: process.env.GH_TOKEN };
-  const gh = (args, options = {}) => run("gh", args, { cwd: root, env: githubEnv, quiet: true, ...options });
-  const api = (path, body) => JSON.parse(gh(["api", `repos/${repository}/${path}`, ...(body ? ["--method", "POST", "--input", "-"] : [])], body ? { input: JSON.stringify(body) } : {}));
   try {
+    const candidate = verifyArtifact(directory, env);
+    assert.equal(process.env.GITHUB_SHA, candidate.source, "Caller commit differs from the verified artifact");
+    for (const [name, value] of Object.entries(process.env)) {
+      if (name.startsWith("GITHUB_") || name.startsWith("ACTIONS_ID_TOKEN_REQUEST_")) env[name] = value;
+    }
+    const githubEnv = { ...env, GH_TOKEN: process.env.GH_TOKEN };
+    const gh = (args, options = {}) => run("gh", args, { cwd: root, env: githubEnv, quiet: true, ...options });
+    const api = (path, body) => JSON.parse(gh(["api", `repos/${repository}/${path}`, ...(body ? ["--method", "POST", "--input", "-"] : [])], body ? { input: JSON.stringify(body) } : {}));
     const environment = api("environments/npm");
     assert.equal(environment.deployment_branch_policy?.custom_branch_policies, true, "npm environment must restrict publication to main");
     const branches = api("environments/npm/deployment-branch-policies").branch_policies;
@@ -251,11 +253,11 @@ async function publish() {
       assert.ok(environment.protection_rules.some((rule) => rule.type === "required_reviewers" && rule.reviewers.some((reviewer) => reviewer.reviewer.login === "fitchmultz")), "Required maintainer release approval was removed");
     }
     const data = await metadata(candidate.name);
-    const existing = data.versions[candidate.version];
+    const existing = data?.versions[candidate.version];
     if (existing) assert.equal(existing.dist.integrity, candidate.integrity, "This version was published with different bytes; never overwrite it");
     else {
       assert.equal(api("commits/main").sha, candidate.source, "Main advanced while release checks/approval were pending; rerun on the current main commit");
-      assert.ok(newer(candidate.version, data["dist-tags"].latest), "Refusing to move latest backwards");
+      if (data) assert.ok(newer(candidate.version, data["dist-tags"].latest), "Refusing to move latest backwards");
     }
     const tag = `v${candidate.version}`;
     const releases = JSON.parse(gh(["api", `repos/${repository}/releases?per_page=100`, "--paginate", "--slurp"])).flat();
@@ -268,7 +270,18 @@ async function publish() {
       while (object.type === "tag") object = api(`git/tags/${object.sha}`).object;
       assert.equal(object.type, "commit");
       assert.equal(object.sha, candidate.source, "Existing release tag points to a different commit");
-    } else {
+    }
+    const npmEnv = { ...env };
+    if (!data) {
+      assert.ok(process.env.NPM_BOOTSTRAP_TOKEN?.trim(), "First owned scoped publication requires NPM_BOOTSTRAP_TOKEN before creating a tag or release");
+      // ponytail: direct-token first publication is supported only until January 2027; recheck npm's native first-publish path then.
+      npmEnv.npm_config_userconfig = join(root, "bootstrap.npmrc");
+      writeFileSync(npmEnv.npm_config_userconfig, "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}\n", { mode: 0o600 });
+      npmEnv.NODE_AUTH_TOKEN = process.env.NPM_BOOTSTRAP_TOKEN;
+      assert.equal(run("npm", ["whoami", `--registry=${registry}`], { cwd: root, env: npmEnv, quiet: true }).trim(),
+        "fitchmultz", "Bootstrap publication must authenticate as fitchmultz");
+    }
+    if (!ref) {
       const object = api("git/tags", { tag, message: `${candidate.name} ${candidate.version}`, object: candidate.source, type: "commit" });
       api("git/refs", { ref: `refs/tags/${tag}`, sha: object.sha });
     }
@@ -287,7 +300,7 @@ async function publish() {
         gh(["release", "upload", tag, path, "--repo", repository]);
       }
     }
-    if (!existing) run("npm", ["publish", join(directory, candidate.filename), "--ignore-scripts", `--registry=${registry}`, "--access=public", "--tag=latest", "--provenance"], { cwd: root, env: { ...env, RUNNER_ENVIRONMENT: process.env.RUNNER_ENVIRONMENT } });
+    if (!existing) run("npm", ["publish", join(directory, candidate.filename), "--ignore-scripts", `--registry=${registry}`, "--access=public", "--tag=latest", "--provenance"], { cwd: root, env: { ...npmEnv, RUNNER_ENVIRONMENT: process.env.RUNNER_ENVIRONMENT } });
     const response = await fetch(`${registry}${encodeURIComponent(candidate.name)}/${candidate.version}`, { signal: AbortSignal.timeout(30_000) });
     assert.ok(response.ok, `Published exact-version verification: HTTP ${response.status}; retain the candidate and retry, never unpublish`);
     const published = await response.json();
@@ -295,6 +308,7 @@ async function publish() {
     assert.equal(published.version, candidate.version);
     assert.equal(published.dist.integrity, candidate.integrity, "Published bytes differ from the verified tarball");
     const latest = await metadata(candidate.name);
+    assert.ok(latest, "Published package metadata is missing; retain the candidate and retry");
     assert.ok(latest["dist-tags"].latest === candidate.version || newer(latest["dist-tags"].latest, candidate.version), "npm latest did not advance to the release");
     if (release.draft) gh(["release", "edit", tag, "--repo", repository, "--draft=false"]);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
@@ -306,7 +320,7 @@ async function publish() {
 
 try {
   if (values.help) {
-    console.log(`Usage: node scripts/npm-release.mjs <plan|prepare|verify|publish> [options]\n\nOptions:\n  --repository OWNER/REPO  Owned channel (defaults to GITHUB_REPOSITORY)\n  --source PATH            Clean source checkout for plan/prepare\n  --source-ref SHA          Expected immutable commit; required by verify/publish\n  --fork PATH               Verified fork host artifact directory for prepare\n  --official-version X.Y.Z  Frozen official identity; required by publish (local prepare otherwise resolves latest)\n  --fork-ref SHA            Frozen fork identity; required by publish\n  --output PATH             Candidate artifact directory for prepare\n  --artifact PATH           Candidate artifact directory for verify/publish\n  -h, --help                Show this help\n\nExamples:\n  node scripts/npm-release.mjs plan --repository fitchmultz/pi-copy-message --source ../extension\n  node scripts/npm-release.mjs prepare --repository fitchmultz/pi-copy-message --source ../extension --source-ref COMMIT --fork /tmp/fork-package --output /tmp/candidate\n  node scripts/npm-release.mjs verify --repository fitchmultz/pi-copy-message --source-ref COMMIT --artifact /tmp/candidate\n\nplan is read-only; prepare builds/tests without credentials. publish is GitHub/OIDC-only and creates npm/GitHub releases.\nExit codes: 0 = success (including already-published plan), 1 = invalid input, failed gate, or release failure.`);
+    console.log(`Usage: node scripts/npm-release.mjs <plan|prepare|verify|publish> [options]\n\nOptions:\n  --repository OWNER/REPO  Owned channel (defaults to GITHUB_REPOSITORY)\n  --source PATH            Clean source checkout for plan/prepare\n  --source-ref SHA          Expected immutable commit; required by verify/publish\n  --fork PATH               Verified fork host artifact directory for prepare\n  --official-version X.Y.Z  Frozen official identity; required by publish (local prepare otherwise resolves latest)\n  --fork-ref SHA            Frozen fork identity; required by publish\n  --output PATH             Candidate artifact directory for prepare\n  --artifact PATH           Candidate artifact directory for verify/publish\n  -h, --help                Show this help\n\nExamples:\n  node scripts/npm-release.mjs plan --repository fitchmultz/pi-copy-message --source ../extension\n  node scripts/npm-release.mjs prepare --repository fitchmultz/pi-copy-message --source ../extension --source-ref COMMIT --fork /tmp/fork-package --output /tmp/candidate\n  node scripts/npm-release.mjs verify --repository fitchmultz/pi-copy-message --source-ref COMMIT --artifact /tmp/candidate\n\nplan is read-only; prepare builds/tests without credentials. publish runs only in GitHub Actions and creates npm/GitHub releases. Existing packages use OIDC only; an absent enabled @fitchmultz/REPO requires NPM_BOOTSTRAP_TOKEN for its first publication.\nExit codes: 0 = success (including already-published plan), 1 = invalid input, failed gate, or release failure.`);
   } else {
     assert.equal(positionals.length, 1, "Choose plan, prepare, verify, or publish; use --help");
     assert.ok(entry?.npmRelease, "Repository has no enabled npm release channel");
