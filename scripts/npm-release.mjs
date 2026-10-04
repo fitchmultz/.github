@@ -159,7 +159,8 @@ async function prepare() {
     // Pack reviewed bundled dependencies, retaining the output compiled against the selected latest SDK.
     run("npm", ["ci", "--ignore-scripts"], { cwd: development, env });
     run("git", ["diff", "--exit-code"], { cwd: development, env });
-    const packed = JSON.parse(run("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", destination], { cwd: development, env, quiet: true }));
+    const packedJson = JSON.parse(run("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", destination], { cwd: development, env, quiet: true }));
+    const packed = Array.isArray(packedJson) ? packedJson : Object.values(packedJson);
     assert.equal(packed.length, 1);
     assert.equal(packed[0].name, manifest.name);
     assert.equal(packed[0].version, manifest.version);
@@ -286,7 +287,7 @@ async function publish() {
         gh(["release", "upload", tag, path, "--repo", repository]);
       }
     }
-    if (!existing) run("npm", ["publish", join(directory, candidate.filename), "--ignore-scripts", `--registry=${registry}`, "--access=public", "--tag=latest", "--provenance"], { cwd: root, env });
+    if (!existing) run("npm", ["publish", join(directory, candidate.filename), "--ignore-scripts", `--registry=${registry}`, "--access=public", "--tag=latest", "--provenance"], { cwd: root, env: { ...env, RUNNER_ENVIRONMENT: process.env.RUNNER_ENVIRONMENT } });
     const response = await fetch(`${registry}${encodeURIComponent(candidate.name)}/${candidate.version}`, { signal: AbortSignal.timeout(30_000) });
     assert.ok(response.ok, `Published exact-version verification: HTTP ${response.status}; retain the candidate and retry, never unpublish`);
     const published = await response.json();

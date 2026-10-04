@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import childProcess from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { syncBuiltinESMExports } from "node:module";
 import test from "node:test";
 import { codingAgent, writeJson } from "../scripts/common.mjs";
 
@@ -41,8 +43,8 @@ function metadata(latest = "4.0.0") {
 }
 
 // Execute the real CLI entry point, including Git cleanliness, HTTP response handling and workflow outputs.
-// Only external HTTP is replaced; these tests do not assert fictitious host qualification or a successful publication.
-async function invoke(t, fixture, command, { data = metadata(), pulls, draft, releasePages, releaseStatus = 200, status = 200, args = [], environment = {} } = {}) {
+// HTTP and publication subprocess boundaries are replaced; this is not real host/OIDC qualification.
+async function invoke(t, fixture, command, { data = metadata(), pulls, draft, releasePages, releaseStatus = 200, status = 200, args = [], environment = {}, published } = {}) {
   const argv = process.argv;
   const exitCode = process.exitCode;
   const env = { GITHUB_REPOSITORY: repository, GITHUB_OUTPUT: fixture.output, GH_TOKEN: undefined,
@@ -54,7 +56,8 @@ async function invoke(t, fixture, command, { data = metadata(), pulls, draft, re
   const errors = [];
   const fetch = t.mock.method(globalThis, "fetch", async (url) => {
     requests.push(String(url));
-    if (String(url) === `https://registry.npmjs.org/${name}`) return Response.json(data, { status });
+    if (String(url) === `https://registry.npmjs.org/${name}/${published?.version}`) return Response.json(published);
+    if (String(url) === `https://registry.npmjs.org/${name}`) return Response.json(typeof data === "function" ? data() : data, { status });
     if (String(url) === `https://registry.npmjs.org/${encodeURIComponent(codingAgent)}/latest`) {
       return Response.json({ name: codingAgent, version: "9.8.7", dist: { integrity: "sha512-host-fixture", tarball: "https://registry.npmjs.org/host-fixture.tgz" } });
     }
@@ -204,17 +207,24 @@ test("publication requires exact frozen host identities before artifact access",
   }
 });
 
+function artifact(f) {
+  const directory = join(f.root, "artifact");
+  mkdirSync(directory);
+  const packedJson = JSON.parse(exec("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", directory], f.source));
+  const [packed] = Array.isArray(packedJson) ? packedJson : Object.values(packedJson);
+  const tarball = join(directory, packed.filename);
+  const candidate = { repository, source: f.ref, name, version: "4.0.1", approval: false, filename: packed.filename,
+    sha256: createHash("sha256").update(readFileSync(tarball)).digest("hex"), integrity: packed.integrity,
+    notes: "Fix copying a selected message.", hosts: { official: { flavor: "official", version: "9.8.7" },
+      fork: { flavor: "fork", provenance: { ref: forkRef } } } };
+  return { directory, tarball, candidate };
+}
+
 test("downloaded artifact checksum, commit and manifest mismatches fail before credentials or publication", async (t) => {
   for (const kind of ["bytes", "commit", "version"]) {
     const f = fixture(t);
-    const directory = join(f.root, "artifact");
-    mkdirSync(directory);
-    const [packed] = JSON.parse(exec("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", directory], f.source));
-    const tarball = join(directory, packed.filename);
-    const candidate = { repository, source: f.ref, name, version: "4.0.1", approval: false, filename: packed.filename,
-      sha256: createHash("sha256").update(readFileSync(tarball)).digest("hex"), integrity: packed.integrity,
-      notes: "Fix copying a selected message.", hosts: {} };
-    // This intentionally incomplete receipt is never accepted as qualification proof.
+    const { directory, tarball, candidate } = artifact(f);
+    // This transport receipt is never accepted as qualification proof.
     // Each corruption must fail at its own earlier transport/identity guard.
     if (kind === "bytes") appendFileSync(tarball, "corruption");
     if (kind === "commit") candidate.source = "a".repeat(40);
@@ -225,4 +235,64 @@ test("downloaded artifact checksum, commit and manifest mismatches fail before c
     refused(result, kind === "bytes" ? /checksum changed/ : kind === "commit" ? /different source commit/ : /4\.0\.1.*4\.0\.2/s);
     assert.deepEqual(result.requests, []);
   }
+});
+
+test("npm publication receives runner provenance context but no inherited credentials", async (t) => {
+  const f = fixture(t);
+  const { directory, candidate } = artifact(f);
+  writeJson(join(directory, "release.json"), candidate);
+  writeFileSync(join(directory, "release-notes.md"), `${candidate.notes}\n`);
+  const calls = [];
+  let publishedAtBoundary = false;
+  const nativeSpawnSync = childProcess.spawnSync;
+  const mock = t.mock.method(childProcess, "spawnSync", (command, args, options) => {
+    if (command !== "gh" && command !== "npm") return nativeSpawnSync(command, args, options);
+    calls.push({ command, args, cwd: options.cwd });
+    for (const key of ["NODE_AUTH_TOKEN", "NPM_TOKEN", "NPM_BOOTSTRAP_TOKEN", "AWS_SECRET_ACCESS_KEY"]) {
+      assert.equal(options.env[key], undefined, `${key} must not reach publication subprocesses`);
+    }
+    assert.equal(readFileSync(options.env.npm_config_userconfig, "utf8"), "");
+    let value;
+    if (command === "npm") {
+      assert.equal(options.env.RUNNER_ENVIRONMENT, "github-hosted");
+      assert.equal(options.env.GH_TOKEN, undefined);
+      assert.equal(options.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN, "oidc-fixture");
+      assert.deepEqual(args, ["publish", join(directory, candidate.filename), "--ignore-scripts",
+        "--registry=https://registry.npmjs.org/", "--access=public", "--tag=latest", "--provenance"]);
+      publishedAtBoundary = true;
+      value = "";
+    } else {
+      assert.equal(options.env.RUNNER_ENVIRONMENT, undefined, "runner context is only needed by npm");
+      assert.equal(options.env.GH_TOKEN, "github-fixture");
+      const path = args[1]?.replace(`repos/${repository}/`, "");
+      if (path === "environments/npm") value = { deployment_branch_policy: { custom_branch_policies: true } };
+      else if (path === "environments/npm/deployment-branch-policies") value = { branch_policies: [{ name: "main", type: "branch" }] };
+      else if (path === "commits/main") value = { sha: f.ref };
+      else if (path === "releases?per_page=100") value = [[]];
+      else if (path === `git/matching-refs/tags/v${candidate.version}`) value = [];
+      else if (path === "git/tags") value = { sha: "c".repeat(40) };
+      else if (path === "git/refs") value = {};
+      else if (path === "releases") value = { draft: true, assets: [] };
+      else { assert.equal(args[0], "release"); value = ""; }
+    }
+    return { status: 0, stdout: typeof value === "string" ? value : JSON.stringify(value), stderr: "" };
+  });
+  syncBuiltinESMExports();
+  t.after(() => { mock.mock.restore(); syncBuiltinESMExports(); });
+  const data = metadata();
+  const published = { ...data.versions["4.0.0"], version: candidate.version, dist: { integrity: candidate.integrity } };
+  const result = await invoke(t, f, "publish", { data: () => publishedAtBoundary
+    ? { ...metadata(candidate.version), versions: { [candidate.version]: published } } : data, published,
+    args: ["--artifact", directory, "--source-ref", f.ref, "--official-version", "9.8.7", "--fork-ref", forkRef],
+    environment: { GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_SHA: f.ref,
+      GITHUB_WORKFLOW_REF: `${repository}/.github/workflows/npm-release.yml@refs/heads/main`,
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-fixture", ACTIONS_ID_TOKEN_REQUEST_URL: "https://example.invalid/oidc",
+      GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", RUNNER_ENVIRONMENT: "github-hosted",
+      GH_TOKEN: "github-fixture", NODE_AUTH_TOKEN: "ambient-fixture", NPM_TOKEN: "ambient-fixture",
+      NPM_BOOTSTRAP_TOKEN: "ambient-fixture", AWS_SECRET_ACCESS_KEY: "ambient-fixture" } });
+  assert.equal(result.failed, false, result.errors);
+  assert.equal(calls.filter(({ command }) => command === "npm").length, 1);
+  assert.ok(calls.some(({ args }) => args.includes("--draft=false")));
+  assert.equal(existsSync(join(f.source, "published")), false);
+  for (const { cwd } of calls) assert.equal(existsSync(cwd), false, "publish scratch must be cleaned");
 });
