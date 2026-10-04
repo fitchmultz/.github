@@ -134,5 +134,5 @@ try {
       `### ${report.repo} / ${report.lane} / ${report.node}\n\n${report.result}. Source: \`${report.source}\`. Host: \`${report.host?.provenance.ref ?? report.host?.version ?? "standalone"}\`.\n\n${report.phase ? `Failed phase: **${report.phase}**. ` : ""}See the qualification artifact for exact SDK/CLI hashes, installation provenance, errors and reproduction inputs.\n`);
   }
   console.log(`${report.repo}: ${report.result} (${report.phase ?? "complete"}); evidence: ${output}`);
-  rmSync(root, { recursive: true, force: true });
+  rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 1000 });
 }

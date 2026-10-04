@@ -197,7 +197,7 @@ async function prepare() {
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
       `## npm release candidate\n\n${manifest.name}@${manifest.version}\n\nCommit: \`${ref}\`\n\nTarball SHA-256: \`${hash}\`\n\nThe **same tarball** loaded through both official and fork bundled Pi CLIs.\n\n${entry.npmRelease === "approval" ? "Before approving the npm environment, download this candidate and satisfy the package's existing exact-commit/tarball release requirements. CI did not run authenticated/paid live checks or perform the maintainer release review.\n" : "This package publishes unattended after its offline checks and artifact verification pass.\n"}`);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 1000 });
   }
 }
 
