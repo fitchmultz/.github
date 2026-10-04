@@ -14,6 +14,10 @@ on:
         value: ${{ jobs.plan.outputs.source }}
       version:
         value: ${{ jobs.plan.outputs.version }}
+      official-version:
+        value: ${{ jobs.plan.outputs.official-version }}
+      fork-ref:
+        value: ${{ jobs.plan.outputs.fork-ref }}
 
 permissions:
   contents: read
@@ -29,6 +33,8 @@ jobs:
       release: ${{ steps.plan.outputs.release }}
       source: ${{ steps.plan.outputs.source }}
       version: ${{ steps.plan.outputs.version }}
+      official-version: ${{ steps.plan.outputs.official-version }}
+      fork-ref: ${{ steps.plan.outputs.fork-ref }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

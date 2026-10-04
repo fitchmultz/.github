@@ -6,7 +6,6 @@ import test from "node:test";
 import { codingAgent, readJson } from "../scripts/common.mjs";
 
 const fleet = readJson(new URL("../fleet.json", import.meta.url));
-const targets = readJson(new URL("../host-targets.json", import.meta.url));
 const sourceSha = "a".repeat(40);
 const forkSha = "b".repeat(40);
 const mainSha = "c".repeat(40);
@@ -15,7 +14,7 @@ let invocation = 0;
 
 // Execute the actual script, including environment parsing and GITHUB_OUTPUT writes.
 // Only external HTTP is replaced; no matrix-selection logic is reimplemented here.
-async function resolveFixture(t, environment = {}, { official = true, candidate = "0.87.0", main = { sha: mainSha }, mainStatus = 200 } = {}) {
+async function resolveFixture(t, environment = {}, { official = true, candidate = "9.8.7", main = { sha: mainSha }, mainStatus = 200 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "pi-resolve-"));
   const output = join(root, "output");
   const env = { REPOSITORY: "all", HOST: undefined, SOURCE_REF: undefined, OFFICIAL_VERSION: undefined,
@@ -41,7 +40,7 @@ async function resolveFixture(t, environment = {}, { official = true, candidate 
     if (match[2].startsWith("commits/")) return Response.json({ sha: sourceSha });
     assert.ok(official, "Fork selection must not read the official candidate manifest");
     assert.equal(new URL(url).searchParams.get("ref"), sourceSha);
-    return Response.json({ content: Buffer.from(JSON.stringify({ devDependencies: { [codingAgent]: candidate } })).toString("base64") });
+    return Response.json({ content: Buffer.from(JSON.stringify({ devDependencies: { [codingAgent]: "0.1.0" } })).toString("base64") });
   });
   const log = t.mock.method(console, "log", () => {});
   try {
@@ -92,7 +91,7 @@ test("default and explicit both preserve all 27 repositories and existing Node/p
     const lanes = result.lanes.filter((lane) => lane.repo === entry.repo);
     assert.deepEqual([...new Set(lanes.map((lane) => lane.host))], entry.kind === "cli" ? ["none"] : ["official", "fork"]);
   }
-  assert.ok(result.lanes.filter((lane) => lane.host === "official").every((lane) => lane.version === targets.official && lane.label === "official"));
+  assert.ok(result.lanes.filter((lane) => lane.host === "official").every((lane) => lane.version === "9.8.7" && lane.label === "official"));
   const fork = result.lanes.filter((lane) => lane.host === "fork");
   assert.deepEqual(platformLabels(fork, "pi-fitch-kit"), ["ubuntu-latest/24", "ubuntu-latest/26", "macos-latest/24"]);
   assert.deepEqual(platformLabels(fork, "pi-agent-browser-native"), ["ubuntu-latest/24", "macos-latest/24", "windows-latest/24"]);
@@ -119,27 +118,25 @@ test("fork reverse dependencies preserve all 48 fork lanes without any official 
   assert.ok(fork.requests.every((url) => url.startsWith("https://api.github.com/") && url.endsWith("/commits/compatibility%2Fpi-releases") && !url.includes("/pi-evidence/")));
 });
 
-test("an individual PR still resolves its manifest candidate and diagnostic official baseline", async (t) => {
+test("an individual PR qualifies latest rather than selecting its stale locked development version", async (t) => {
   const result = await resolveFixture(t, { REPOSITORY: "fitchmultz/pi-calculator", SOURCE_REF: sourceSha });
   passed(result);
-  assert.equal(result.lanes.length, 3);
-  assert.deepEqual(result.lanes.slice(0, 3).map(({ host, label, version }) => ({ host, label, version })), [
-    { host: "official", label: "official", version: "0.87.0" },
+  assert.deepEqual(result.lanes.map(({ host, label, version }) => ({ host, label, version })), [
+    { host: "official", label: "official", version: "9.8.7" },
     { host: "fork", label: "fork", version: "" },
-    { host: "official", label: "baseline", version: targets.official },
   ]);
   assert.ok(result.requests.includes(`https://api.github.com/repos/fitchmultz/pi-calculator/commits/${sourceSha}`));
-  assert.ok(result.requests.includes(`https://api.github.com/repos/fitchmultz/pi-calculator/contents/package.json?ref=${sourceSha}`));
+  assert.equal(result.requests.filter((url) => url.endsWith("/latest")).length, 1);
 });
 
-test("the default canary resolves latest once, retains baseline comparisons and the standalone CLI", async (t) => {
-  const result = await resolveFixture(t, { OFFICIAL_VERSION: "latest", SOURCE_REF: "main" });
+test("resolved identities stay frozen across later jobs instead of resolving a newer host mid-run", async (t) => {
+  const result = await resolveFixture(t, { OFFICIAL_VERSION: "9.8.6", FORK_REF: forkSha, SOURCE_REF: "main" });
   passed(result);
-  assert.equal(result.lanes.length, 146);
+  assert.equal(result.lanes.length, 98);
   assert.equal(new Set(result.lanes.map((lane) => lane.repo)).size, 27);
-  assert.equal(result.requests.filter((url) => url.endsWith("/latest")).length, 1);
-  assert.ok(result.lanes.filter((lane) => lane.label === "official").every((lane) => lane.version === "0.87.0"));
-  assert.ok(result.lanes.filter((lane) => lane.label === "baseline").every((lane) => lane.version === targets.official));
+  assert.ok(result.lanes.filter((lane) => lane.host === "official").every((lane) => lane.version === "9.8.6"));
+  assert.equal(result.outputs.forkRef, forkSha);
+  assert.equal(result.requests.filter((url) => url.endsWith("/latest") || url === mainUrl).length, 0);
   assert.deepEqual(platformLabels(result.lanes, "pi-evidence"), ["ubuntu-latest/20", "ubuntu-latest/24"]);
 });
 

@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 
 export function failureReports(qualifications, runUrl) {
   const groups = new Map();
-  for (const result of qualifications.filter((result) => result.lane !== "baseline")) {
+  for (const result of qualifications) {
     const identity = result.host?.provenance.ref ?? result.host?.version ?? result.target ?? "unresolved";
     const key = `<!-- pi-compatibility:${result.repo}:${result.flavor}:${identity} -->`;
     if (!groups.has(key)) groups.set(key, { key, repo: result.repo, identity, flavor: result.flavor, results: [] });

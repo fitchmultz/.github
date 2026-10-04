@@ -4,12 +4,13 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import { writeJson } from "../scripts/common.mjs";
+import { codingAgent, writeJson } from "../scripts/common.mjs";
 
 let invocation = 0;
 const repository = "fitchmultz/pi-copy-message";
 const name = "pi-copy-message";
 const repositoryUrl = `git+https://github.com/${repository}.git`;
+const forkRef = "b".repeat(40);
 
 function exec(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
@@ -46,13 +47,18 @@ async function invoke(t, fixture, command, { data = metadata(), pulls, draft, re
   const exitCode = process.exitCode;
   const env = { GITHUB_REPOSITORY: repository, GITHUB_OUTPUT: fixture.output, GH_TOKEN: undefined,
     GITHUB_ACTIONS: undefined, GITHUB_REF: undefined, GITHUB_WORKFLOW_REF: undefined,
-    ACTIONS_ID_TOKEN_REQUEST_TOKEN: undefined, ACTIONS_ID_TOKEN_REQUEST_URL: undefined, ...environment };
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: undefined, ACTIONS_ID_TOKEN_REQUEST_URL: undefined,
+    GITHUB_RUN_ID: undefined, GITHUB_RUN_ATTEMPT: undefined, ...environment };
   const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
   const requests = [];
   const errors = [];
   const fetch = t.mock.method(globalThis, "fetch", async (url) => {
     requests.push(String(url));
     if (String(url) === `https://registry.npmjs.org/${name}`) return Response.json(data, { status });
+    if (String(url) === `https://registry.npmjs.org/${encodeURIComponent(codingAgent)}/latest`) {
+      return Response.json({ name: codingAgent, version: "9.8.7", dist: { integrity: "sha512-host-fixture", tarball: "https://registry.npmjs.org/host-fixture.tgz" } });
+    }
+    if (String(url) === "https://api.github.com/repos/fitchmultz/pi/commits/main") return Response.json({ sha: forkRef });
     if (String(url) === `https://api.github.com/repos/${repository}/releases/tags/v${data["dist-tags"].latest}`) {
       return draft?.draft === false ? Response.json(draft) : Response.json({ message: "Not Found" }, { status: 404 });
     }
@@ -109,7 +115,9 @@ test("a newer, owned version with versioned notes and a merged main PR becomes a
   const f = fixture(t);
   const result = await invoke(t, f, "plan", { args: ["--source-ref", f.ref] });
   assert.equal(result.failed, false, result.errors);
-  assert.deepEqual(result.outputs, { release: "true", source: f.ref, version: "4.0.1" });
+  assert.deepEqual(result.outputs, { release: "true", source: f.ref, version: "4.0.1", "official-version": "9.8.7", "fork-ref": forkRef });
+  assert.equal(result.requests.filter((url) => url.endsWith("/latest")).length, 1);
+  assert.equal(result.requests.filter((url) => url === "https://api.github.com/repos/fitchmultz/pi/commits/main").length, 1);
   assert.equal(existsSync(join(f.source, "published")), false);
 });
 
@@ -171,6 +179,26 @@ test("publication rejects local execution and unexpected OIDC callers before art
     [{ GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_WORKFLOW_REF: `${repository}/.github/workflows/other.yml@refs/heads/main` }, /Unexpected trusted publisher caller/]]) {
     const f = fixture(t);
     const result = await invoke(t, f, "publish", { environment, args: ["--artifact", "/does-not-exist", "--source-ref", f.ref] });
+    refused(result, reason);
+    assert.deepEqual(result.requests, []);
+  }
+});
+
+test("publication requires exact frozen host identities before artifact access", async (t) => {
+  const environment = { GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main",
+    GITHUB_WORKFLOW_REF: `${repository}/.github/workflows/npm-release.yml@refs/heads/main`,
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: "fixture", ACTIONS_ID_TOKEN_REQUEST_URL: "https://example.invalid/oidc",
+    GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1" };
+  for (const [args, reason] of [
+    [["--fork-ref", forkRef], /publish requires exact --official-version/],
+    [["--official-version", "9.8.7"], /publish requires exact --fork-ref/],
+    [["--official-version", "", "--fork-ref", ""], /publish requires exact --official-version/],
+    [["--official-version", "latest", "--fork-ref", forkRef], /publish requires exact --official-version/],
+    [["--official-version", "9.8.7", "--fork-ref", "main"], /publish requires exact --fork-ref/],
+  ]) {
+    const f = fixture(t);
+    const result = await invoke(t, f, "publish", { environment,
+      args: ["--artifact", "/does-not-exist", "--source-ref", f.ref, ...args] });
     refused(result, reason);
     assert.deepEqual(result.requests, []);
   }

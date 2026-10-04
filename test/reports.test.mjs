@@ -24,12 +24,6 @@ test("distinct official releases and a same-version fork never share an issue id
   assert.match(reports[2].body, /downloaded\/fork-host-artifact/);
 });
 
-test("diagnostic baseline failure does not become a required compatibility failure", () => {
-  const reports = failureReports([pass, { ...pass, lane: "baseline", result: "failed" }], run);
-  assert.equal(reports.length, 1);
-  assert.equal(reports[0].failed, false);
-});
-
 test("an installation failure retains the requested host before provenance is available", () => {
   const reports = failureReports([{ ...pass, host: undefined, target: "0.87.0", result: "failed", phase: "host-install" }], run);
   assert.match(reports[0].key, /official:0.87.0/);

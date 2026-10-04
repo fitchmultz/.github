@@ -5,12 +5,13 @@ import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { checkResources, probeCli } from "./cli-probe.mjs";
 import { isolatedEnvironment, readJson, run, sha256, stageSource, writeJson } from "./common.mjs";
-import { prepareHost } from "./hosts.mjs";
+import { prepareHost, resolveHostTargets, selectDevelopmentHost } from "./hosts.mjs";
 
 const registry = "https://registry.npmjs.org/";
 const { values, positionals } = parseArgs({ allowPositionals: true, options: {
   source: { type: "string" }, repository: { type: "string" }, output: { type: "string" },
   fork: { type: "string" }, artifact: { type: "string" }, "source-ref": { type: "string" },
+  "official-version": { type: "string" }, "fork-ref": { type: "string" },
   help: { type: "boolean", short: "h" },
 } });
 const [command] = positionals;
@@ -120,6 +121,7 @@ async function plan() {
       if (releases.length < 100) break;
     }
   }
+  let hosts;
   if (release) {
     if (!existing) assert.ok(newer(manifest.version, data["dist-tags"].latest), "Refusing to move latest backwards; bump to a newer version");
     releaseNotes(source, manifest.version);
@@ -127,8 +129,10 @@ async function plan() {
     assert.ok(response.ok, `Merged release PR lookup: HTTP ${response.status}`);
     const pulls = await response.json();
     assert.ok(pulls.some((pull) => pull.merged_at && pull.base?.ref === "main" && pull.merge_commit_sha === ref), "Release candidate must come from a merged PR to main, not a direct push");
+    hosts = await resolveHostTargets();
   }
-  output({ release: String(release), source: ref, version: manifest.version });
+  output({ release: String(release), source: ref, version: manifest.version,
+    ...(hosts ? { "official-version": hosts.officialVersion, "fork-ref": hosts.forkRef } : {}) });
   console.log(release ? `${manifest.name}@${manifest.version}: ${existing ? "unfinished GitHub release" : "unpublished candidate"} ${ref}`
     : `${manifest.name}@${manifest.version}: already published; source changes require a new version`);
 }
@@ -143,13 +147,17 @@ async function prepare() {
   const root = mkdtempSync("/tmp/npm-release-");
   const env = isolatedEnvironment(root);
   try {
+    const official = await prepareHost(join(root, "official", "host"), "official", values["official-version"] || "latest", env);
     const development = join(root, "development");
     stageSource(source, development);
     if (existsSync(join(development, ".npmrc"))) {
       assert.ok(!/auth|password|username|token|otp|certfile|keyfile/i.test(readFileSync(join(development, ".npmrc"), "utf8")), "Project npm configuration must not contain credentials");
     }
     run("npm", ["ci", "--ignore-scripts"], { cwd: development, env });
+    selectDevelopmentHost(development, official, env);
     run("npm", ["run", "build", "--if-present"], { cwd: development, env });
+    // Pack reviewed bundled dependencies, retaining the output compiled against the selected latest SDK.
+    run("npm", ["ci", "--ignore-scripts"], { cwd: development, env });
     run("git", ["diff", "--exit-code"], { cwd: development, env });
     const packed = JSON.parse(run("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", destination], { cwd: development, env, quiet: true }));
     assert.equal(packed.length, 1);
@@ -167,9 +175,8 @@ async function prepare() {
     identity(JSON.parse(run("tar", ["-xOf", tarball, "package/package.json"], { env, quiet: true })));
     const hosts = {};
     for (const flavor of ["official", "fork"]) {
-      const target = flavor === "official" ? manifest.devDependencies?.["@earendil-works/pi-coding-agent"] : resolve(values.fork);
-      assert.ok(target, "Release must declare an exact official development baseline");
-      const host = await prepareHost(join(root, flavor, "host"), flavor, target, env);
+      const host = flavor === "official" ? official : await prepareHost(join(root, "fork", "host"), "fork", resolve(values.fork), env);
+      if (flavor === "fork" && values["fork-ref"]) assert.equal(host.provenance.ref, values["fork-ref"], "Fork artifact differs from this run's resolved host");
       const consumer = join(root, flavor, "consumer");
       mkdirSync(consumer, { recursive: true });
       writeJson(join(consumer, "package.json"), { private: true, dependencies: { [manifest.name]: `file:${tarball}` } });
@@ -208,6 +215,8 @@ function verifyArtifact(directory) {
   assert.equal(manifest.version, candidate.version);
   assert.equal(readFileSync(join(directory, "release-notes.md"), "utf8").trim(), candidate.notes);
   for (const flavor of ["official", "fork"]) assert.equal(candidate.hosts?.[flavor]?.flavor, flavor, `Missing ${flavor} artifact verification`);
+  if (values["official-version"]) assert.equal(candidate.hosts.official.version, values["official-version"], "Official artifact differs from this run's resolved host");
+  if (values["fork-ref"]) assert.equal(candidate.hosts.fork.provenance.ref, values["fork-ref"], "Fork artifact differs from this run's resolved host");
   return candidate;
 }
 
@@ -219,6 +228,8 @@ async function publish() {
   assert.match(process.env.GITHUB_RUN_ID ?? "", /^\d+$/, "Missing GitHub run identity");
   assert.match(process.env.GITHUB_RUN_ATTEMPT ?? "", /^\d+$/, "Missing GitHub run attempt");
   assert.ok(values.artifact && values["source-ref"], "publish requires --artifact and --source-ref");
+  assert.match(values["official-version"] ?? "", /^\d+\.\d+\.\d+$/, "publish requires exact --official-version from this run's planner");
+  assert.match(values["fork-ref"] ?? "", /^[a-f0-9]{40}$/, "publish requires exact --fork-ref from this run's planner");
   const directory = resolve(values.artifact);
   const candidate = verifyArtifact(directory);
   assert.equal(process.env.GITHUB_SHA, candidate.source, "Caller commit differs from the verified artifact");
@@ -294,7 +305,7 @@ async function publish() {
 
 try {
   if (values.help) {
-    console.log(`Usage: node scripts/npm-release.mjs <plan|prepare|verify|publish> [options]\n\nOptions:\n  --repository OWNER/REPO  Owned channel (defaults to GITHUB_REPOSITORY)\n  --source PATH            Clean source checkout for plan/prepare\n  --source-ref SHA          Expected immutable commit; required by verify/publish\n  --fork PATH               Verified fork host artifact directory for prepare\n  --output PATH             Candidate artifact directory for prepare\n  --artifact PATH           Candidate artifact directory for verify/publish\n  -h, --help                Show this help\n\nExamples:\n  node scripts/npm-release.mjs plan --repository fitchmultz/pi-copy-message --source ../extension\n  node scripts/npm-release.mjs prepare --repository fitchmultz/pi-copy-message --source ../extension --source-ref COMMIT --fork /tmp/fork-package --output /tmp/candidate\n  node scripts/npm-release.mjs verify --repository fitchmultz/pi-copy-message --source-ref COMMIT --artifact /tmp/candidate\n\nplan is read-only; prepare builds/tests without credentials. publish is GitHub/OIDC-only and creates npm/GitHub releases.\nExit codes: 0 = success (including already-published plan), 1 = invalid input, failed gate, or release failure.`);
+    console.log(`Usage: node scripts/npm-release.mjs <plan|prepare|verify|publish> [options]\n\nOptions:\n  --repository OWNER/REPO  Owned channel (defaults to GITHUB_REPOSITORY)\n  --source PATH            Clean source checkout for plan/prepare\n  --source-ref SHA          Expected immutable commit; required by verify/publish\n  --fork PATH               Verified fork host artifact directory for prepare\n  --official-version X.Y.Z  Frozen official identity; required by publish (local prepare otherwise resolves latest)\n  --fork-ref SHA            Frozen fork identity; required by publish\n  --output PATH             Candidate artifact directory for prepare\n  --artifact PATH           Candidate artifact directory for verify/publish\n  -h, --help                Show this help\n\nExamples:\n  node scripts/npm-release.mjs plan --repository fitchmultz/pi-copy-message --source ../extension\n  node scripts/npm-release.mjs prepare --repository fitchmultz/pi-copy-message --source ../extension --source-ref COMMIT --fork /tmp/fork-package --output /tmp/candidate\n  node scripts/npm-release.mjs verify --repository fitchmultz/pi-copy-message --source-ref COMMIT --artifact /tmp/candidate\n\nplan is read-only; prepare builds/tests without credentials. publish is GitHub/OIDC-only and creates npm/GitHub releases.\nExit codes: 0 = success (including already-published plan), 1 = invalid input, failed gate, or release failure.`);
   } else {
     assert.equal(positionals.length, 1, "Choose plan, prepare, verify, or publish; use --help");
     assert.ok(entry?.npmRelease, "Repository has no enabled npm release channel");

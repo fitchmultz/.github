@@ -7,12 +7,11 @@
   "prConcurrentLimit": 3,
   "packageRules": [
     {
-      "description": "Qualify the declared Pi development cohort together; peers remain host-provided.",
+      "description": "Update the declared Pi development cohort together; qualification resolves latest independently and peers remain host-provided.",
       "matchManagers": ["npm"],
       "matchDepTypes": ["devDependencies"],
       "matchPackageNames": ["@earendil-works/**"],
-      "groupName": "Pi stable compatibility",
-      "rangeStrategy": "pin"
+      "groupName": "Pi stable compatibility"
     },
     {
       "matchManagers": ["npm"],
