@@ -19,6 +19,10 @@ on:
         description: Latest maintained fork SHA resolved by this run's planner and checked in the caller
         required: true
         type: string
+    secrets:
+      NPM_BOOTSTRAP_TOKEN:
+        description: Environment-only credential for a first scoped publication
+        required: false
 
 permissions:
   contents: read
@@ -92,6 +96,12 @@ jobs:
         with:
           name: npm-candidate-${{ inputs.source-ref }}
           path: ${{ runner.temp }}/npm-candidate
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-fork-host-${{ inputs.source-ref }}
+          path: ${{ runner.temp }}/fork-package
           if-no-files-found: error
           retention-days: 7
 
