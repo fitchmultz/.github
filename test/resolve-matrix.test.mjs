@@ -137,7 +137,7 @@ test("resolved identities stay frozen across later jobs instead of resolving a n
   assert.ok(result.lanes.filter((lane) => lane.host === "official").every((lane) => lane.version === "9.8.6"));
   assert.equal(result.outputs.forkRef, forkSha);
   assert.equal(result.requests.filter((url) => url.endsWith("/latest") || url === mainUrl).length, 0);
-  assert.deepEqual(platformLabels(result.lanes, "pi-evidence"), ["ubuntu-latest/20", "ubuntu-latest/24"]);
+  assert.deepEqual(platformLabels(result.lanes, "pi-evidence"), ["ubuntu-latest/22.22.2", "ubuntu-latest/24"]);
 });
 
 test("an individual fork selection resolves maintained main without official lookups", async (t) => {
