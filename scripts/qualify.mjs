@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { checkResources, probeCli } from "./cli-probe.mjs";
-import { isolatedEnvironment, readJson, run, sha256, stageSource, writeJson } from "./common.mjs";
+import { isolatedEnvironment, publishedMetadata, readJson, run, sha256, stageSource, writeJson } from "./common.mjs";
 import { prepareHost, selectDevelopmentHost } from "./hosts.mjs";
 
 const { values } = parseArgs({ options: {
@@ -107,21 +107,26 @@ try {
   if (values.published && entry.npmPackage) {
     phase = "published-npm";
     // A fresh bounded npm process cannot reuse a fetch socket left idle during the long synchronous package checks.
-    const metadata = JSON.parse(run("npm", ["view", `${entry.npmPackage}@latest`, "--json",
-      "--cache", join(root, "published-metadata-cache"), "--prefer-online",
+    const metadata = publishedMetadata(entry, ["--cache", join(root, "published-metadata-cache"), "--prefer-online",
       "--fetch-retries=1", "--fetch-retry-mintimeout=1000", "--fetch-retry-maxtimeout=1000", "--fetch-timeout=15000"],
-    { env, quiet: true, timeout: 40_000 }));
-    assert.equal(metadata.repository?.url?.replace(/^git\+/, "").replace(/\.git$/, ""),
-      `https://github.com/fitchmultz/${entry.repo}`, "Published npm source identity changed");
-    const consumer = join(root, "published-consumer");
-    mkdirSync(consumer);
-    writeJson(join(consumer, "package.json"), { private: true, dependencies: { [entry.npmPackage]: metadata.version } });
-    run("npm", ["install", "--omit=dev"], { cwd: consumer, env });
-    assert.equal(readJson(join(consumer, "package-lock.json")).packages[`node_modules/${entry.npmPackage}`].integrity, metadata.dist.integrity);
-    const installed = join(consumer, "node_modules", entry.npmPackage);
-    checkResources(installed);
-    report.published = { name: entry.npmPackage, version: metadata.version, integrity: metadata.dist.integrity, gitHead: metadata.gitHead };
-    report.checks.publishedCli = probeCli(host, installed, join(root, "probes", "published"), env);
+    { env, timeout: 40_000 });
+    if (metadata === null) {
+      // First publication is a legal rollout state, not an incompatibility; there is no release to verify yet.
+      report.published = { name: entry.npmPackage, version: null, status: "awaiting first publication (registry 404)" };
+      report.checks.publishedCli = "not applicable (no published release yet)";
+    } else {
+      assert.equal(metadata.repository?.url?.replace(/^git\+/, "").replace(/\.git$/, ""),
+        `https://github.com/fitchmultz/${entry.repo}`, "Published npm source identity changed");
+      const consumer = join(root, "published-consumer");
+      mkdirSync(consumer);
+      writeJson(join(consumer, "package.json"), { private: true, dependencies: { [entry.npmPackage]: metadata.version } });
+      run("npm", ["install", "--omit=dev"], { cwd: consumer, env });
+      assert.equal(readJson(join(consumer, "package-lock.json")).packages[`node_modules/${entry.npmPackage}`].integrity, metadata.dist.integrity);
+      const installed = join(consumer, "node_modules", entry.npmPackage);
+      checkResources(installed);
+      report.published = { name: entry.npmPackage, version: metadata.version, integrity: metadata.dist.integrity, gitHead: metadata.gitHead };
+      report.checks.publishedCli = probeCli(host, installed, join(root, "probes", "published"), env);
+    }
   }
   report.result = "passed";
 } catch (error) {
