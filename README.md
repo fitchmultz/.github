@@ -21,7 +21,7 @@ The managed Renovate GitHub App must have access to the selected repositories. A
 
 Every individual PR, fleet run, canary and npm release qualifies the **latest stable official Pi** and the **latest maintained `fitchmultz/pi` main**. There is no hard-coded host-version inventory or old-baseline comparison. The canonical `resolve-hosts.yml`/`resolveHostTargets` resolver resolves current identities once per run, then all jobs reuse the exact official version and fork SHA. A newly published host cannot silently change a later job's graph. The resolver verifies publication of the whole official Pi workspace cohort before scheduling checks; partial publication fails closed rather than falling back to an older release.
 
-The reusable workflow's `host` input accepts only `both` (default) or `fork`; other values fail resolution. Normal extension PRs and the fleet canary leave it at `both`, preserving latest official/fork qualification for all applicable packages and the standalone CLI's `host: none` checks across all 27 repositories. Only the fork's reverse-dependency CI passes `host: fork` with `repository: all`. That mode qualifies all 26 Pi-host-qualified fleet packages against the exact `fork-ref`, retains every configured Node/platform lane, and excludes the standalone CLI, which has no Pi dependency. It does not read candidate manifests for host selection or query/preflight official npm metadata (even if `official-version` is supplied). Unrelated official-host failures therefore do not block fork changes.
+The reusable workflow's `host` input accepts only `both` (default) or `fork`; other values fail resolution. Normal extension PRs and the fleet canary leave it at `both`, preserving latest official/fork qualification for all applicable packages across all 26 repositories. Only the fork's reverse-dependency CI passes `host: fork` with `repository: all`. That mode qualifies the same 26 Pi-host-qualified fleet packages against the exact `fork-ref` and retains every configured Node/platform lane. The former standalone CLI (`pi-evidence`) is archived and no longer in the fleet. It does not read candidate manifests for host selection or query/preflight official npm metadata (even if `official-version` is supplied). Unrelated official-host failures therefore do not block fork changes.
 
 CI installs the reviewed npm version from `package.json#packageManager` on every Node baseline; Renovate maintains that standard metadata. Each host gets an independent npm dependency graph. The latest official cohort is frozen to its resolved version for that run; the fork uses the native public-workspace packaging helpers from the exact fork commit. Host preparation records the SDK and bundled CLI hashes, cohort, lock integrity or fork tarball hashes, Node version, and resolved paths. The selected host's TypeBox version is used rather than assumed to follow Pi's version number. The public source manifest and lockfile are restored before package checks; the selected installed graph remains in place for types and imports.
 
@@ -99,7 +99,7 @@ A development-dependency-only change does not require a new npm release. For a s
 
 ## Local checks
 
-Node 24 runs the native Renovate validator. Pi host qualification and the unit/native tests also run on Node 22.19; the standalone CLI's host-free lane additionally runs on Node 20.
+Node 24 runs the native Renovate validator. Pi host qualification and the unit/native tests also run on Node 22.22.2, the floor required by the pinned npm 12 release.
 
 ```sh
 npm ci --ignore-scripts

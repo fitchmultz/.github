@@ -22,7 +22,6 @@
   { "repo": "pi-copy-message", "kind": "extension", "npmPackage": "pi-copy-message", "npmRelease": "automatic", "nodes": ["24"] },
   { "repo": "pi-zai-mcp", "kind": "extension", "npmPackage": "pi-zai-mcp", "npmRelease": "automatic" },
   { "repo": "pi-workflows", "kind": "extension", "npmPackage": "@fitchmultz/pi-workflows", "npmRelease": "automatic" },
-  { "repo": "pi-evidence", "kind": "cli", "nodes": ["20", "24"] },
   { "repo": "pi-zai-agents", "kind": "extension", "npmPackage": "pi-zai-agents", "npmRelease": "automatic" },
   { "repo": "pi-local-agents-only", "kind": "extension", "npmPackage": "pi-local-agents-only" },
   { "repo": "ponytail", "kind": "extension", "nodes": ["24.15.0", "24"] }

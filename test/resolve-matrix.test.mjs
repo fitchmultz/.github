@@ -76,7 +76,7 @@ function passed(result) {
 
 const platformLabels = (lanes, repo) => lanes.filter((lane) => lane.repo === repo).map((lane) => `${lane.os}/${lane.node}`);
 
-test("default and explicit both preserve all 27 repositories and existing Node/platform lanes", async (t) => {
+test("default and explicit both preserve all 26 repositories and existing Node/platform lanes", async (t) => {
   const result = await resolveFixture(t);
   const explicit = await resolveFixture(t, { HOST: "both" });
   passed(result);
@@ -85,7 +85,7 @@ test("default and explicit both preserve all 27 repositories and existing Node/p
   for (const run of [result, explicit]) assert.equal(run.requests.filter((url) => url === mainUrl).length, 1);
   assert.equal(result.outputs.forkRef, mainSha);
   assert.equal(result.outputs.needsFork, "true");
-  assert.equal(result.lanes.length, 98);
+  assert.equal(result.lanes.length, 96);
   assert.deepEqual([...new Set(result.lanes.map((lane) => lane.repo))], fleet.map((entry) => entry.repo));
   for (const entry of fleet) {
     const lanes = result.lanes.filter((lane) => lane.repo === entry.repo);
@@ -132,12 +132,11 @@ test("an individual PR qualifies latest rather than selecting its stale locked d
 test("resolved identities stay frozen across later jobs instead of resolving a newer host mid-run", async (t) => {
   const result = await resolveFixture(t, { OFFICIAL_VERSION: "9.8.6", FORK_REF: forkSha, SOURCE_REF: "main" });
   passed(result);
-  assert.equal(result.lanes.length, 98);
-  assert.equal(new Set(result.lanes.map((lane) => lane.repo)).size, 27);
+  assert.equal(result.lanes.length, 96);
+  assert.equal(new Set(result.lanes.map((lane) => lane.repo)).size, 26);
   assert.ok(result.lanes.filter((lane) => lane.host === "official").every((lane) => lane.version === "9.8.6"));
   assert.equal(result.outputs.forkRef, forkSha);
   assert.equal(result.requests.filter((url) => url.endsWith("/latest") || url === mainUrl).length, 0);
-  assert.deepEqual(platformLabels(result.lanes, "pi-evidence"), ["ubuntu-latest/20", "ubuntu-latest/24"]);
 });
 
 test("an individual fork selection resolves maintained main without official lookups", async (t) => {
@@ -149,18 +148,15 @@ test("an individual fork selection resolves maintained main without official loo
   assert.deepEqual(result.requests, [mainUrl, "https://api.github.com/repos/fitchmultz/pi-calculator/commits/main"]);
 });
 
-test("standalone CLI callers keep host-free checks but cannot become fork reverse dependencies", async (t) => {
-  const both = await resolveFixture(t, { REPOSITORY: "fitchmultz/pi-evidence" }, { official: false });
-  passed(both);
-  assert.equal(both.outputs.needsFork, "false");
-  assert.equal(both.outputs.forkRef, "");
-  assert.deepEqual(both.requests, ["https://api.github.com/repos/fitchmultz/pi-evidence/commits/main"]);
-  assert.equal(both.lanes.length, 2);
-  assert.ok(both.lanes.every((lane) => lane.host === "none" && lane.label === "cli"));
-  const fork = await resolveFixture(t, { REPOSITORY: "fitchmultz/pi-evidence", HOST: "fork" }, { official: false });
-  assert.match(fork.error?.message ?? "", /No applicable fleet repository/);
-  assert.deepEqual(fork.outputs, {});
-  assert.deepEqual(fork.requests, []);
+test("archived standalone CLI is no longer in the fleet and fork selection never emits host-free lanes", async (t) => {
+  const missing = await resolveFixture(t, { REPOSITORY: "fitchmultz/pi-evidence" }, { official: false });
+  assert.match(missing.error?.message ?? "", /No applicable fleet repository/);
+  assert.deepEqual(missing.outputs, {});
+  assert.deepEqual(missing.requests, []);
+  const fork = await resolveFixture(t, { HOST: "fork", FORK_REF: forkSha, SOURCE_REF: "compatibility/pi-releases" }, { official: false });
+  passed(fork);
+  assert.ok(fork.lanes.every((lane) => lane.host === "fork"));
+  assert.ok(!fork.lanes.some((lane) => lane.host === "none" || lane.repo === "pi-evidence"));
 });
 
 test("invalid host selectors fail closed before fetching or emitting outputs", async (t) => {
