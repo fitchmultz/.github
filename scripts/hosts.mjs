@@ -31,6 +31,20 @@ export async function officialRelease(version = "latest") {
   return { version: metadata.version, integrity: metadata.dist.integrity, tarball: metadata.dist.tarball, gitHead: metadata.gitHead, cohort };
 }
 
+export async function resolveHostTargets({ host = "both", officialVersion = "latest", forkRef } = {}) {
+  assert.ok(["both", "fork"].includes(host), "Host must be both or fork");
+  if (forkRef) assert.match(forkRef, /^[a-f0-9]{40}$/, "Fork host must be pinned to a full commit SHA");
+  else {
+    const headers = { Accept: "application/vnd.github+json" };
+    if (process.env.GH_TOKEN) headers.Authorization = `Bearer ${process.env.GH_TOKEN}`;
+    const response = await fetch("https://api.github.com/repos/fitchmultz/pi/commits/main", { headers, signal: AbortSignal.timeout(30_000) });
+    assert.ok(response.ok, `GitHub maintained fork: HTTP ${response.status}`);
+    forkRef = (await response.json()).sha;
+    assert.match(forkRef, /^[a-f0-9]{40}$/, "Fork host must be pinned to a full commit SHA");
+  }
+  return { officialVersion: host === "both" ? (await officialRelease(officialVersion || "latest")).version : "", forkRef };
+}
+
 export function hostIdentity(directory, env = process.env) {
   const packageDir = join(directory, "node_modules", codingAgent);
   const manifest = readJson(join(packageDir, "package.json"));

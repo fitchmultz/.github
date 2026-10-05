@@ -10,7 +10,12 @@ import { prepareHost, selectDevelopmentHost } from "./hosts.mjs";
 const { values } = parseArgs({ options: {
   repo: { type: "string" }, source: { type: "string" }, host: { type: "string" },
   target: { type: "string" }, output: { type: "string" }, published: { type: "boolean", default: false },
+  help: { type: "boolean", short: "h" },
 } });
+if (values.help) {
+  console.log(`Usage: node scripts/qualify.mjs --repo NAME --source PATH --host official|fork|none --output PATH [options]\n\nOptions:\n  --target VERSION|PATH  Official latest (default), a resolved per-run version, or a verified fork artifact\n  --published            Also verify the existing owned npm release\n  -h, --help             Show this help\n\nExamples:\n  node scripts/qualify.mjs --repo pi-copy-message --source ../extension --host official --target latest --output /tmp/evidence\n  node scripts/qualify.mjs --repo pi-copy-message --source ../extension --host fork --target /tmp/fork-package --output /tmp/fork-evidence\n\nRoutine qualification resolves latest; exact versions replay recorded evidence.\nExit codes: 0 = all gates passed, 1 = invalid input or failed qualification.`);
+  process.exit(0);
+}
 assert.ok(values.repo && values.source && values.host && values.output, "Required: --repo NAME --source PATH --host official|fork|none --output PATH [--target VERSION|FORK_ARTIFACT]");
 const entry = readJson(new URL("../fleet.json", import.meta.url)).find((item) => item.repo === values.repo);
 assert.ok(entry, `Repository is not in the fleet: ${values.repo}`);
@@ -40,7 +45,7 @@ try {
   let host;
   if (values.host !== "none") {
     phase = "host-install";
-    const target = values.target ?? readJson(new URL("../host-targets.json", import.meta.url)).official;
+    const target = values.target ?? "latest";
     assert.ok(values.host !== "fork" || values.target, "Fork lane requires the built artifact directory");
     host = await prepareHost(join(root, "host"), values.host, target, env);
     report.host = host;
@@ -129,5 +134,5 @@ try {
       `### ${report.repo} / ${report.lane} / ${report.node}\n\n${report.result}. Source: \`${report.source}\`. Host: \`${report.host?.provenance.ref ?? report.host?.version ?? "standalone"}\`.\n\n${report.phase ? `Failed phase: **${report.phase}**. ` : ""}See the qualification artifact for exact SDK/CLI hashes, installation provenance, errors and reproduction inputs.\n`);
   }
   console.log(`${report.repo}: ${report.result} (${report.phase ?? "complete"}); evidence: ${output}`);
-  rmSync(root, { recursive: true, force: true });
+  rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 1000 });
 }

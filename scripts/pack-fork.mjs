@@ -4,16 +4,27 @@ import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { run, sha256, writeJson } from "./common.mjs";
 
+const usage = `Usage: node scripts/pack-fork.mjs SOURCE OUTPUT EXPECTED_SHA
+Pack a built fork's public workspaces and write OUTPUT/receipt.json.
+SOURCE and OUTPUT are relative to the caller's directory. EXPECTED_SHA must match SOURCE's Git HEAD.
+Run the fork's offline build before packing.
+Example: node scripts/pack-fork.mjs ./fork ./fork-package FULL_FORK_SHA
+Exit codes: 0 success/help; 1 invalid arguments, ref mismatch or packing failure.`;
+if (["-h", "--help"].includes(process.argv[2])) {
+  console.log(usage);
+  process.exit(0);
+}
 const [sourceArg, outputArg, expectedRef] = process.argv.slice(2);
-assert.ok(sourceArg && outputArg && expectedRef, "Usage: pack-fork.mjs SOURCE OUTPUT EXPECTED_SHA");
+assert.ok(sourceArg && outputArg && expectedRef, usage);
 const source = resolve(sourceArg);
 const output = resolve(outputArg);
 const ref = run("git", ["rev-parse", "HEAD"], { cwd: source, quiet: true }).trim();
 assert.equal(ref, expectedRef);
+process.chdir(source);
 const { getPublicWorkspacePackages } = await import(pathToFileURL(join(source, "scripts/release-packages.mjs")));
 const { packReleasePackages } = await import(pathToFileURL(join(source, "scripts/coding-agent-consumer.mjs")));
 mkdirSync(output, { recursive: true });
-const packages = getPublicWorkspacePackages(join(source, "packages"));
+const packages = getPublicWorkspacePackages();
 const tarballs = packReleasePackages(packages, output);
 writeJson(join(output, "receipt.json"), {
   ref,

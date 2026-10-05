@@ -19,7 +19,7 @@ on:
         default: both
         type: string
       official-version:
-        description: Exact stable version, latest, or the caller's declared development version
+        description: Official version already resolved earlier in this run; empty resolves latest
         default: ''
         type: string
       fork-ref:
@@ -145,9 +145,8 @@ jobs:
     name: ${{ matrix.repo }} / ${{ matrix.label }} / ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ (matrix.repo == 'pi-agent-browser-native' || matrix.repo == 'pi-cursor-sdk') && matrix.os == 'windows-latest' && 35 || 25 }}
-    # Previous official baselines are diagnostic; the owner waived Windows qualification on 2026-09-21.
-    # Keep Windows failures and artifacts visible without blocking the rollout.
-    continue-on-error: ${{ matrix.label == 'baseline' || matrix.os == 'windows-latest' }}
+    # The owner waived Windows qualification on 2026-09-21; retain actual diagnostic failures/artifacts.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     env:
       npm_config_cache: ${{ github.workspace }}/.npm-cache
     steps:

@@ -1,0 +1,55 @@
+name: Resolve latest Pi hosts
+
+on:
+  workflow_call:
+    inputs:
+      automation-ref:
+        description: Exact reviewed automation commit
+        required: true
+        type: string
+      official-version:
+        description: Official version already resolved earlier in this run; empty resolves latest
+        default: ''
+        type: string
+      fork-ref:
+        description: Fork SHA already resolved earlier in this run; empty resolves maintained main
+        default: ''
+        type: string
+      host:
+        description: Both hosts, or fork only without official npm lookups
+        default: both
+        type: string
+    outputs:
+      official-version:
+        value: ${{ jobs.resolve.outputs.official-version }}
+      fork-ref:
+        value: ${{ jobs.resolve.outputs.fork-ref }}
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      official-version: ${{ steps.hosts.outputs.official-version }}
+      fork-ref: ${{ steps.hosts.outputs.fork-ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/.github
+          ref: ${{ inputs.automation-ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          check-latest: true
+          package-manager-cache: false
+      - id: hosts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HOST: ${{ inputs.host }}
+          OFFICIAL_VERSION: ${{ inputs.official-version }}
+          FORK_REF: ${{ inputs.fork-ref }}
+        run: node scripts/resolve-hosts.mjs --host "$HOST" --official-version "$OFFICIAL_VERSION" --fork-ref "$FORK_REF"

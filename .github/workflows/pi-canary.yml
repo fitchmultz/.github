@@ -21,7 +21,6 @@ jobs:
       automation-ref: ${{ github.sha }}
       repository: all
       source-ref: main
-      official-version: latest
       check-published: true
 
   report:
