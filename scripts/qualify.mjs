@@ -50,6 +50,8 @@ try {
     host = await prepareHost(join(root, "host"), values.host, target, env);
     report.host = host;
     phase = "development-host-selection";
+    // Rebuild only the disposable development graph instead of reifying the original host's nested dependencies.
+    rmSync(join(development, "node_modules"), { recursive: true, force: true });
     const selected = selectDevelopmentHost(development, host, env);
     report.developmentHost = selected;
     phase = "package-contracts";
@@ -104,9 +106,11 @@ try {
 
   if (values.published && entry.npmPackage) {
     phase = "published-npm";
-    const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(entry.npmPackage)}/latest`);
-    assert.ok(response.ok, `Published package metadata: HTTP ${response.status}`);
-    const metadata = await response.json();
+    // A fresh bounded npm process cannot reuse a fetch socket left idle during the long synchronous package checks.
+    const metadata = JSON.parse(run("npm", ["view", `${entry.npmPackage}@latest`, "--json",
+      "--cache", join(root, "published-metadata-cache"), "--prefer-online",
+      "--fetch-retries=1", "--fetch-retry-mintimeout=1000", "--fetch-retry-maxtimeout=1000", "--fetch-timeout=15000"],
+    { env, quiet: true, timeout: 40_000 }));
     assert.equal(metadata.repository?.url?.replace(/^git\+/, "").replace(/\.git$/, ""),
       `https://github.com/fitchmultz/${entry.repo}`, "Published npm source identity changed");
     const consumer = join(root, "published-consumer");
