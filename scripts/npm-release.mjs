@@ -62,18 +62,64 @@ function identity(manifest) {
   assert.notEqual(config.provenance, false, "Automatic releases require npm provenance");
 }
 
-async function metadata(name) {
-  const response = await fetch(`${registry}${encodeURIComponent(name)}`, { signal: AbortSignal.timeout(30_000) });
-  if (response.status === 404 && name === entry?.npmPackage && name === `@fitchmultz/${entry.repo}`
-    && ["automatic", "approval"].includes(entry.npmRelease)) return null;
+function visibilityRemaining(deadline) {
+  const remaining = deadline - Date.now();
+  assert.ok(remaining > 0, "Published npm registry visibility timed out; retain the candidate and retry, never unpublish");
+  return remaining;
+}
+
+async function metadata(name, deadline) {
+  const response = await fetch(`${registry}${encodeURIComponent(name)}`, { signal: AbortSignal.timeout(
+    deadline === undefined ? 30_000 : Math.min(30_000, visibilityRemaining(deadline))) });
+  if (response.status === 404 && (deadline !== undefined || (name === entry?.npmPackage && name === `@fitchmultz/${entry.repo}`
+    && ["automatic", "approval"].includes(entry.npmRelease)))) return null;
   assert.ok(response.ok, `Owned npm package metadata: HTTP ${response.status}`);
   const data = await response.json();
   assert.equal(data.name, name);
   assert.ok(data.maintainers?.some((maintainer) => maintainer.name === "fitchmultz"), "npm package is not maintained by fitchmultz");
   const latest = data.versions?.[data["dist-tags"]?.latest];
-  assert.ok(latest, "npm latest metadata is missing");
-  identity(latest);
+  if (deadline === undefined) assert.ok(latest, "npm latest metadata is missing");
+  if (latest) identity(latest);
   return data;
+}
+
+async function verifyPublication(candidate) {
+  // npm processing has taken over six minutes; leave three minutes of the ten-minute job for setup/publication/finalization.
+  const deadline = Date.now() + 420_000;
+  let exactVerified = false;
+  while (true) {
+    let pending = "exact version HTTP 404";
+    if (!exactVerified) {
+      const response = await fetch(`${registry}${encodeURIComponent(candidate.name)}/${candidate.version}`,
+        { signal: AbortSignal.timeout(Math.min(30_000, visibilityRemaining(deadline))) });
+      if (response.status !== 404) {
+        assert.ok(response.ok, `Published exact-version verification: HTTP ${response.status}; retain the candidate and retry, never unpublish`);
+        const published = await response.json();
+        identity(published);
+        assert.equal(published.version, candidate.version);
+        assert.equal(published.dist.integrity, candidate.integrity, "Published bytes differ from the verified tarball");
+        exactVerified = true;
+      }
+    }
+    if (exactVerified) {
+      const data = await metadata(candidate.name, deadline);
+      pending = data ? "package version entry missing" : "package metadata HTTP 404";
+      const published = data?.versions?.[candidate.version];
+      if (published) {
+        identity(published);
+        assert.equal(published.version, candidate.version);
+        assert.equal(published.dist.integrity, candidate.integrity, "Published bytes differ from the verified tarball");
+        const latest = data["dist-tags"]?.latest;
+        pending = `latest=${latest ?? "missing"}`;
+        if (data.versions[latest] && (latest === candidate.version || newer(latest, candidate.version))) {
+          visibilityRemaining(deadline);
+          return;
+        }
+      }
+    }
+    console.log(`Waiting for npm registry visibility: ${candidate.name}@${candidate.version} (${pending})`);
+    await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, visibilityRemaining(deadline))));
+  }
 }
 
 function sourceIdentity(source) {
@@ -301,15 +347,7 @@ async function publish() {
       }
     }
     if (!existing) run("npm", ["publish", join(directory, candidate.filename), "--ignore-scripts", `--registry=${registry}`, "--access=public", "--tag=latest", "--provenance"], { cwd: root, env: { ...npmEnv, RUNNER_ENVIRONMENT: process.env.RUNNER_ENVIRONMENT } });
-    const response = await fetch(`${registry}${encodeURIComponent(candidate.name)}/${candidate.version}`, { signal: AbortSignal.timeout(30_000) });
-    assert.ok(response.ok, `Published exact-version verification: HTTP ${response.status}; retain the candidate and retry, never unpublish`);
-    const published = await response.json();
-    identity(published);
-    assert.equal(published.version, candidate.version);
-    assert.equal(published.dist.integrity, candidate.integrity, "Published bytes differ from the verified tarball");
-    const latest = await metadata(candidate.name);
-    assert.ok(latest, "Published package metadata is missing; retain the candidate and retry");
-    assert.ok(latest["dist-tags"].latest === candidate.version || newer(latest["dist-tags"].latest, candidate.version), "npm latest did not advance to the release");
+    await verifyPublication(candidate);
     if (release.draft) gh(["release", "edit", tag, "--repo", repository, "--draft=false"]);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
       `## Released\n\n[${candidate.name}@${candidate.version}](https://www.npmjs.com/package/${candidate.name}/v/${candidate.version}) — [GitHub release](https://github.com/${repository}/releases/tag/${tag})\n\nExact registry integrity matches the tested tarball.\n`);

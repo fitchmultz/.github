@@ -44,7 +44,7 @@ function metadata(latest = "4.0.0") {
 
 // Execute the real CLI entry point, including Git cleanliness, HTTP response handling and workflow outputs.
 // HTTP and publication subprocess boundaries are replaced; this is not real host/OIDC qualification.
-async function invoke(t, fixture, command, { data = metadata(), pulls, draft, releasePages, releaseStatus = 200, status = 200, args = [], environment = {}, published } = {}) {
+async function invoke(t, fixture, command, { data = metadata(), pulls, draft, releasePages, releaseStatus = 200, status = 200, args = [], environment = {}, published, publishedStatus = 200 } = {}) {
   const { repository, name } = fixture;
   const argv = process.argv;
   const exitCode = process.exitCode;
@@ -59,7 +59,7 @@ async function invoke(t, fixture, command, { data = metadata(), pulls, draft, re
   const fetch = t.mock.method(globalThis, "fetch", async (url) => {
     requests.push(String(url));
     if (String(url) === `https://registry.npmjs.org/${encodeURIComponent(name)}`) return Response.json(typeof data === "function" ? data() : data, { status: typeof status === "function" ? status() : status });
-    if (String(url) === `https://registry.npmjs.org/${encodeURIComponent(name)}/${fixture.version}`) return Response.json(published);
+    if (String(url) === `https://registry.npmjs.org/${encodeURIComponent(name)}/${fixture.version}`) return Response.json(typeof published === "function" ? published() : published, { status: typeof publishedStatus === "function" ? publishedStatus() : publishedStatus });
     if (String(url) === `https://registry.npmjs.org/${encodeURIComponent(codingAgent)}/latest`) {
       return Response.json({ name: codingAgent, version: "9.8.7", dist: { integrity: "sha512-host-fixture", tarball: "https://registry.npmjs.org/host-fixture.tgz" } });
     }
@@ -74,7 +74,8 @@ async function invoke(t, fixture, command, { data = metadata(), pulls, draft, re
     assert.equal(String(url), `https://api.github.com/repos/${repository}/commits/${fixture.ref}/pulls`);
     return Response.json(pulls ?? [{ merged_at: "2026-10-04T12:00:00Z", base: { ref: "main" }, merge_commit_sha: fixture.ref }]);
   });
-  const log = t.mock.method(console, "log", () => {});
+  const logs = [];
+  const log = t.mock.method(console, "log", (value) => logs.push(String(value)));
   const error = t.mock.method(console, "error", (value) => errors.push(String(value)));
   try {
     for (const [key, value] of Object.entries(env)) {
@@ -86,7 +87,7 @@ async function invoke(t, fixture, command, { data = metadata(), pulls, draft, re
     await import(`../scripts/npm-release.mjs?fixture=${++invocation}`);
     const outputs = Object.fromEntries((existsSync(fixture.output) ? readFileSync(fixture.output, "utf8").trim().split("\n") : [])
       .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]));
-    return { errors: errors.join("\n"), failed: process.exitCode === 1, requests, outputs };
+    return { errors: errors.join("\n"), failed: process.exitCode === 1, requests, outputs, logs };
   } finally {
     process.argv = argv;
     process.exitCode = exitCode;
@@ -407,6 +408,84 @@ test("first-publication npm child alone gets bootstrap auth; a package appearing
         assert.ok(boundary.calls.some(({ command, args }) => command === "gh" && args.includes("--draft=false")));
       }
       assert.equal(existsSync(join(f.source, "published")), false, "lifecycle hooks remain disabled");
+      for (const { cwd } of boundary.calls) assert.equal(existsSync(cwd), false);
+    });
+  }
+});
+
+test("successful publication and exact-source recovery wait for several-minute registry propagation without republishing", async (t) => {
+  for (const mode of ["bootstrap", "existing", "recovery", "metadata-only"]) {
+    await t.test(mode, async (t) => {
+      const f = publicationFixture(t, mode !== "bootstrap");
+      const boundary = publicationBoundary(t, f, { bootstrap: mode === "bootstrap", recovery: mode === "recovery" });
+      let elapsed = 0;
+      t.mock.method(Date, "now", () => elapsed);
+      t.mock.method(globalThis, "setTimeout", (callback, delay) => { elapsed += delay; callback(); });
+      const initial = f.metadata(mode === "recovery" ? f.version : "4.0.0");
+      let packageRequests = 0;
+      const result = await invoke(t, f, "publish", { args: f.args,
+        environment: { ...f.environment, NPM_BOOTSTRAP_TOKEN: "bootstrap-fixture" },
+        published: f.published, publishedStatus: () => mode !== "metadata-only" && elapsed < 370_000 ? 404 : 200,
+        status: () => mode === "bootstrap" && (!boundary.published || elapsed < 380_000) ? 404 : 200,
+        data: () => ++packageRequests === 1 ? initial : elapsed < 380_000 ? f.metadata("4.0.0")
+          : elapsed < 390_000 ? { ...f.metadata("4.0.0"), "dist-tags": {} }
+          : elapsed < 400_000 ? { ...f.metadata("4.0.0"), versions: { ...f.metadata("4.0.0").versions, [f.version]: f.published } }
+            : f.metadata() });
+      assert.equal(result.failed, false, result.errors);
+      assert.ok(elapsed >= 400_000 && elapsed <= 420_000, `registry became visible after ${elapsed}ms`);
+      if (mode === "metadata-only") assert.ok(result.logs.some((line) => line.includes("latest=4.0.0")), "wait logs identify a stale latest tag");
+      assert.equal(boundary.calls.filter(({ command, args }) => command === "npm" && args[0] === "publish").length, mode === "recovery" ? 0 : 1);
+      assert.equal(boundary.calls.filter(({ command, args }) => command === "gh" && args.includes("--draft=false")).length, 1);
+      assert.equal(existsSync(join(f.source, "published")), false);
+      for (const { cwd } of boundary.calls) assert.equal(existsSync(cwd), false);
+    });
+  }
+});
+
+test("post-publication verification fails closed on HTTP, identity, integrity and shared visibility expiry", async (t) => {
+  for (const kind of ["exact-403", "metadata-503", "network", "identity", "maintainer", "exact-integrity", "metadata-integrity", "exact-expiry", "metadata-expiry"]) {
+    await t.test(kind, async (t) => {
+      const f = publicationFixture(t, true);
+      const boundary = publicationBoundary(t, f);
+      let elapsed = 0;
+      t.mock.method(Date, "now", () => elapsed);
+      t.mock.method(globalThis, "setTimeout", (callback, delay) => { elapsed += delay; callback(); });
+      let exactRequests = 0;
+      let packageRequests = 0;
+      const result = await invoke(t, f, "publish", { args: f.args, environment: f.environment,
+        published: () => {
+          exactRequests++;
+          if (kind === "network") throw new TypeError("fixture network failure");
+          if (kind === "identity") return { ...f.published, repository: { url: "https://github.com/other/package" } };
+          if (kind === "exact-integrity") return { ...f.published, dist: { integrity: "sha512-other" } };
+          return f.published;
+        },
+        publishedStatus: () => kind === "exact-403" ? 403
+          : kind === "exact-expiry" || kind === "metadata-expiry" && elapsed < 370_000 ? 404 : 200,
+        status: () => boundary.published && kind === "metadata-503" ? 503 : 200,
+        data: () => {
+          packageRequests++;
+          if (!boundary.published || kind === "metadata-expiry") return f.metadata("4.0.0");
+          const data = f.metadata();
+          if (kind === "maintainer") data.maintainers = [{ name: "someone-else" }];
+          if (kind === "metadata-integrity") data.versions[f.version].dist = { integrity: "sha512-other" };
+          return data;
+        } });
+      const reasons = { "exact-403": /HTTP 403/, "metadata-503": /HTTP 503/, network: /fixture network failure/,
+        identity: /repository identity/, maintainer: /not maintained/, "exact-integrity": /Published bytes differ/,
+        "metadata-integrity": /Published bytes differ/, "exact-expiry": /visibility timed out/,
+        "metadata-expiry": /visibility timed out/ };
+      refused(result, reasons[kind]);
+      if (kind.endsWith("expiry")) {
+        assert.ok(elapsed >= 400_000 && elapsed <= 420_000, `one shared deadline expired at ${elapsed}ms`);
+        assert.match(result.logs.at(-1), kind === "exact-expiry" ? /exact version HTTP 404/ : /package version entry missing/);
+      } else {
+        assert.equal(elapsed, 0, "permanent failures must not be retried");
+        assert.equal(exactRequests, 1);
+        assert.equal(packageRequests, ["metadata-503", "maintainer", "metadata-integrity"].includes(kind) ? 2 : 1);
+      }
+      assert.equal(boundary.calls.filter(({ command, args }) => command === "npm" && args[0] === "publish").length, 1);
+      assert.equal(boundary.calls.some(({ args }) => args.includes("--draft=false")), false);
       for (const { cwd } of boundary.calls) assert.equal(existsSync(cwd), false);
     });
   }
