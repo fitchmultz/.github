@@ -99,7 +99,7 @@ A development-dependency-only change does not require a new npm release. For a s
 
 ## Local checks
 
-Node 24 runs the native Renovate validator. Pi host qualification and the unit/native tests also run on Node 22.19; the standalone CLI's host-free lane additionally runs on Node 20.
+Node 24 runs the native Renovate validator. Pi host qualification, the standalone CLI's host-free lane and the unit/native tests also run on Node 22.22.2, the floor required by the pinned npm 12 release.
 
 ```sh
 npm ci --ignore-scripts
