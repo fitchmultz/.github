@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { appendFileSync } from "node:fs";
-import { readJson } from "./common.mjs";
+import { fleetPlatforms, readJson } from "./common.mjs";
 import { resolveHostTargets } from "./hosts.mjs";
 
 const fleet = readJson(new URL("../fleet.json", import.meta.url));
@@ -34,11 +34,7 @@ for (const entry of selected) {
     ...(needsOfficial ? [{ host: "official", label: "official", version: targets.officialVersion }] : []),
     { host: "fork", label: "fork", version: "" },
   ];
-  const platforms = [
-    ...(entry.nodes ?? ["22.19.0", "24"]).map((node) => ({ node, os: entry.os ?? "ubuntu-latest" })),
-    ...(entry.extraPlatforms ?? []).map((os) => ({ node: "24", os })),
-  ];
-  for (const platform of platforms) {
+  for (const platform of fleetPlatforms(entry)) {
     for (const host of hosts) include.push({ repository, repo: entry.repo, ref, ...platform, ...host });
   }
 }

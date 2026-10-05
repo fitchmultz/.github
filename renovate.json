@@ -2,5 +2,6 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
   "ignoreUnstable": true,
-  "automerge": false
+  "automerge": false,
+  "dependencyDashboard": false
 }

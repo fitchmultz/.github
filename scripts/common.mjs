@@ -1,9 +1,21 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join, resolve } from "node:path";
 
 export const codingAgent = "@earendil-works/pi-coding-agent";
+// Default Node floor/current lanes.
+export const defaultNodes = ["22.19.0", "24"];
+// Owner-waived platforms remain visible diagnostics without gating qualification.
+export const waivedPlatforms = new Set(["windows-latest"]);
+export const runnerPlatform = (os) => os.startsWith("windows") ? "win32" : os.startsWith("macos") ? "darwin" : "linux";
+
+export function fleetPlatforms(entry) {
+  return [
+    ...(entry.nodes ?? defaultNodes).map((node) => ({ node, os: entry.os ?? "ubuntu-latest" })),
+    ...(entry.extraPlatforms ?? []).map((os) => ({ node: "24", os })),
+  ];
+}
 export const readJson = (file) => JSON.parse(readFileSync(file, "utf8"));
 export const writeJson = (file, value) => writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 export const sha256 = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
@@ -27,6 +39,9 @@ export function run(command, args, { quiet = false, ...options } = {}) {
 }
 
 export function isolatedEnvironment(root) {
+  // Canonicalize once so native Git/SDK identity checks agree across directory aliases (for example macOS /var -> /private/var).
+  mkdirSync(root, { recursive: true });
+  root = realpathSync.native(root);
   const home = join(root, "home");
   const tmp = join(root, "tmp");
   mkdirSync(join(home, ".pi", "agent"), { recursive: true });

@@ -46,7 +46,7 @@ jobs:
         with:
           pattern: qualification-*
           path: evidence
-      - name: Update one failure issue per affected repository and host
+      - name: Update one compatibility issue per repository and close it once required lanes pass
         env:
           GH_TOKEN: ${{ github.token }}
           QUALIFICATION: ${{ needs.qualify.result }}
