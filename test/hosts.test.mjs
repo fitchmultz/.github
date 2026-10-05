@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -38,7 +38,7 @@ test("a prerelease cannot become the required official target", async (t) => {
   assert.equal(fetch.mock.callCount(), 0);
 });
 
-test("failed native host selection restores the public source manifest and leaves the lock untouched", (t) => {
+test("failed native host selection restores metadata and preserves caller-owned files", (t) => {
   const root = mkdtempSync(join(tmpdir(), "pi-host-selection-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const file = join(root, "package.json");
@@ -46,7 +46,11 @@ test("failed native host selection restores the public source manifest and leave
   const original = readFileSync(file, "utf8");
   const lock = '{"name":"original public lock","lockfileVersion":3}\n';
   writeFileSync(join(root, "package-lock.json"), lock);
+  mkdirSync(join(root, "node_modules"));
+  const marker = join(root, "node_modules", "caller-owned.txt");
+  writeFileSync(marker, "preserve caller-owned content");
   assert.throws(() => selectDevelopmentHost(root, { overrides: { [codingAgent]: `file:${join(root, "absent-package.tgz")}` } }, isolatedEnvironment(root)), /npm exited/);
   assert.equal(readFileSync(file, "utf8"), original);
   assert.equal(readFileSync(join(root, "package-lock.json"), "utf8"), lock);
+  assert.equal(readFileSync(marker, "utf8"), "preserve caller-owned content");
 });

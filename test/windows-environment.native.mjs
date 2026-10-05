@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -10,8 +10,10 @@ test("isolated Windows environment preserves native process identity queries", {
   const root = mkdtempSync(join(tmpdir(), "pi-compat-windows-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const env = isolatedEnvironment(root);
+  // Isolation canonicalizes its root, expanding 8.3 short names such as RUNNER~1.
+  const home = join(realpathSync.native(root), "home");
   for (const name of ["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME"]) {
-    assert.equal(env[name], join(root, "home"));
+    assert.equal(env[name], home);
   }
   const command = `$p = Get-Process -Id ${process.pid} -ErrorAction Stop; $p.Id; $p.StartTime.ToUniversalTime().ToString('o')`;
   const query = (environment, timeout) => execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-Command", command], {

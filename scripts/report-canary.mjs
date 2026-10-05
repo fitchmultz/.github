@@ -2,27 +2,58 @@ import assert from "node:assert/strict";
 import { globSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { fleetPlatforms, readJson, runnerPlatform, waivedPlatforms } from "./common.mjs";
 
-export function failureReports(qualifications, runUrl) {
+const fleet = readJson(new URL("../fleet.json", import.meta.url));
+export const reportKey = (repo) => `<!-- pi-compatibility:${repo} -->`;
+// Earlier reports opened one issue per repository, host flavor and exact host identity.
+const legacyKeyPrefix = (repo) => `<!-- pi-compatibility:${repo}:`;
+const identity = (result) => result.host?.provenance.ref ?? result.host?.version ?? result.target ?? "unresolved";
+const waived = (result) => [...waivedPlatforms].some((os) => runnerPlatform(os) === result.platform);
+
+// Required (non-waived) lanes a complete canary run produces for one fleet entry.
+export function requiredLaneCount(entry) {
+  const hosts = entry.kind === "cli" ? 1 : 2;
+  return fleetPlatforms(entry).filter((platform) => !waivedPlatforms.has(platform.os)).length * hosts;
+}
+
+// One report per repository: the latest run's lanes across both hosts. Only required lanes keep it failing,
+// and only complete required evidence may close it (a failed runner can omit an artifact).
+export function failureReports(qualifications, runUrl, inventory = fleet) {
   const groups = new Map();
   for (const result of qualifications.filter((result) => result.lane !== "baseline")) {
-    const identity = result.host?.provenance.ref ?? result.host?.version ?? result.target ?? "unresolved";
-    const key = `<!-- pi-compatibility:${result.repo}:${result.flavor}:${identity} -->`;
-    if (!groups.has(key)) groups.set(key, { key, repo: result.repo, identity, flavor: result.flavor, results: [] });
-    groups.get(key).results.push(result);
+    if (!groups.has(result.repo)) groups.set(result.repo, []);
+    groups.get(result.repo).push(result);
   }
-  return [...groups.values()].map((group) => {
-    const failures = group.results.filter((result) => result.result !== "passed");
-    const body = [group.key, `Latest qualification: ${runUrl}`, "",
-      `Repository: fitchmultz/${group.repo}. Host: ${group.flavor} ${group.identity}.`, "",
-      ...group.results.map((result) => `- ${result.platform} / ${result.node}: **${result.result}**${result.phase ? ` (${result.phase})` : ""}; source \`${result.source}\`.`), "",
-      ...failures.flatMap((result) => ["```text", String(result.error ?? "See the failing job log").slice(0, 5000), "```", ""]),
+  return [...groups].map(([repo, results]) => {
+    results.sort((a, b) => `${a.flavor}/${a.platform}/${a.node}`.localeCompare(`${b.flavor}/${b.platform}/${b.node}`));
+    const required = results.filter((result) => !waived(result));
+    const failures = required.filter((result) => result.result !== "passed");
+    const diagnostics = results.filter((result) => waived(result) && result.result !== "passed");
+    const entry = inventory.find((item) => item.repo === repo);
+    const complete = Boolean(entry) && required.length >= requiredLaneCount(entry);
+    const hosts = [...new Set(results.map((result) => `${result.flavor} ${identity(result)}`))];
+    const body = [reportKey(repo), `Latest qualification: ${runUrl}`, "",
+      `Repository: fitchmultz/${repo}. Hosts: ${hosts.join(", ")}.`, "",
+      ...results.map((result) => `- ${result.flavor} ${identity(result)} / ${result.platform} / ${result.node}: **${result.result}**${result.phase ? ` (${result.phase})` : ""}${waived(result) ? " — owner-waived diagnostic" : ""}; source \`${result.source}\`.`), "",
+      ...[...failures, ...diagnostics].flatMap((result) => [`${result.flavor} ${identity(result)} / ${result.platform} / ${result.node}${waived(result) ? " (waived diagnostic)" : ""}:`,
+        "```text", String(result.error ?? "See the failing job log").slice(0, 5000), "```", ""]),
       "Reproduce by checking out the recorded source commit and this run's automation revision, then running:", "",
-      "```sh", `node scripts/qualify.mjs --repo ${group.repo} --source /path/to/checkout --host ${group.flavor} --target ${group.flavor === "fork" ? "/path/to/downloaded/fork-host-artifact" : group.identity} --output /tmp/pi-qualification`, "```", "",
-      "The run's qualification artifacts include the selected SDK/CLI paths and hashes, host provenance, packed npm artifact, and native probe output. Published-package failures are checked by adding --published. Repair through the repository's normal PR and compatibility checks; this canary never creates a repair PR or promotes a release.",
+      "```sh", ...[...new Set((failures.length ? failures : results).map((result) =>
+        `node scripts/qualify.mjs --repo ${repo} --source /path/to/checkout --host ${result.flavor} --target ${result.flavor === "fork" ? "/path/to/downloaded/fork-host-artifact" : identity(result)} --output /tmp/pi-qualification`))], "```", "",
+      "This single issue tracks the repository across official and fork hosts; each canary run updates it and closes it once every required lane passes. Owner-waived Windows lanes are reported as diagnostics and do not keep it open. The run's qualification artifacts include the selected SDK/CLI paths and hashes, host provenance, packed npm artifact, and native probe output. Published-package failures are checked by adding --published. Repair through the repository's normal PR and compatibility checks; this canary never creates a repair PR or promotes a release.",
     ].join("\n");
-    return { key: group.key, failed: failures.length > 0, title: `Pi compatibility: ${group.repo} / ${group.flavor} ${group.identity}`, body };
+    return { key: reportKey(repo), repo, failed: failures.length > 0, complete, title: `Pi compatibility: ${repo}`, body };
   });
+}
+
+// Choose the issue that carries a repository's report and every older duplicate that it supersedes.
+export function matchIssues(issues, report) {
+  const related = issues.filter((issue) => issue.body?.includes(report.key) || (report.repo && issue.body?.includes(legacyKeyPrefix(report.repo))))
+    .sort((a, b) => Date.parse(b.updated_at ?? 0) - Date.parse(a.updated_at ?? 0));
+  const current = related.filter((issue) => issue.body?.includes(report.key));
+  const canonical = current.find((issue) => issue.state === "open") ?? related.find((issue) => issue.state === "open") ?? current[0];
+  return { canonical, duplicates: related.filter((issue) => issue !== canonical && issue.state === "open") };
 }
 
 async function main() {
@@ -35,6 +66,7 @@ async function main() {
   const reports = failureReports(qualifications, runUrl);
   // Resolver/build/runner failures can happen before any per-repository evidence exists.
   reports.push({ key: "<!-- pi-compatibility:infrastructure -->", failed: conclusion !== "success" && !reports.some((report) => report.failed),
+    complete: conclusion === "success",
     title: "Pi compatibility: fleet qualification infrastructure", body: `<!-- pi-compatibility:infrastructure -->\n\nLatest run: ${runUrl}\n\nQualification result: ${conclusion}. A failed run without a package failure needs investigation in the resolver, fork build or runner jobs. Incomplete publication is infrastructure; it is not an extension incompatibility.` });
   async function github(path, method = "GET", body) {
     const response = await fetch(`https://api.github.com/repos/${repository}/${path}`, { method,
@@ -51,15 +83,21 @@ async function main() {
     if (batch.length < 100) break;
   }
   for (const report of reports) {
-    const existing = issues.find((issue) => issue.body?.includes(report.key));
-    // A failed runner can omit an artifact. Only a complete green fleet can close prior reports.
-    if (!report.failed && conclusion !== "success") continue;
-    if (existing) {
-      await github(`issues/${existing.number}`, "PATCH", { title: report.title, body: report.body, state: report.failed ? "open" : "closed" });
-    } else if (report.failed) {
-      await github("issues", "POST", { title: report.title, body: report.body });
+    const { canonical, duplicates } = matchIssues(issues, report);
+    if (report.failed || report.complete) {
+      if (canonical) {
+        await github(`issues/${canonical.number}`, "PATCH", { title: report.title, body: report.body, state: report.failed ? "open" : "closed",
+          ...(report.failed ? {} : { state_reason: "completed" }) });
+      } else if (report.failed) {
+        await github("issues", "POST", { title: report.title, body: report.body });
+      }
     }
-    console.log(`${report.failed ? "FAIL" : "PASS"} ${report.title}${existing ? ` (#${existing.number})` : ""}`);
+    // Incomplete evidence never closes the tracking issue, but older per-host duplicates are always folded into it.
+    for (const duplicate of duplicates) {
+      await github(`issues/${duplicate.number}/comments`, "POST", { body: `Superseded by ${canonical ? `#${canonical.number}` : "the repository's single compatibility issue"}, which now tracks ${report.repo ?? "this report"} across all hosts. Latest run: ${runUrl}` });
+      await github(`issues/${duplicate.number}`, "PATCH", { state: "closed", state_reason: "not_planned" });
+    }
+    console.log(`${report.failed ? "FAIL" : report.complete ? "PASS" : "INCOMPLETE"} ${report.title}${canonical ? ` (#${canonical.number})` : ""}${duplicates.length ? `; superseded ${duplicates.map((issue) => `#${issue.number}`).join(", ")}` : ""}`);
   }
 }
 

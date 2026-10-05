@@ -4,13 +4,18 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { checkResources, probeCli } from "./cli-probe.mjs";
-import { isolatedEnvironment, readJson, run, sha256, stageSource, writeJson } from "./common.mjs";
+import { isolatedEnvironment, publishedMetadata, readJson, run, sha256, stageSource, writeJson } from "./common.mjs";
 import { prepareHost, selectDevelopmentHost } from "./hosts.mjs";
 
 const { values } = parseArgs({ options: {
   repo: { type: "string" }, source: { type: "string" }, host: { type: "string" },
   target: { type: "string" }, output: { type: "string" }, published: { type: "boolean", default: false },
+  help: { type: "boolean", short: "h" },
 } });
+if (values.help) {
+  console.log(`Usage: node scripts/qualify.mjs --repo NAME --source PATH --host official|fork|none --output PATH [options]\n\nOptions:\n  --target VERSION|PATH  Official latest (default), a resolved per-run version, or a verified fork artifact\n  --published            Also verify the existing owned npm release\n  -h, --help             Show this help\n\nExamples:\n  node scripts/qualify.mjs --repo pi-copy-message --source ../extension --host official --target latest --output /tmp/evidence\n  node scripts/qualify.mjs --repo pi-copy-message --source ../extension --host fork --target /tmp/fork-package --output /tmp/fork-evidence\n\nRoutine qualification resolves latest; exact versions replay recorded evidence.\nExit codes: 0 = all gates passed, 1 = invalid input or failed qualification.`);
+  process.exit(0);
+}
 assert.ok(values.repo && values.source && values.host && values.output, "Required: --repo NAME --source PATH --host official|fork|none --output PATH [--target VERSION|FORK_ARTIFACT]");
 const entry = readJson(new URL("../fleet.json", import.meta.url)).find((item) => item.repo === values.repo);
 assert.ok(entry, `Repository is not in the fleet: ${values.repo}`);
@@ -40,11 +45,13 @@ try {
   let host;
   if (values.host !== "none") {
     phase = "host-install";
-    const target = values.target ?? readJson(new URL("../host-targets.json", import.meta.url)).official;
+    const target = values.target ?? "latest";
     assert.ok(values.host !== "fork" || values.target, "Fork lane requires the built artifact directory");
     host = await prepareHost(join(root, "host"), values.host, target, env);
     report.host = host;
     phase = "development-host-selection";
+    // Rebuild only the disposable development graph instead of reifying the original host's nested dependencies.
+    rmSync(join(development, "node_modules"), { recursive: true, force: true });
     const selected = selectDevelopmentHost(development, host, env);
     report.developmentHost = selected;
     phase = "package-contracts";
@@ -99,20 +106,27 @@ try {
 
   if (values.published && entry.npmPackage) {
     phase = "published-npm";
-    const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(entry.npmPackage)}/latest`);
-    assert.ok(response.ok, `Published package metadata: HTTP ${response.status}`);
-    const metadata = await response.json();
-    assert.equal(metadata.repository?.url?.replace(/^git\+/, "").replace(/\.git$/, ""),
-      `https://github.com/fitchmultz/${entry.repo}`, "Published npm source identity changed");
-    const consumer = join(root, "published-consumer");
-    mkdirSync(consumer);
-    writeJson(join(consumer, "package.json"), { private: true, dependencies: { [entry.npmPackage]: metadata.version } });
-    run("npm", ["install", "--omit=dev"], { cwd: consumer, env });
-    assert.equal(readJson(join(consumer, "package-lock.json")).packages[`node_modules/${entry.npmPackage}`].integrity, metadata.dist.integrity);
-    const installed = join(consumer, "node_modules", entry.npmPackage);
-    checkResources(installed);
-    report.published = { name: entry.npmPackage, version: metadata.version, integrity: metadata.dist.integrity, gitHead: metadata.gitHead };
-    report.checks.publishedCli = probeCli(host, installed, join(root, "probes", "published"), env);
+    // A fresh bounded npm process cannot reuse a fetch socket left idle during the long synchronous package checks.
+    const metadata = publishedMetadata(entry, ["--cache", join(root, "published-metadata-cache"), "--prefer-online",
+      "--fetch-retries=1", "--fetch-retry-mintimeout=1000", "--fetch-retry-maxtimeout=1000", "--fetch-timeout=15000"],
+    { env, timeout: 40_000 });
+    if (metadata === null) {
+      // First publication is a legal rollout state, not an incompatibility; there is no release to verify yet.
+      report.published = { name: entry.npmPackage, version: null, status: "awaiting first publication (registry 404)" };
+      report.checks.publishedCli = "not applicable (no published release yet)";
+    } else {
+      assert.equal(metadata.repository?.url?.replace(/^git\+/, "").replace(/\.git$/, ""),
+        `https://github.com/fitchmultz/${entry.repo}`, "Published npm source identity changed");
+      const consumer = join(root, "published-consumer");
+      mkdirSync(consumer);
+      writeJson(join(consumer, "package.json"), { private: true, dependencies: { [entry.npmPackage]: metadata.version } });
+      run("npm", ["install", "--omit=dev"], { cwd: consumer, env });
+      assert.equal(readJson(join(consumer, "package-lock.json")).packages[`node_modules/${entry.npmPackage}`].integrity, metadata.dist.integrity);
+      const installed = join(consumer, "node_modules", entry.npmPackage);
+      checkResources(installed);
+      report.published = { name: entry.npmPackage, version: metadata.version, integrity: metadata.dist.integrity, gitHead: metadata.gitHead };
+      report.checks.publishedCli = probeCli(host, installed, join(root, "probes", "published"), env);
+    }
   }
   report.result = "passed";
 } catch (error) {
@@ -129,5 +143,5 @@ try {
       `### ${report.repo} / ${report.lane} / ${report.node}\n\n${report.result}. Source: \`${report.source}\`. Host: \`${report.host?.provenance.ref ?? report.host?.version ?? "standalone"}\`.\n\n${report.phase ? `Failed phase: **${report.phase}**. ` : ""}See the qualification artifact for exact SDK/CLI hashes, installation provenance, errors and reproduction inputs.\n`);
   }
   console.log(`${report.repo}: ${report.result} (${report.phase ?? "complete"}); evidence: ${output}`);
-  rmSync(root, { recursive: true, force: true });
+  rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 1000 });
 }

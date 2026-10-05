@@ -1,0 +1,132 @@
+name: npm release
+
+on:
+  workflow_call:
+    inputs:
+      automation-ref:
+        description: Exact reviewed automation commit
+        required: true
+        type: string
+      source-ref:
+        description: Exact main commit whose package checks passed in the caller
+        required: true
+        type: string
+      official-version:
+        description: Latest official version resolved by this run's planner and checked in the caller
+        required: true
+        type: string
+      fork-ref:
+        description: Latest maintained fork SHA resolved by this run's planner and checked in the caller
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/.github
+          ref: ${{ inputs.automation-ref }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source-ref }}
+          path: extension
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        id: fork
+        with:
+          repository: fitchmultz/pi
+          ref: ${{ inputs.fork-ref }}
+          path: fork
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          check-latest: true
+          package-manager-cache: false
+      - name: Install native offline prerequisites
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.sources
+          sudo apt-get update
+          sudo apt-get install -y fd-find ripgrep zstd attr
+          sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+      - name: Use the reviewed automation npm
+        run: npm install --global "$(node -p 'require("./automation/package.json").packageManager')"
+      - name: Build the exact fork host
+        working-directory: fork
+        env:
+          FORK_REF: ${{ steps.fork.outputs.commit }}
+          PI_OFFLINE: '1'
+          PI_TELEMETRY: '0'
+        run: |
+          npm ci --ignore-scripts --no-audit
+          npm run hydrate:model-data
+          npm run build:offline
+          git diff --exit-code
+          node ../automation/scripts/pack-fork.mjs . "$RUNNER_TEMP/fork-package" "$FORK_REF"
+      - name: Use the package's reviewed build npm
+        run: npm install --global "$(node -p 'require("./extension/package.json").packageManager ?? require("./automation/package.json").packageManager')"
+      - name: Pack once and verify that tarball on both latest resolved hosts
+        env:
+          SOURCE_REF: ${{ inputs.source-ref }}
+          OFFICIAL_VERSION: ${{ inputs.official-version }}
+          FORK_REF: ${{ inputs.fork-ref }}
+        run: |
+          node automation/scripts/npm-release.mjs prepare --source extension --source-ref "$SOURCE_REF" \
+            --official-version "$OFFICIAL_VERSION" --fork-ref "$FORK_REF" \
+            --fork "$RUNNER_TEMP/fork-package" --output "$RUNNER_TEMP/npm-candidate"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-candidate-${{ inputs.source-ref }}
+          path: ${{ runner.temp }}/npm-candidate
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The three approval packages have required reviewers here; every channel restricts this environment to main.
+    environment:
+      name: npm
+      url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/.github
+          ref: ${{ inputs.automation-ref }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          check-latest: true
+          registry-url: https://registry.npmjs.org/
+          package-manager-cache: false
+      - name: Use the reviewed publishing npm
+        run: npm install --global "$(node -p 'require("./automation/package.json").packageManager')"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-candidate-${{ inputs.source-ref }}
+          path: ${{ runner.temp }}/npm-candidate
+      - name: Publish the verified artifact without lifecycle scripts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+          SOURCE_REF: ${{ inputs.source-ref }}
+          OFFICIAL_VERSION: ${{ inputs.official-version }}
+          FORK_REF: ${{ inputs.fork-ref }}
+        run: |
+          node automation/scripts/npm-release.mjs publish \
+            --artifact "$RUNNER_TEMP/npm-candidate" --source-ref "$SOURCE_REF" \
+            --official-version "$OFFICIAL_VERSION" --fork-ref "$FORK_REF"
