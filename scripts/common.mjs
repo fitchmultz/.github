@@ -16,6 +16,9 @@ export function fleetPlatforms(entry) {
     ...(entry.extraPlatforms ?? []).map((os) => ({ node: "24", os })),
   ];
 }
+// An enabled owned scoped channel has no registry entry until its first protected publication.
+export const awaitsFirstPublication = (entry, name = entry?.npmPackage) => Boolean(entry?.npmPackage)
+  && name === entry.npmPackage && name === `@fitchmultz/${entry.repo}` && ["automatic", "approval"].includes(entry.npmRelease);
 export const readJson = (file) => JSON.parse(readFileSync(file, "utf8"));
 export const writeJson = (file, value) => writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 export const sha256 = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
@@ -36,6 +39,19 @@ export function run(command, args, { quiet = false, ...options } = {}) {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} exited ${result.status} (${result.signal ?? "no signal"})`);
   return result.stdout;
+}
+
+// Reads published `latest` metadata; returns null only for a registry 404 of a channel that awaits its first publication.
+export function publishedMetadata(entry, args, { env, timeout } = {}) {
+  const command = ["view", `${entry.npmPackage}@latest`, "--json", ...args];
+  console.log(`$ npm ${command.join(" ")}`);
+  const result = spawnSync("npm", command, { encoding: "utf8", env, timeout, maxBuffer: 64 * 1024 * 1024, shell: process.platform === "win32" });
+  if (result.error) throw result.error;
+  if (result.status === 0) return JSON.parse(result.stdout);
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (awaitsFirstPublication(entry) && /\bE404\b/.test(`${result.stdout}\n${result.stderr}`)) return null;
+  throw new Error(`npm exited ${result.status} (${result.signal ?? "no signal"})`);
 }
 
 export function isolatedEnvironment(root) {
