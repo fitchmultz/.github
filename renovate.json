@@ -3,6 +3,14 @@
   "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
   "ignoreUnstable": true,
   "automerge": false,
+  "dependencyDashboard": false,
+  "packageRules": [
+    {
+      "description": "Hold npm at 11. npm 12 requires Node ^22.22.2 || ^24.15.0 || >=26.0.0, but CI/fleet install one packageManager on every baseline, including Node 20 and 22.19.0.",
+      "matchPackageNames": ["npm"],
+      "allowedVersions": "<12"
+    }
+  ],
   "customManagers": [
     {
       "customType": "regex",
