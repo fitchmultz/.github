@@ -1,0 +1,24 @@
+name: Bootstrap delivery diagnostic without named mapping
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  presence:
+    if: github.repository == 'fitchmultz/pi-subagents' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    environment: npm
+    steps:
+      - name: Report only whether the environment token is present
+        shell: bash
+        env:
+          NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+        run: |
+          if test -n "$NPM_BOOTSTRAP_TOKEN"; then
+            printf 'token-present=true\n'
+          else
+            printf 'token-present=false\n'
+          fi
