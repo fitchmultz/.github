@@ -4,7 +4,7 @@ import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSyn
 import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { checkResources, probeCli } from "./cli-probe.mjs";
-import { isolatedEnvironment, readJson, run, sha256, stageSource, writeJson } from "./common.mjs";
+import { awaitsFirstPublication, isolatedEnvironment, readJson, run, sha256, stageSource, writeJson } from "./common.mjs";
 import { prepareHost, resolveHostTargets, selectDevelopmentHost } from "./hosts.mjs";
 
 const registry = "https://registry.npmjs.org/";
@@ -68,6 +68,13 @@ function visibilityRemaining(deadline) {
   return remaining;
 }
 
+function nativeStagingLatest(data) {
+  const latest = data.versions?.["0.0.0-stage"];
+  // npm can expose its repository-less stub before latest catches up with the verified publication.
+  return data["dist-tags"]?.latest === "0.0.0-stage" && awaitsFirstPublication(entry, latest?.name ?? null)
+    && latest.version === "0.0.0-stage" && latest.stub === true;
+}
+
 async function metadata(name, deadline) {
   const response = await fetch(`${registry}${encodeURIComponent(name)}`, { signal: AbortSignal.timeout(
     deadline === undefined ? 30_000 : Math.min(30_000, visibilityRemaining(deadline))) });
@@ -79,7 +86,7 @@ async function metadata(name, deadline) {
   assert.ok(data.maintainers?.some((maintainer) => maintainer.name === "fitchmultz"), "npm package is not maintained by fitchmultz");
   const latest = data.versions?.[data["dist-tags"]?.latest];
   if (deadline === undefined) assert.ok(latest, "npm latest metadata is missing");
-  if (latest) identity(latest);
+  if (latest && !(deadline !== undefined && nativeStagingLatest(data))) identity(latest);
   return data;
 }
 
@@ -111,7 +118,7 @@ async function verifyPublication(candidate) {
         assert.equal(published.dist.integrity, candidate.integrity, "Published bytes differ from the verified tarball");
         const latest = data["dist-tags"]?.latest;
         pending = `latest=${latest ?? "missing"}`;
-        if (data.versions[latest] && (latest === candidate.version || newer(latest, candidate.version))) {
+        if (data.versions[latest] && !nativeStagingLatest(data) && (latest === candidate.version || newer(latest, candidate.version))) {
           visibilityRemaining(deadline);
           return;
         }
