@@ -1,10 +1,9 @@
-// From fitchmultz/pi e21b7ff9865cff4b6453cbbeacc9eded99696671.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { findPackageDirectories } from "./package-workspaces.mjs";
 
-export function getPublicWorkspacePackages() {
-	return findPackageDirectories()
+export function getPublicWorkspacePackages(root) {
+	return findPackageDirectories(root)
 		.map((directory) => ({
 			directory,
 			...JSON.parse(readFileSync(join(directory, "package.json"), "utf8")),
