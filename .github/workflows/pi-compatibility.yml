@@ -202,7 +202,7 @@ jobs:
         shell: pwsh
         run: '"PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        if: matrix.repo == 'pi-posthorse' || matrix.repo == 'pi-apply-edits' || matrix.repo == 'pi-subagents'
+        if: matrix.repo == 'pi-posthorse' || matrix.repo == 'pi-apply-edits' || matrix.repo == 'pi-subagents' || matrix.repo == 'pi-agent-browser-native'
         with:
           go-version: "1.27.1"
           cache: false
