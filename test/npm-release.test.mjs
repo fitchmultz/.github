@@ -276,8 +276,8 @@ test("first-publication absence never relaxes namespace, registry, merged-source
   }
 });
 
-function publicationFixture(t, existing = false) {
-  const f = existing ? fixture(t) : fixture(t, "4.1.1", undefined, "fitchmultz/pi-calculator", "@fitchmultz/pi-calculator");
+function publicationFixture(t, existing = false, scopedRepo = "pi-calculator", version = "4.1.1") {
+  const f = existing ? fixture(t) : fixture(t, version, undefined, `fitchmultz/${scopedRepo}`, `@fitchmultz/${scopedRepo}`);
   const { directory, candidate } = artifact(f);
   f.directory = directory;
   f.candidate = candidate;
@@ -443,9 +443,10 @@ test("successful publication and exact-source recovery wait for several-minute r
 });
 
 test("post-publication verification fails closed on HTTP, identity, integrity and shared visibility expiry", async (t) => {
-  for (const kind of ["exact-403", "metadata-503", "network", "identity", "maintainer", "exact-integrity", "metadata-integrity", "exact-expiry", "metadata-expiry"]) {
+  for (const kind of ["exact-403", "metadata-503", "network", "identity", "maintainer", "exact-integrity", "metadata-integrity", "exact-expiry", "metadata-expiry",
+    "stage-name", "stage-missing-name", "stage-stub", "stage-version", "stage-tag", "stage-integrity", "stage-expiry"]) {
     await t.test(kind, async (t) => {
-      const f = publicationFixture(t, true);
+      const f = publicationFixture(t, !kind.startsWith("stage-"));
       const boundary = publicationBoundary(t, f);
       let elapsed = 0;
       t.mock.method(Date, "now", () => elapsed);
@@ -469,23 +470,67 @@ test("post-publication verification fails closed on HTTP, identity, integrity an
           const data = f.metadata();
           if (kind === "maintainer") data.maintainers = [{ name: "someone-else" }];
           if (kind === "metadata-integrity") data.versions[f.version].dist = { integrity: "sha512-other" };
+          if (kind.startsWith("stage-")) {
+            data["dist-tags"].latest = kind === "stage-tag" ? "0.0.0-other" : "0.0.0-stage";
+            data.versions[data["dist-tags"].latest] = { name: kind === "stage-name" ? "@other/pi-calculator" : f.name,
+              version: kind === "stage-version" ? "0.0.0-beta" : "0.0.0-stage", stub: kind === "stage-stub" ? "true" : true };
+            if (kind === "stage-missing-name") delete data.versions[data["dist-tags"].latest].name;
+            if (kind === "stage-integrity") data.versions[f.version].dist = { integrity: "sha512-other" };
+          }
           return data;
         } });
       const reasons = { "exact-403": /HTTP 403/, "metadata-503": /HTTP 503/, network: /fixture network failure/,
         identity: /repository identity/, maintainer: /not maintained/, "exact-integrity": /Published bytes differ/,
         "metadata-integrity": /Published bytes differ/, "exact-expiry": /visibility timed out/,
-        "metadata-expiry": /visibility timed out/ };
+        "metadata-expiry": /visibility timed out/, "stage-name": /Package name differs/, "stage-missing-name": /Package name differs/, "stage-stub": /stable x.y.z/,
+        "stage-version": /stable x.y.z/, "stage-tag": /stable x.y.z/, "stage-integrity": /Published bytes differ/,
+        "stage-expiry": /visibility timed out/ };
       refused(result, reasons[kind]);
       if (kind.endsWith("expiry")) {
         assert.ok(elapsed >= 400_000 && elapsed <= 420_000, `one shared deadline expired at ${elapsed}ms`);
-        assert.match(result.logs.at(-1), kind === "exact-expiry" ? /exact version HTTP 404/ : /package version entry missing/);
+        assert.match(result.logs.at(-1), kind === "exact-expiry" ? /exact version HTTP 404/
+          : kind === "stage-expiry" ? /latest=0.0.0-stage/ : /package version entry missing/);
       } else {
         assert.equal(elapsed, 0, "permanent failures must not be retried");
         assert.equal(exactRequests, 1);
-        assert.equal(packageRequests, ["metadata-503", "maintainer", "metadata-integrity"].includes(kind) ? 2 : 1);
+        assert.equal(packageRequests, ["metadata-503", "maintainer", "metadata-integrity"].includes(kind) || kind.startsWith("stage-") ? 2 : 1);
       }
       assert.equal(boundary.calls.filter(({ command, args }) => command === "npm" && args[0] === "publish").length, 1);
       assert.equal(boundary.calls.some(({ args }) => args.includes("--draft=false")), false);
+      for (const { cwd } of boundary.calls) assert.equal(existsSync(cwd), false);
+    });
+  }
+});
+
+test("owned native staging latest waits after exact publication or recovery, never admitting a new candidate", async (t) => {
+  for (const mode of ["bootstrap", "recovery", "plan", "preflight"]) {
+    await t.test(mode, async (t) => {
+      const f = publicationFixture(t, false, "pi-workflows", "0.2.1");
+      const boundary = publicationBoundary(t, f, { bootstrap: mode === "bootstrap", recovery: mode === "recovery" });
+      let elapsed = 0;
+      t.mock.method(Date, "now", () => elapsed);
+      t.mock.method(globalThis, "setTimeout", (callback, delay) => { elapsed += delay; callback(); });
+      const staged = f.metadata();
+      staged["dist-tags"].latest = "0.0.0-stage";
+      staged.versions["0.0.0-stage"] = { name: f.name, version: "0.0.0-stage", stub: true };
+      let packageRequests = 0;
+      const result = await invoke(t, f, mode === "plan" ? "plan" : "publish", { args: f.args,
+        environment: { ...f.environment, NPM_BOOTSTRAP_TOKEN: "bootstrap-fixture" },
+        published: f.published, status: () => mode === "bootstrap" && !boundary.published ? 404 : 200,
+        data: () => ++packageRequests === 1 && !["plan", "preflight"].includes(mode) ? f.metadata()
+          : elapsed < 400_000 ? staged : f.metadata() });
+      if (mode === "plan" || mode === "preflight") {
+        refused(result, /stable x.y.z/);
+        assert.equal(elapsed, 0);
+        assert.equal(boundary.calls.some(({ command, args }) => command === "npm" || args.includes("POST") || args[0] === "release"), false);
+      } else {
+        assert.equal(result.failed, false, result.errors);
+        assert.equal(elapsed, 400_000);
+        assert.ok(result.logs.some((line) => line.includes("latest=0.0.0-stage")));
+        assert.equal(result.requests.filter((url) => url.endsWith("/0.2.1")).length, 1, "verified exact bytes are retained across latest retries");
+        assert.equal(boundary.calls.filter(({ command, args }) => command === "npm" && args[0] === "publish").length, mode === "bootstrap" ? 1 : 0);
+        assert.equal(boundary.calls.filter(({ args }) => args.includes("--draft=false")).length, 1);
+      }
       for (const { cwd } of boundary.calls) assert.equal(existsSync(cwd), false);
     });
   }

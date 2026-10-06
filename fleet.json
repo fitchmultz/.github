@@ -1,6 +1,6 @@
 [
-  { "repo": "pi-subagents", "kind": "extension", "npmPackage": "@fitchmultz/pi-subagents", "npmRelease": "automatic", "nodes": ["24"], "extraPlatforms": ["macos-latest"], "contractTimeoutMs": { "linux": 1200000, "darwin": 1200000 } },
-  { "repo": "pi-agent-browser-native", "kind": "extension", "npmPackage": "pi-agent-browser-native", "npmRelease": "approval", "nodes": ["24"], "extraPlatforms": ["macos-latest", "windows-latest"], "contractTimeoutMs": { "linux": 900000, "darwin": 900000, "win32": 2700000 } },
+  { "repo": "pi-subagents", "kind": "extension", "npmPackage": "@fitchmultz/pi-subagents", "npmRelease": "automatic", "nodes": ["24"], "extraPlatforms": ["macos-latest"], "contractTimeoutMs": { "linux": 3540000, "darwin": 3540000 } },
+  { "repo": "pi-agent-browser-native", "kind": "extension", "npmPackage": "pi-agent-browser-native", "npmRelease": "approval", "nodes": ["24"], "extraPlatforms": ["macos-latest", "windows-latest"], "contractTimeoutMs": { "linux": 1800000, "darwin": 1800000, "win32": 2700000 } },
   { "repo": "pi-verbosity-control", "kind": "extension", "npmPackage": "@fitchmultz/pi-verbosity-control", "npmRelease": "automatic", "nodes": ["24"] },
   { "repo": "pi-change-working-dir", "kind": "extension", "nodes": ["24.15.0", "24"], "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-stash", "kind": "extension", "npmPackage": "@fitchmultz/pi-stash", "npmRelease": "automatic", "nodes": ["24"] },
@@ -11,7 +11,7 @@
   { "repo": "pi-apply-edits", "kind": "extension", "nodes": ["24"], "extraPlatforms": ["macos-latest"], "contractTimeoutMs": { "linux": 1200000, "darwin": 1200000 } },
   { "repo": "pi-oracle", "kind": "extension", "npmPackage": "pi-oracle", "npmRelease": "approval", "extraPlatforms": ["macos-latest", "windows-latest"] },
   { "repo": "pi-todo-list", "kind": "extension", "nodes": ["24"] },
-  { "repo": "pi-posthorse", "kind": "extension", "npmPackage": "pi-posthorse", "npmRelease": "automatic", "nodes": ["24"], "extraPlatforms": ["macos-latest"], "contractTimeoutMs": { "linux": 1200000 } },
+  { "repo": "pi-posthorse", "kind": "extension", "npmPackage": "pi-posthorse", "npmRelease": "automatic", "nodes": ["24"], "extraPlatforms": ["macos-latest"], "contractTimeoutMs": { "linux": 1200000, "darwin": 1200000 } },
   { "repo": "pi-mcp-adapter", "kind": "extension", "npmPackage": "@fitchmultz/pi-mcp-adapter", "npmRelease": "automatic", "nodes": ["24"], "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-codex-goal", "kind": "extension", "npmPackage": "pi-codex-goal", "npmRelease": "automatic", "nodes": ["24"], "extraPlatforms": ["macos-latest", "windows-latest"] },
   { "repo": "pi-cursor-sdk", "kind": "extension", "npmPackage": "pi-cursor-sdk", "npmRelease": "approval", "nodes": ["24"], "extraPlatforms": ["macos-latest", "windows-latest"] },
