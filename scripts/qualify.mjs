@@ -26,7 +26,10 @@ const source = resolve(values.source);
 const output = resolve(values.output);
 mkdirSync(output, { recursive: true });
 // Browser/Intercom fixtures use Unix sockets; Darwin's socket pathname limit is 103 bytes.
-const root = mkdtempSync(join(process.platform === "win32" ? tmpdir() : "/tmp", "pc-"));
+// Linux /tmp quotas can stop native builds; keep their private roots on ordinary disk.
+const root = mkdtempSync(join(
+  process.platform === "win32" ? tmpdir() : process.platform === "linux" ? "/var/tmp" : "/tmp", "pc-",
+));
 // macOS temporary directories can inherit wheel; permission fixtures need the executing user's group.
 if (process.getgid) chownSync(root, process.getuid(), process.getgid());
 const env = isolatedEnvironment(root);
