@@ -26,14 +26,29 @@ const source = resolve(values.source);
 const output = resolve(values.output);
 mkdirSync(output, { recursive: true });
 // Browser/Intercom fixtures use Unix sockets; Darwin's socket pathname limit is 103 bytes.
-const root = mkdtempSync(join(process.platform === "win32" ? tmpdir() : "/tmp", "pc-"));
+// Linux /tmp quotas can stop native builds; keep their private roots on ordinary disk.
+const root = mkdtempSync(join(
+  process.platform === "win32" ? tmpdir() : process.platform === "linux" ? "/var/tmp" : "/tmp", "pc-",
+));
 // macOS temporary directories can inherit wheel; permission fixtures need the executing user's group.
 if (process.getgid) chownSync(root, process.getuid(), process.getgid());
-const env = isolatedEnvironment(root);
+const env = { ...isolatedEnvironment(root), GOMODCACHE: join(root, "go-modules") };
 const report = { repo: values.repo, flavor: values.host, lane: process.env.PI_COMPAT_LANE_LABEL ?? values.host, node: process.version, npm: run("npm", ["--version"], { env, quiet: true }).trim(), platform: process.platform,
   source: run("git", ["rev-parse", "HEAD"], { cwd: source, quiet: true }).trim(),
   sourceDirty: run("git", ["status", "--porcelain"], { cwd: source, quiet: true }).trim() !== "",
   target: values.host === "fork" ? process.env.PI_COMPAT_FORK_REF : values.target, contractTimeoutMs, checks: {} };
+function recordFinalizationFailure(phase, error) {
+  const message = error.stack ?? String(error);
+  if (report.result === "failed") {
+    (report.secondaryErrors ??= []).push({ phase, error: message });
+  } else {
+    report.result = "failed";
+    report.phase = phase;
+    report.error = message;
+  }
+  console.error(`Qualification ${phase} failed for ${root}:\n${message}`);
+  process.exitCode = 1;
+}
 let phase = "prepare";
 try {
   const development = join(root, "development");
@@ -136,12 +151,22 @@ try {
   console.error(report.error);
   process.exitCode = 1;
 } finally {
-  if (existsSync(join(root, "probes"))) cpSync(join(root, "probes"), join(output, "probes"), { recursive: true });
+  try {
+    if (existsSync(join(root, "probes"))) cpSync(join(root, "probes"), join(output, "probes"), { recursive: true });
+  } catch (error) {
+    recordFinalizationFailure("probe-copy", error);
+  }
+  try {
+    // Go owns its read-only extracted module directories, not recursive filesystem deletion.
+    if (existsSync(env.GOMODCACHE)) run("go", ["clean", "-modcache"], { cwd: root, env });
+    rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 1000 });
+  } catch (error) {
+    recordFinalizationFailure("cleanup", error);
+  }
   writeJson(join(output, "qualification.json"), report);
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY,
       `### ${report.repo} / ${report.lane} / ${report.node}\n\n${report.result}. Source: \`${report.source}\`. Host: \`${report.host?.provenance.ref ?? report.host?.version ?? "standalone"}\`.\n\n${report.phase ? `Failed phase: **${report.phase}**. ` : ""}See the qualification artifact for exact SDK/CLI hashes, installation provenance, errors and reproduction inputs.\n`);
   }
   console.log(`${report.repo}: ${report.result} (${report.phase ?? "complete"}); evidence: ${output}`);
-  rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 1000 });
 }
