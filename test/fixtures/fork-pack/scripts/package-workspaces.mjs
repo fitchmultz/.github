@@ -1,4 +1,3 @@
-// From fitchmultz/pi e21b7ff9865cff4b6453cbbeacc9eded99696671.
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
