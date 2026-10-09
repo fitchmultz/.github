@@ -53,7 +53,6 @@ let phase = "prepare";
 try {
   const development = join(root, "development");
   stageSource(source, development);
-  run("npm", [existsSync(join(development, "package-lock.json")) ? "ci" : "install", "--ignore-scripts"], { cwd: development, env });
   const manifest = readJson(join(development, "package.json"));
   if (entry.npmPackage) assert.equal(manifest.name, entry.npmPackage, "Owned npm channel differs from the source manifest");
   assert.ok(manifest.scripts?.["check:compat"], "Repository must supply its package-specific check:compat contract");
@@ -65,8 +64,6 @@ try {
     host = await prepareHost(join(root, "host"), values.host, target, env);
     report.host = host;
     phase = "development-host-selection";
-    // Rebuild only the disposable development graph instead of reifying the original host's nested dependencies.
-    rmSync(join(development, "node_modules"), { recursive: true, force: true });
     const selected = selectDevelopmentHost(development, host, env);
     report.developmentHost = selected;
     phase = "package-contracts";
@@ -79,6 +76,7 @@ try {
     report.checks.contracts = "passed";
   } else {
     phase = "standalone-cli-contracts";
+    run("npm", [existsSync(join(development, "package-lock.json")) ? "ci" : "install", "--ignore-scripts"], { cwd: development, env });
     run("npm", ["run", "check:compat"], { cwd: development, env, timeout: contractTimeoutMs });
     report.checks.contracts = "passed";
   }

@@ -52,6 +52,7 @@ jobs:
       - run: npm test
       - name: Install this run's latest official host in an empty profile
         env:
+          GH_TOKEN: ${{ github.token }}
           OFFICIAL_VERSION: ${{ needs.hosts.outputs.official-version }}
         run: |
           node --input-type=module <<'JS'

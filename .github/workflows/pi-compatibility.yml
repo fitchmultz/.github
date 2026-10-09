@@ -223,6 +223,7 @@ jobs:
       - name: Qualify the selected host and consumer artifacts
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           REPO: ${{ matrix.repo }}
           HOST: ${{ matrix.host }}
           VERSION: ${{ matrix.version }}

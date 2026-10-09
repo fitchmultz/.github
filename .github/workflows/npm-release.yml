@@ -85,6 +85,7 @@ jobs:
           npm exec --yes --package="$PM" -- npm install --global "$PM"
       - name: Pack once and verify that tarball on both latest resolved hosts
         env:
+          GH_TOKEN: ${{ github.token }}
           SOURCE_REF: ${{ inputs.source-ref }}
           OFFICIAL_VERSION: ${{ inputs.official-version }}
           FORK_REF: ${{ inputs.fork-ref }}

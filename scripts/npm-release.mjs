@@ -208,7 +208,6 @@ async function prepare() {
     if (existsSync(join(development, ".npmrc"))) {
       assert.ok(!/auth|password|username|token|otp|certfile|keyfile/i.test(readFileSync(join(development, ".npmrc"), "utf8")), "Project npm configuration must not contain credentials");
     }
-    run("npm", ["ci", "--ignore-scripts"], { cwd: development, env });
     selectDevelopmentHost(development, official, env);
     run("npm", ["run", "build", "--if-present"], { cwd: development, env });
     // Pack reviewed bundled dependencies, retaining the output compiled against the selected latest SDK.
