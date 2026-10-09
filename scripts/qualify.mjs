@@ -58,6 +58,8 @@ try {
   assert.ok(manifest.scripts?.["check:compat"], "Repository must supply its package-specific check:compat contract");
   let host;
   if (values.host !== "none") {
+    // Keep native source-lock validation without installing the old development host first.
+    if (existsSync(join(development, "package-lock.json"))) run("npm", ["ci", "--ignore-scripts", "--dry-run"], { cwd: development, env });
     phase = "host-install";
     const target = values.target ?? "latest";
     assert.ok(values.host !== "fork" || values.target, "Fork lane requires the built artifact directory");
