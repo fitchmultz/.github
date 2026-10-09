@@ -45,15 +45,19 @@ test("an extension lifecycle error fails even when the native CLI continues", (t
 const themeFixture = () => ({ ...readJson(join(host.packageDir, "dist/modes/interactive/theme/dark.json")),
   name: "qualification-theme-fixture" });
 
-test("native theme acceptance honors package discovery and manifest exclusions", (t) => {
-  for (const pi of [{ extensions: ["index.ts"], themes: ["themes/*.json", "!themes/excluded.json"] }, null]) {
+test("native theme acceptance honors package discovery, manifest selection and exclusions", (t) => {
+  for (const [pi, names] of [
+    [{ extensions: ["index.ts"], themes: ["themes/*.json", "!themes/excluded.json"] }, ["qualification-theme-fixture"]],
+    [null, ["qualification-theme-fixture"]],
+    [{ extensions: ["index.ts"] }, []],
+  ]) {
     const { extension, probe } = fixture(t, `export default function() {}`, pi);
     mkdirSync(join(extension, "themes"));
     writeJson(join(extension, "themes", "valid.json"), themeFixture());
     if (pi) writeFileSync(join(extension, "themes", "excluded.json"), "{invalid json}");
     const result = probe();
-    assert.deepEqual(result.themes.map(({ name }) => name), ["qualification-theme-fixture"]);
-    assert.equal(result.themes[0].sourcePath, join(extension, "themes", "valid.json"));
+    assert.deepEqual(result.themes.map(({ name }) => name), names);
+    if (names.length) assert.equal(result.themes[0].sourcePath, join(extension, "themes", "valid.json"));
   }
 });
 

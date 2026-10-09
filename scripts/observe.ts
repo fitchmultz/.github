@@ -11,9 +11,7 @@ export default function (pi: ExtensionAPI) {
       // RPC has no theme UI. Load package themes after the CLI installs its native validator.
       const resources = new DefaultResourceLoader({
         cwd: process.cwd(), agentDir: join(process.cwd(), "theme-profile"),
-        settingsManager: SettingsManager.inMemory({ packages: [{
-          source: process.env.PI_COMPAT_PACKAGE_DIR!, extensions: [], skills: [], prompts: [],
-        }] }),
+        settingsManager: SettingsManager.inMemory({ packages: [process.env.PI_COMPAT_PACKAGE_DIR!] }),
         noExtensions: true, noSkills: true, noPromptTemplates: true, noContextFiles: true,
       });
       await resources.reload();
