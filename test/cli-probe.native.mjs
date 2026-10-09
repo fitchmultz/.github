@@ -35,9 +35,9 @@ import { Type } from "typebox";
 import { Type as PreparedType } from ${JSON.stringify(pathToFileURL(join(host.packageDirs.typebox, readJson(join(host.packageDirs.typebox, "package.json")).exports["."].import)).href)};
 assert.equal(SessionManager, PreparedSessionManager);
 assert.equal(Type, PreparedType);
-const selectedAi = findPackageJSON("@earendil-works/pi-ai", import.meta.url);
+const selectedAi = fileURLToPath(import.meta.resolve("@earendil-works/pi-ai"));
 const preparedAi = ${JSON.stringify(join(host.packageDirs["@earendil-works/pi-ai"], "package.json"))};
-assert.equal(realpathSync(selectedAi), preparedAi);
+assert.equal(realpathSync(findPackageJSON("@earendil-works/pi-ai", import.meta.url)), preparedAi);
 assert.equal(realpathSync(findPackageJSON("@aws-sdk/credential-provider-node", selectedAi)),
   realpathSync(findPackageJSON("@aws-sdk/credential-provider-node", preparedAi)));
 assert.equal(realpathSync(fileURLToPath(import.meta.resolve(${JSON.stringify(codingAgent)}))), ${JSON.stringify(host.index)});
