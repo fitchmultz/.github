@@ -50,7 +50,7 @@ test("failed native host selection restores metadata and preserves caller-owned 
   mkdirSync(join(root, "node_modules"));
   const marker = join(root, "node_modules", "caller-owned.txt");
   writeFileSync(marker, "preserve caller-owned content");
-  assert.throws(() => selectDevelopmentHost(root, { packageDirs: { [codingAgent]: join(root, "absent-package") } }, isolatedEnvironment(root)), /npm exited/);
+  assert.throws(() => selectDevelopmentHost(root, { packageDirs: { [codingAgent]: join(root, "absent-package.tgz") } }, isolatedEnvironment(root)), /npm exited/);
   assert.equal(readFileSync(file, "utf8"), original);
   assert.equal(readFileSync(join(root, "package-lock.json"), "utf8"), lock);
   assert.equal(readFileSync(marker, "utf8"), "preserve caller-owned content");
