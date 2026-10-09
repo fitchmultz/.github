@@ -76,7 +76,7 @@ function passed(result) {
 
 const platformLabels = (lanes, repo) => lanes.filter((lane) => lane.repo === repo).map((lane) => `${lane.os}/${lane.node}`);
 
-test("default and explicit both preserve all 26 repositories and existing Node/platform lanes", async (t) => {
+test("default and explicit both preserve all 25 repositories and existing Node/platform lanes", async (t) => {
   const result = await resolveFixture(t);
   const explicit = await resolveFixture(t, { HOST: "both" });
   passed(result);
@@ -85,7 +85,7 @@ test("default and explicit both preserve all 26 repositories and existing Node/p
   for (const run of [result, explicit]) assert.equal(run.requests.filter((url) => url === mainUrl).length, 1);
   assert.equal(result.outputs.forkRef, mainSha);
   assert.equal(result.outputs.needsFork, "true");
-  assert.equal(result.lanes.length, 96);
+  assert.equal(result.lanes.length, 92);
   assert.deepEqual([...new Set(result.lanes.map((lane) => lane.repo))], fleet.map((entry) => entry.repo));
   for (const entry of fleet) {
     const lanes = result.lanes.filter((lane) => lane.repo === entry.repo);
@@ -100,7 +100,7 @@ test("default and explicit both preserve all 26 repositories and existing Node/p
   assert.equal(result.requests.filter((url) => url.startsWith("https://registry.npmjs.org/")).length, 2, "Cohort preflight is cached across the fleet");
 });
 
-test("fork reverse dependencies preserve all 48 fork lanes without any official npm or CLI lookup", async (t) => {
+test("fork reverse dependencies preserve all 46 fork lanes without any official npm or CLI lookup", async (t) => {
   const both = await resolveFixture(t);
   const fork = await resolveFixture(t, { HOST: "fork", FORK_REF: forkSha, SOURCE_REF: "compatibility/pi-releases", OFFICIAL_VERSION: "latest" }, { official: false });
   passed(both);
@@ -108,13 +108,13 @@ test("fork reverse dependencies preserve all 48 fork lanes without any official 
   assert.deepEqual(fork.lanes, both.lanes.filter((lane) => lane.host === "fork"));
   assert.equal(fork.outputs.forkRef, forkSha);
   assert.equal(fork.outputs.needsFork, "true");
-  assert.equal(fork.lanes.length, 48);
-  assert.equal(new Set(fork.lanes.map((lane) => lane.repo)).size, 26);
+  assert.equal(fork.lanes.length, 46);
+  assert.equal(new Set(fork.lanes.map((lane) => lane.repo)).size, 25);
   assert.ok(fork.lanes.some((lane) => lane.repo === "pi-posthorse"));
   assert.ok(fork.lanes.some((lane) => lane.repo === "pi-agent-skills"));
   assert.ok(fork.lanes.some((lane) => lane.repo === "pi-workflows"));
   assert.ok(fork.lanes.every((lane) => lane.host === "fork" && lane.label === "fork" && lane.version === ""));
-  assert.equal(fork.requests.length, 26);
+  assert.equal(fork.requests.length, 25);
   assert.ok(fork.requests.every((url) => url.startsWith("https://api.github.com/") && url.endsWith("/commits/compatibility%2Fpi-releases") && !url.includes("/pi-evidence/")));
 });
 
@@ -132,8 +132,8 @@ test("an individual PR qualifies latest rather than selecting its stale locked d
 test("resolved identities stay frozen across later jobs instead of resolving a newer host mid-run", async (t) => {
   const result = await resolveFixture(t, { OFFICIAL_VERSION: "9.8.6", FORK_REF: forkSha, SOURCE_REF: "main" });
   passed(result);
-  assert.equal(result.lanes.length, 96);
-  assert.equal(new Set(result.lanes.map((lane) => lane.repo)).size, 26);
+  assert.equal(result.lanes.length, 92);
+  assert.equal(new Set(result.lanes.map((lane) => lane.repo)).size, 25);
   assert.ok(result.lanes.filter((lane) => lane.host === "official").every((lane) => lane.version === "9.8.6"));
   assert.equal(result.outputs.forkRef, forkSha);
   assert.equal(result.requests.filter((url) => url.endsWith("/latest") || url === mainUrl).length, 0);
@@ -148,15 +148,17 @@ test("an individual fork selection resolves maintained main without official loo
   assert.deepEqual(result.requests, [mainUrl, "https://api.github.com/repos/fitchmultz/pi-calculator/commits/main"]);
 });
 
-test("archived standalone CLI is no longer in the fleet and fork selection never emits host-free lanes", async (t) => {
-  const missing = await resolveFixture(t, { REPOSITORY: "fitchmultz/pi-evidence" }, { official: false });
-  assert.match(missing.error?.message ?? "", /No applicable fleet repository/);
-  assert.deepEqual(missing.outputs, {});
-  assert.deepEqual(missing.requests, []);
+test("archived packages are no longer in the fleet and fork selection never emits host-free lanes", async (t) => {
+  for (const repo of ["pi-evidence", "pi-local-agents-only"]) {
+    const missing = await resolveFixture(t, { REPOSITORY: `fitchmultz/${repo}` }, { official: false });
+    assert.match(missing.error?.message ?? "", /No applicable fleet repository/);
+    assert.deepEqual(missing.outputs, {});
+    assert.deepEqual(missing.requests, []);
+  }
   const fork = await resolveFixture(t, { HOST: "fork", FORK_REF: forkSha, SOURCE_REF: "compatibility/pi-releases" }, { official: false });
   passed(fork);
   assert.ok(fork.lanes.every((lane) => lane.host === "fork"));
-  assert.ok(!fork.lanes.some((lane) => lane.host === "none" || lane.repo === "pi-evidence"));
+  assert.ok(!fork.lanes.some((lane) => lane.host === "none" || ["pi-evidence", "pi-local-agents-only"].includes(lane.repo)));
 });
 
 test("invalid host selectors fail closed before fetching or emitting outputs", async (t) => {

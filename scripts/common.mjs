@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -47,7 +48,17 @@ export function publishedMetadata(entry, args, { env, timeout } = {}) {
   console.log(`$ npm ${command.join(" ")}`);
   const result = spawnSync("npm", command, { encoding: "utf8", env, timeout, maxBuffer: 64 * 1024 * 1024, shell: process.platform === "win32" });
   if (result.error) throw result.error;
-  if (result.status === 0) return JSON.parse(result.stdout);
+  if (result.status === 0) {
+    const parsed = JSON.parse(result.stdout);
+    const metadata = Array.isArray(parsed) && parsed.length === 1 ? parsed[0] : parsed;
+    assert.ok(metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      && metadata.name === entry.npmPackage && typeof metadata.version === "string"
+      && /^\d+\.\d+\.\d+$/.test(metadata.version)
+      && typeof metadata.repository?.url === "string" && metadata.repository.url.length > 0
+      && typeof metadata.dist?.integrity === "string" && metadata.dist.integrity.length > 0,
+    "Invalid published npm metadata: expected one package record with exact version, source and integrity");
+    return metadata;
+  }
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
   if (awaitsFirstPublication(entry) && /\bE404\b/.test(`${result.stdout}\n${result.stderr}`)) return null;

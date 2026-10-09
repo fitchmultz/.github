@@ -10,6 +10,10 @@ on:
         description: Fleet source ref (empty uses the configured rollout ref or main)
         type: string
         default: ''
+      fork-ref:
+        description: Exact candidate fork commit (empty resolves maintained main)
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -23,6 +27,7 @@ jobs:
     uses: ./.github/workflows/resolve-hosts.yml
     with:
       automation-ref: ${{ github.sha }}
+      fork-ref: ${{ inputs.fork-ref }}
 
   tests:
     needs: hosts
