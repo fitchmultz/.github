@@ -5,7 +5,6 @@
   { "repo": "pi-change-working-dir", "kind": "extension", "nodes": ["24.15.0", "24"], "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-stash", "kind": "extension", "npmPackage": "@fitchmultz/pi-stash", "npmRelease": "automatic", "nodes": ["24"] },
   { "repo": "pi-fitch-kit", "kind": "extension", "nodes": ["24", "26"], "extraPlatforms": ["macos-latest"] },
-  { "repo": "pi-edit-session-in-place", "kind": "extension", "npmPackage": "pi-edit-session-in-place", "npmRelease": "automatic", "nodes": ["24"] },
   { "repo": "pi-ctx-info", "kind": "extension", "nodes": ["24"] },
   { "repo": "pi-tool-duration", "kind": "extension", "npmPackage": "pi-tool-duration", "npmRelease": "automatic", "nodes": ["24"] },
   { "repo": "pi-apply-edits", "kind": "extension", "nodes": ["24"], "extraPlatforms": ["macos-latest"], "contractTimeoutMs": { "linux": 1200000, "darwin": 1200000 } },
