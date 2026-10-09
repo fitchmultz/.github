@@ -1,0 +1,162 @@
+name: Browser cold-start control (task-owned)
+
+on:
+  push:
+    branches: [diag/browser-cold-start-control-20261009]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  control:
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [official, fork]
+    name: Isolated ${{ matrix.host }} macOS cold-start control
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/.github
+          ref: e34d8127d7b4d44647003ae1ab0a568775e0864c
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/pi-agent-browser-native
+          ref: 1f8cac2a510d2a76a2ac5abc40643630cd87c7c9
+          path: extension
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.21.0"
+          package-manager-cache: false
+      - name: Use the reviewed package manager
+        run: npm exec --yes --package=npm@12.2.0 -- npm install --global npm@12.2.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: matrix.host == 'fork'
+        with:
+          artifact-ids: "11640580874"
+          run-id: "37979122145"
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/fork-package
+          merge-multiple: true
+      - name: Prepare the identical native graph and collect exactly three fresh samples
+        env:
+          CONTROL_HOST: ${{ matrix.host }}
+          CONTROL_FORK: ${{ runner.temp }}/fork-package
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git -C extension rev-parse HEAD 'HEAD^{tree}' > evidence/source-identity.txt
+          test "$(git -C extension rev-parse HEAD)" = 1f8cac2a510d2a76a2ac5abc40643630cd87c7c9
+          test "$(git -C extension rev-parse 'HEAD^{tree}')" = 564f6dc55a8e03f702fad30a43dee207a2fc4e92
+          test "$(git -C automation rev-parse HEAD)" = e34d8127d7b4d44647003ae1ab0a568775e0864c
+          { sw_vers; uname -a; node --version; npm --version; sysctl hw.ncpu hw.memsize; } > evidence/os.txt
+          cat > "$RUNNER_TEMP/control.mjs" <<'JS'
+          import assert from "node:assert/strict";
+          import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+          import { join, resolve } from "node:path";
+          import { pathToFileURL } from "node:url";
+          const workspace = process.cwd();
+          const automation = join(workspace, "automation", "scripts");
+          const { isolatedEnvironment, run, sha256, stageSource, writeJson } = await import(pathToFileURL(join(automation, "common.mjs")));
+          const { prepareHost, selectDevelopmentHost } = await import(pathToFileURL(join(automation, "hosts.mjs")));
+          const flavor = process.env.CONTROL_HOST;
+          const target = flavor === "official" ? "1.1.0" : process.env.CONTROL_FORK;
+          const evidence = join(workspace, "evidence");
+          const root = mkdtempSync("/tmp/pc-");
+          const development = join(root, "development");
+          const env = isolatedEnvironment(root);
+          try {
+            stageSource(join(workspace, "extension"), development);
+            run("npm", ["ci", "--ignore-scripts"], { cwd: development, env });
+            const host = await prepareHost(join(root, "host"), flavor, target, env);
+            rmSync(join(development, "node_modules"), { recursive: true, force: true });
+            const selected = selectDevelopmentHost(development, host, env);
+            const expected = flavor === "official"
+              ? ["5482298b995db935f7b96f5d6056fa1c36ac6fc80456be594ef65b83c62b0d30", "e79626f2dd6f94aa45d30f3fa63cd84319a6eefcd150b353cfaf274366926774"]
+              : ["b1f7803e797740d70d30d6b56a4f6845da1f233ac354ffa38f1810a6902941c6", "52e5e345be80f77261ebc4d8405d48124458750c8e04ceba55a13be1e7715722"];
+            assert.deepEqual([selected.indexSha256, selected.cliSha256], expected);
+            if (flavor === "fork") assert.equal(host.provenance.ref, "b866f3a1129b00f6faff43621ac66b5477a47a66");
+            writeJson(join(evidence, "host.json"), { flavor, host, selected, node: { executable: process.execPath, sha256: sha256(process.execPath), version: process.version, arch: process.arch, platform: process.platform } });
+            run(process.execPath, ["scripts/build.mjs"], { cwd: development, env });
+            const hook = join(root, "trace.mjs");
+            writeFileSync(hook, `
+          import { registerHooks } from "node:module";
+          import { writeFileSync } from "node:fs";
+          import { loadavg } from "node:os";
+          const edges = [];
+          const loads = [];
+          let start;
+          let cpuStart;
+          let loadBefore;
+          registerHooks({
+            resolve(specifier, context, nextResolve) {
+              if (start === undefined) { start = performance.now(); cpuStart = process.cpuUsage(); loadBefore = loadavg(); }
+              const result = nextResolve(specifier, context);
+              edges.push({ specifier, parent: context.parentURL, url: result.url });
+              return result;
+            },
+            load(url, context, nextLoad) {
+              const begin = performance.now();
+              const result = nextLoad(url, context);
+              loads.push({ url, loadMs: performance.now() - begin });
+              return result;
+            }
+          });
+          process.on("exit", () => {
+            const cpu = process.cpuUsage(cpuStart);
+            writeFileSync(process.env.CONTROL_TRACE, JSON.stringify({ pid: process.pid, wallMs: performance.now() - start, cpuMs: (cpu.user + cpu.system) / 1000, cpu, resources: process.resourceUsage(), loadBefore, loadAfter: loadavg(), edges, loads }) + "\\n");
+          });
+          `);
+            const owner = join(development, "scripts", "startup-measurement.mjs");
+            const runner = join(root, "samples.mjs");
+            writeFileSync(runner, `
+          import assert from "node:assert/strict";
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { loadavg } from "node:os";
+          import { DIRECT_IMPORT_BUDGET_MS, measureColdStartup } from ${JSON.stringify(pathToFileURL(owner).href)};
+          const evidence = ${JSON.stringify(evidence)};
+          process.env.NODE_OPTIONS = ${JSON.stringify("--import=" + pathToFileURL(hook).href)};
+          const samples = [];
+          for (let i = 1; i <= 3; i++) {
+            process.env.CONTROL_TRACE = evidence + "/trace-" + i + ".json";
+            const before = loadavg();
+            const sample = await measureColdStartup("./dist/extensions/agent-browser/index.js", ${JSON.stringify(development)});
+            const trace = JSON.parse(readFileSync(process.env.CONTROL_TRACE, "utf8"));
+            samples.push({ sampleIndex: i, ...sample, cpuMs: trace.cpuMs, diagnosticWallMs: trace.wallMs, pid: trace.pid, modules: trace.loads.length, loadBefore: before });
+          }
+          assert.equal(new Set(samples.map(s => s.pid)).size, 3);
+          assert.ok(samples.every(s => s.events > 0 && s.tools.includes("agent_browser")));
+          const result = { budgetMs: DIRECT_IMPORT_BUDGET_MS, count: samples.length, instrumented: true, note: "Canonical cold clock/factory unchanged; synchronous import hooks add diagnostic overhead. CPU interval includes final JSON output. No extension/peer prewarm. Control is not final fleet acceptance.", samples, withinBudget: samples.every(s => s.totalMs < DIRECT_IMPORT_BUDGET_MS) };
+          writeFileSync(evidence + "/samples.json", JSON.stringify(result, null, 2) + "\\n");
+          console.log(JSON.stringify(result));
+          `);
+            writeJson(join(evidence, "measurement-owner.json"), { path: owner, sha256: sha256(owner), startupTestSha256: sha256(join(development, "test", "agent-browser.startup.test.ts")), compiledEntrypointSha256: sha256(join(development, "dist", "extensions", "agent-browser", "index.js")) });
+            run(process.execPath, [runner], { cwd: development, env });
+            for (const file of ["trace.mjs", "samples.mjs"]) writeFileSync(join(evidence, file), readFileSync(join(root, file)));
+            const samples = JSON.parse(readFileSync(join(evidence, "samples.json"), "utf8"));
+            const urls = new Set();
+            for (let i = 1; i <= 3; i++) {
+              for (const row of JSON.parse(readFileSync(join(evidence, "trace-" + i + ".json"))).loads) if (row.url.startsWith("file:")) urls.add(row.url);
+            }
+            writeJson(join(evidence, "module-identities.json"), [...urls].sort().map(url => ({ url, sha256: sha256(new URL(url)) })));
+            assert.equal(samples.count, 3);
+            console.log("Strict unchanged control budget result: " + (samples.withinBudget ? "PASS" : "FAIL"));
+          } finally {
+            rmSync(root, { recursive: true, force: true });
+          }
+          JS
+          node "$RUNNER_TEMP/control.mjs" 2>&1 | tee evidence/raw-control.log
+          cp "$RUNNER_TEMP/control.mjs" evidence/control.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-cold-start-control-${{ matrix.host }}
+          path: evidence
+          if-no-files-found: error
+          retention-days: 14
