@@ -69,7 +69,7 @@ try {
     const selected = selectDevelopmentHost(development, host, env);
     report.developmentHost = selected;
     phase = "package-contracts";
-    run("npm", ["run", "check:compat"], { cwd: development, timeout: contractTimeoutMs, env: {
+    run("npm", ["run", "check:compat"], { cwd: development, timeout: contractTimeoutMs, stdio: ["pipe", "pipe", "inherit"], env: {
       ...env, PI_COMPAT_HOST: values.host, PI_COMPAT_EXPECTED_VERSION: host.version,
       PI_COMPAT_EXPECTED_PACKAGE_DIR: selected.packageDir, PI_PACKAGE_DIR: selected.packageDir,
       PI_HOST_INDEX: selected.index, PI_HOST_CLI: selected.cli,

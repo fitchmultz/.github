@@ -147,7 +147,7 @@ jobs:
       matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
     name: ${{ matrix.repo }} / ${{ matrix.label }} / ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.repo == 'pi-subagents' && 120 || matrix.os == 'windows-latest' && (matrix.repo == 'pi-agent-browser-native' && 70 || matrix.repo == 'pi-cursor-sdk' && 35 || 25) || matrix.repo == 'pi-agent-browser-native' && 45 || 25 }}
+    timeout-minutes: ${{ matrix.repo == 'pi-subagents' && 120 || matrix.os == 'windows-latest' && (matrix.repo == 'pi-agent-browser-native' && 70 || matrix.repo == 'pi-cursor-sdk' && 35 || 25) || matrix.repo == 'pi-agent-browser-native' && 45 || matrix.repo == 'pi-apply-edits' && matrix.os == 'macos-latest' && 45 || 25 }}
     # The owner waived Windows qualification on 2026-09-21; retain actual diagnostic failures/artifacts.
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
     env:
