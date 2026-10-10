@@ -11,6 +11,6 @@
     "qualify": "node scripts/qualify.mjs"
   },
   "engines": { "node": "^22.22.2 || ^24.15.0 || >=26.0.0" },
-  "devDependencies": { "renovate": "44.133.0" },
+  "devDependencies": { "renovate": "44.149.2" },
   "allowScripts": { "re2": true }
 }
