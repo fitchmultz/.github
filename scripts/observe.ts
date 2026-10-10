@@ -20,6 +20,7 @@ export default function (pi: ExtensionAPI) {
       const packageDir = getPackageDir();
       const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
       const manifest = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8"));
+      const model = ctx.model;
       writeFileSync(process.env.PI_COMPAT_OBSERVATION!, JSON.stringify({
         packageDir,
         version: VERSION,
@@ -29,6 +30,10 @@ export default function (pi: ExtensionAPI) {
         activeTools: pi.getActiveTools(),
         commands: pi.getCommands(),
         providers: [...new Set(ctx.modelRegistry.getAll().map((model) => model.provider))].sort(),
+        selectedModel: model ? { provider: model.provider, id: model.id } : null,
+        availableModels: ctx.modelRegistry.getAvailable().map(({ provider, id }) => ({ provider, id })),
+        selectedModelConfiguredAuth: model ? ctx.modelRegistry.hasConfiguredAuth(model) : null,
+        modelRegistryErrorPresent: ctx.modelRegistry.getError() !== undefined,
         themes: themes.map(({ name, sourcePath }) => ({ name, sourcePath })),
       }, null, 2));
       ctx.shutdown();
