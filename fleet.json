@@ -5,10 +5,9 @@
   { "repo": "pi-change-working-dir", "kind": "extension", "nodes": ["24.15.0", "24"], "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-stash", "kind": "extension", "npmPackage": "@fitchmultz/pi-stash", "npmRelease": "automatic", "nodes": ["24"] },
   { "repo": "pi-fitch-kit", "kind": "extension", "nodes": ["24", "26"], "extraPlatforms": ["macos-latest"] },
-  { "repo": "pi-edit-session-in-place", "kind": "extension", "npmPackage": "pi-edit-session-in-place", "npmRelease": "automatic", "nodes": ["24"] },
   { "repo": "pi-ctx-info", "kind": "extension", "nodes": ["24"] },
   { "repo": "pi-tool-duration", "kind": "extension", "npmPackage": "pi-tool-duration", "npmRelease": "automatic", "nodes": ["24"] },
-  { "repo": "pi-apply-edits", "kind": "extension", "nodes": ["24"], "extraPlatforms": ["macos-latest"], "contractTimeoutMs": { "linux": 1200000, "darwin": 1200000 } },
+  { "repo": "pi-apply-edits", "kind": "extension", "nodes": ["24"], "extraPlatforms": ["macos-latest"], "contractTimeoutMs": { "linux": 1200000, "darwin": 1800000 } },
   { "repo": "pi-oracle", "kind": "extension", "npmPackage": "pi-oracle", "npmRelease": "approval", "extraPlatforms": ["macos-latest", "windows-latest"] },
   { "repo": "pi-todo-list", "kind": "extension", "nodes": ["24"] },
   { "repo": "pi-posthorse", "kind": "extension", "npmPackage": "pi-posthorse", "npmRelease": "automatic", "nodes": ["24"], "extraPlatforms": ["macos-latest"], "contractTimeoutMs": { "linux": 1200000, "darwin": 1200000 } },
@@ -23,6 +22,5 @@
   { "repo": "pi-zai-mcp", "kind": "extension", "npmPackage": "pi-zai-mcp", "npmRelease": "automatic" },
   { "repo": "pi-workflows", "kind": "extension", "npmPackage": "@fitchmultz/pi-workflows", "npmRelease": "automatic" },
   { "repo": "pi-zai-agents", "kind": "extension", "npmPackage": "pi-zai-agents", "npmRelease": "automatic" },
-  { "repo": "pi-local-agents-only", "kind": "extension", "npmPackage": "pi-local-agents-only" },
   { "repo": "ponytail", "kind": "extension", "nodes": ["24.15.0", "24"] }
 ]

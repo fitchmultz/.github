@@ -33,7 +33,7 @@ test("only an enabled owned scoped channel may await its first publication", () 
   assert.equal(awaitsFirstPublication(undefined, "@fitchmultz/pi-calculator"), false);
 });
 
-test("published metadata treats a registry 404 as pending only for a first-publication channel", { skip: process.platform === "win32" }, (t) => {
+test("published metadata normalizes npm records and permits only an owned first-publication 404", { skip: process.platform === "win32" }, (t) => {
   const bin = mkdtempSync(join(tmpdir(), "pi-fake-npm-"));
   t.after(() => rmSync(bin, { recursive: true, force: true }));
   const npm = join(bin, "npm");
@@ -44,6 +44,19 @@ test("published metadata treats a registry 404 as pending only for a first-publi
   assert.throws(() => publishedMetadata(unscoped, [], { env }), /npm exited 1/);
   fake(`echo 'npm error code ETIMEDOUT' >&2; exit 1`);
   assert.throws(() => publishedMetadata(scoped, [], { env }), /npm exited 1/);
-  fake(`echo '{"name":"@fitchmultz/pi-calculator","version":"1.2.3"}'`);
-  assert.deepEqual(publishedMetadata(scoped, [], { env }), { name: "@fitchmultz/pi-calculator", version: "1.2.3" });
+  const record = { name: "@fitchmultz/pi-calculator", version: "1.2.3",
+    repository: { url: "git+https://github.com/fitchmultz/pi-calculator.git" }, dist: { integrity: "sha512-fixture" } };
+  // npm 11 emits an object; the independently observed npm 12.2.0 view response is a singleton array.
+  for (const metadata of [record, [record]]) {
+    fake(`echo '${JSON.stringify(metadata)}'`);
+    assert.deepEqual(publishedMetadata(scoped, [], { env }), record);
+  }
+  for (const metadata of [null, "metadata", 1, [], [record, record], [null], [[record]], {},
+    { ...record, name: "@someone/pi-calculator" }, { ...record, version: "latest" },
+    { ...record, version: undefined }, { ...record, repository: {} }, { ...record, dist: {} }]) {
+    fake(`echo '${JSON.stringify(metadata)}'`);
+    assert.throws(() => publishedMetadata(scoped, [], { env }), /Invalid published npm metadata/);
+  }
+  fake(`echo '{not json}'`);
+  assert.throws(() => publishedMetadata(scoped, [], { env }), SyntaxError);
 });

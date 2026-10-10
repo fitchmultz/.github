@@ -147,7 +147,7 @@ jobs:
       matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
     name: ${{ matrix.repo }} / ${{ matrix.label }} / ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.repo == 'pi-subagents' && 120 || matrix.os == 'windows-latest' && (matrix.repo == 'pi-agent-browser-native' && 70 || matrix.repo == 'pi-cursor-sdk' && 35 || 25) || matrix.repo == 'pi-agent-browser-native' && 45 || 25 }}
+    timeout-minutes: ${{ matrix.repo == 'pi-subagents' && 120 || matrix.os == 'windows-latest' && (matrix.repo == 'pi-agent-browser-native' && 70 || matrix.repo == 'pi-cursor-sdk' && 35 || 25) || matrix.repo == 'pi-agent-browser-native' && 45 || matrix.repo == 'pi-apply-edits' && matrix.os == 'macos-latest' && 45 || 25 }}
     # The owner waived Windows qualification on 2026-09-21; retain actual diagnostic failures/artifacts.
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
     env:
@@ -221,8 +221,10 @@ jobs:
           sysroot="$(rustc --print sysroot)"
           printf '%s\n' "$sysroot/bin" >> "$GITHUB_PATH"
       - name: Qualify the selected host and consumer artifacts
+        timeout-minutes: ${{ matrix.os == 'windows-latest' && (matrix.repo == 'pi-agent-browser-native' && 60 || matrix.repo == 'pi-cursor-sdk' && 25 || 15) || 360 }}
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           REPO: ${{ matrix.repo }}
           HOST: ${{ matrix.host }}
           VERSION: ${{ matrix.version }}
@@ -230,12 +232,19 @@ jobs:
           PI_COMPAT_LANE_LABEL: ${{ matrix.label }}
           PI_COMPAT_FORK_REF: ${{ needs.resolve.outputs.fork-ref }}
         run: |
+          set -o pipefail
           target="$VERSION"
           if [[ "$HOST" == fork ]]; then target="$RUNNER_TEMP/fork-package"; fi
           extra=()
           if [[ "$PUBLISHED" == true ]]; then extra+=(--published); fi
+          mkdir -p "$GITHUB_WORKSPACE/evidence"
+          printf 'Qualification inputs only; not a completed qualification or provenance receipt.\nrepo=%s\nsource=%s\nhost=%s\ntarget=%s\nnode=%s\nautomation=%s\n' \
+            "$REPO" "$(git -C "$GITHUB_WORKSPACE/extension" rev-parse HEAD)" "$HOST" "$target" \
+            "$(node --version)" "$(git -C "$GITHUB_WORKSPACE/automation" rev-parse HEAD)" \
+            > "$GITHUB_WORKSPACE/evidence/lane-inputs.txt"
           node automation/scripts/qualify.mjs --repo "$REPO" --source "$GITHUB_WORKSPACE/extension" \
-            --host "$HOST" --target "$target" --output "$GITHUB_WORKSPACE/evidence" "${extra[@]}"
+            --host "$HOST" --target "$target" --output "$GITHUB_WORKSPACE/evidence" "${extra[@]}" \
+            2>&1 | tee "$GITHUB_WORKSPACE/evidence/qualification.log"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
