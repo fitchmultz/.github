@@ -129,7 +129,7 @@ jobs:
           npm run build:offline
           node ../automation/scripts/pack-fork.mjs . "$RUNNER_TEMP/fork-package" "$FORK_REF"
           git diff --exit-code
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fork-host-${{ needs.resolve.outputs.fork-ref }}
           path: ${{ runner.temp }}/fork-package
@@ -245,7 +245,7 @@ jobs:
           node automation/scripts/qualify.mjs --repo "$REPO" --source "$GITHUB_WORKSPACE/extension" \
             --host "$HOST" --target "$target" --output "$GITHUB_WORKSPACE/evidence" "${extra[@]}" \
             2>&1 | tee "$GITHUB_WORKSPACE/evidence/qualification.log"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: qualification-${{ matrix.repo }}-${{ matrix.label }}-${{ matrix.os }}-${{ matrix.node }}
