@@ -60,6 +60,8 @@ gh api "repos/$repo/automated-security-fixes"
 
 The final response must report `enabled: true` and `paused: false`. Enable these settings explicitly for maintained forks too; do not unarchive retired repositories merely to run dependency automation.
 
+Audit existing Renovate PRs **before** activating the disabled preset: [shutdown performs a one-time PR/branch cleanup](https://docs.renovatebot.com/configuration-options/#enabled). Renovate [preserves branches with another author's commits and their open PRs](https://docs.renovatebot.com/configuration-options/#prunestalebranches), although it may mark them abandoned for manual maintenance. To retain a bot-only security proposal, take ownership with an owner-authored metadata-only commit that keeps the original fix as its parent and preserves its code tree. Verify the expected branch head before publishing and verify the PR remains open afterward. Do not rely on repository-only `pruneStaleBranches: false` during shutdown: disabled initialization can reach cleanup before that setting propagates.
+
 No `.github/dependabot.yml` is needed for security updates. Do not add a version-update schedule: routine version and digest upgrades remain manual. Native security updates can repair npm transitive lockfile dependencies that current Renovate cannot remediate. GitHub opens a PR only when it can produce a fix; alerts without a patched version or a resolvable upgrade still need maintainer attention. Keep the existing compatibility gates and review security fixes rather than enabling automatic merge.
 
 ## Rollout and administration
