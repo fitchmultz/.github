@@ -1,6 +1,6 @@
 # Shared Pi automation
 
-This repository gives Mitch's Pi packages a shared set of GitHub Actions checks, dependency updates and npm release automation. To use it in a fleet repository, add the [reusable workflow and Renovate preset](docs/integration.md); contributors can [run the automation tests locally](docs/development.md).
+I use this repository to check my Pi packages against current Pi releases, keep their dependencies up to date and publish their npm packages. If you maintain or contribute to one of those packages, start with the [workflow and Renovate setup](docs/integration.md) or the [local test commands](docs/development.md).
 
 ![An extension PR resolves exact Pi hosts, runs separate official and maintained-fork lanes, and joins them in the compatibility check.](.github/readme/qualification.png)
 
@@ -26,14 +26,11 @@ Each package keeps its own source, lockfile and `check:compat` command. This rep
 
 Normal extension PRs test the **latest stable official Pi** and the **maintained `fitchmultz/pi` main**. Host identities are resolved once for the run, so later jobs keep using the same official version and fork commit. A fork integration can select its exact candidate commit instead.
 
-Each applicable Node/platform lane runs:
+For extensions, each Node/platform lane runs the package's compatibility contracts, installs a fresh Git checkout with production dependencies, and loads it through the selected host's real Pi CLI. That includes extension loading and shipped-theme discovery.
 
-- The package's own compatibility contracts.
-- A fresh Git checkout with production dependencies and its normal install lifecycle.
-- The selected host's real Pi CLI, including extension loading and shipped-theme discovery.
-- For owned npm channels, a packed tarball install and a comparison of its tools, commands and providers with the Git install.
+For owned npm channels, the checks also install a packed tarball and compare its tools, commands and providers with the Git install. Skills packages keep their own resource contracts.
 
-Skills retain their resource contracts. These offline checks use empty profiles and no provider credentials; authenticated browser, desktop and paid-provider release checks remain package-specific.
+These checks run offline with empty profiles and no provider credentials. Packages that need authenticated browser, desktop or paid-provider checks keep those as separate release requirements.
 
 **Windows qualification is currently owner-waived.** Windows jobs remain visible diagnostics; Linux/macOS and the other required gates still apply. The [qualification reference](docs/qualification.md#qualification) records the waiver, preparation details and per-package budgets.
 
@@ -51,7 +48,7 @@ The [fleet inventory](fleet.json) identifies owned npm channels and whether they
 
 After the PR merges, the release pipeline checks the resolved Pi hosts, builds one candidate tarball and verifies that same archive on both hosts before publishing. Browser Native, Oracle and Cursor also require their existing manual evidence and approval of the `npm` environment.
 
-**An already-published version does not publish new source changes.** A README-only update needs no version bump. The [npm release guide](docs/npm-releases.md) covers trusted publishing, first publication, candidate downloads and safe recovery.
+Merging new source doesn't republish an existing version. README edits don't need a release. The [npm release guide](docs/npm-releases.md) covers trusted publishing, first publication, candidate downloads and safe recovery.
 
 ## Contribute
 
@@ -65,8 +62,6 @@ Changes to shared automation run fleet-wide checks in this repository's PR CI. P
 
 ## Guides and source
 
-- [Repository setup and administration](docs/integration.md)
-- [Qualification details, platform waiver and troubleshooting evidence](docs/qualification.md)
-- [npm release setup and recovery](docs/npm-releases.md)
-- [Local development and reproduction commands](docs/development.md)
-- [Reusable workflows](.github/workflows/) · [Automation scripts](scripts/) · [Renovate preset](pi-extensions.json)
+[Repository setup](docs/integration.md) · [Qualification details and Windows waiver](docs/qualification.md) · [npm releases](docs/npm-releases.md) · [Local development](docs/development.md)
+
+[Reusable workflows](.github/workflows/) · [Automation scripts](scripts/) · [Renovate preset](pi-extensions.json)
