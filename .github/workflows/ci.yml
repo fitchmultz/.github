@@ -23,6 +23,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      fleet-required: ${{ steps.scope.outputs.fleet-required }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          check-latest: true
+          package-manager-cache: false
+      - id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/ci.mjs scope --event "$EVENT" --base "$BASE" --head "$HEAD"
+
   hosts:
     uses: ./.github/workflows/resolve-hosts.yml
     with:
@@ -68,6 +90,8 @@ jobs:
         run: npm run test:native
 
   windows-environment:
+    needs: scope
+    if: needs.scope.outputs.fleet-required == 'true'
     # Windows qualification is owner-waived; retain this diagnostic without gating delivery.
     continue-on-error: true
     runs-on: windows-latest
@@ -112,7 +136,8 @@ jobs:
           "$(go env GOPATH)/bin/actionlint"
 
   fleet:
-    needs: hosts
+    needs: [scope, hosts]
+    if: needs.scope.outputs.fleet-required == 'true'
     uses: ./.github/workflows/pi-compatibility.yml
     with:
       automation-ref: ${{ github.sha }}
@@ -125,12 +150,22 @@ jobs:
 
   automation:
     if: always()
-    needs: [hosts, tests, configuration, fleet]
+    needs: [scope, hosts, tests, configuration, fleet]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          check-latest: true
+          package-manager-cache: false
       - env:
+          SCOPE: ${{ needs.scope.result }}
           HOSTS: ${{ needs.hosts.result }}
           TESTS: ${{ needs.tests.result }}
           CONFIGURATION: ${{ needs.configuration.result }}
+          FLEET_REQUIRED: ${{ needs.scope.outputs.fleet-required }}
           FLEET: ${{ needs.fleet.result }}
-        run: test "$HOSTS" = success && test "$TESTS" = success && test "$CONFIGURATION" = success && test "$FLEET" = success
+        run: node scripts/ci.mjs check
