@@ -1,17 +1,17 @@
 # Shared Pi automation
 
-I use this repository to check my Pi packages against current Pi releases, keep their dependencies up to date and publish their npm packages. If you maintain or contribute to one of those packages, start with the [workflow and Renovate setup](docs/integration.md) or the [local test commands](docs/development.md).
+This repository provides GitHub Actions checks, a Renovate preset, and npm release automation for Mitch's Pi packages. Connect your package repository with the [setup guide](docs/integration.md).
 
-![An extension PR resolves exact Pi hosts, runs separate official and maintained-fork lanes, and joins them in the compatibility check.](.github/readme/qualification.png)
+![An extension PR resolves exact Pi hosts, tests separate official and maintained-host lanes, and joins their results in the compatibility check.](.github/readme/qualification.png)
 
-An extension PR tests the same source against both Pi hosts; the compatibility check collects the required lane results.
+An extension PR tests the same source against both Pi hosts before the compatibility check reports a result.
 
-## Start using it
+## Use the shared automation
 
-Each package keeps its own source, lockfile and `check:compat` command. This repository supplies the shared workflows and the [fleet inventory](fleet.json).
+Each package repository keeps its source, lockfile, and `check:compat` command.
 
-1. Follow the [repository setup guide](docs/integration.md) to connect the compatibility workflow. Use one reviewed automation commit for the workflow and its scripts.
-2. Add the shared preset to your repository's `renovate.json`:
+1. Add the compatibility workflow to your repository. Pin the workflow and `automation-ref` to the same reviewed commit.
+2. Add this preset to your repository's `renovate.json`:
 
    ```json
    {
@@ -20,48 +20,42 @@ Each package keeps its own source, lockfile and `check:compat` command. This rep
    }
    ```
 
-3. Give the managed Renovate GitHub App access, then open a PR and check its compatibility result. The preset groups Pi development dependencies and shared workflow updates; it does not enable automerge.
+3. Give the Renovate GitHub App access to your repository. Open a PR. Check its compatibility result.
 
-## What gets checked?
+The preset groups updates for Pi development dependencies and shared workflows. It does not enable automerge.
 
-Normal extension PRs test the **latest stable official Pi** and the **maintained `fitchmultz/pi` main**. Host identities are resolved once for the run, so later jobs keep using the same official version and fork commit. A fork integration can select its exact candidate commit instead.
+## Package checks
 
-For extensions, each Node/platform lane runs the package's compatibility contracts, installs a fresh Git checkout with production dependencies, and loads it through the selected host's real Pi CLI. That includes extension loading and shipped-theme discovery.
+Normal extension PRs test the latest stable official Pi and maintained `fitchmultz/pi` main. Each run resolves both host identities once.
 
-For owned npm channels, the checks also install a packed tarball and compare its tools, commands and providers with the Git install. Skills packages keep their own resource contracts.
+Each extension lane runs package contracts, installs a fresh Git checkout with production dependencies, and loads extensions and themes through the real Pi CLI. Owned npm channels also test a tarball install and compare its tools, commands, and providers with the Git install. Skills packages retain their resource contracts.
 
-These checks run offline with empty profiles and no provider credentials. Packages that need authenticated browser, desktop or paid-provider checks keep those as separate release requirements.
+The checks use empty profiles without provider credentials. Keep each package's separate browser, desktop, and paid-provider release checks.
 
-**Windows qualification is currently owner-waived.** Windows jobs remain visible diagnostics; Linux/macOS and the other required gates still apply. The [qualification reference](docs/qualification.md#qualification) records the waiver, preparation details and per-package budgets.
+Windows checks remain owner-waived diagnostics. Review those diagnostics before you claim Windows support. The [qualification reference](docs/qualification.md) records the waiver, host preparation, lane settings, and command budgets.
 
-## Find results and failures
+## Results and failures
 
-Look for the **compatibility** aggregate in GitHub Actions. Its job summary and `qualification-*` artifacts show the tested source, exact hosts, failed phase and consumer output. Missing evidence, cancellation or a failed required lane prevents a successful result.
+Read the compatibility check in GitHub Actions. Download its `qualification-*` artifacts to find the tested source, exact hosts, failed phase, and consumer output. Missing evidence, cancellation, or a failed required lane prevents a successful result.
 
-The scheduled **Pi release canary** checks fleet default branches and existing owned npm releases. It maintains one issue per affected repository and closes it when every required lane passes with complete evidence. It must be enabled through the repository's Actions variable; [administration steps](docs/integration.md#rollout-and-administration) cover that setup.
+The Pi release canary checks repository default branches and published npm versions. It updates one issue per affected repository. Set `PI_COMPATIBILITY_ENABLED=true` in this repository's Actions variables to enable it.
 
-The canary reports problems without publishing packages or updating anyone's Pi installation. Fixes go through the affected repository's normal PR process.
+The canary reports failures without publishing packages or changing Pi installations. Fix failures through the affected repository's normal PR process.
 
-## Release an npm package
+## npm releases
 
-The [fleet inventory](fleet.json) identifies owned npm channels and whether they publish automatically or need maintainer approval. A release starts with an intentional stable version and versioned changelog entry in a PR.
+Release only the package names in [fleet.json](fleet.json). Choose a stable version. Add a versioned changelog entry in a PR.
 
-After the PR merges, the release pipeline checks the resolved Pi hosts, builds one candidate tarball and verifies that same archive on both hosts before publishing. Browser Native, Oracle and Cursor also require their existing manual evidence and approval of the `npm` environment.
+After the PR merges, the release workflow verifies one candidate tarball on both Pi hosts. Browser Native, Oracle, and Cursor also require manual evidence and approval of the `npm` environment.
 
-Merging new source doesn't republish an existing version. README edits don't need a release. The [npm release guide](docs/npm-releases.md) covers trusted publishing, first publication, candidate downloads and safe recovery.
+The release workflow does not republish existing versions. README updates need no release. Follow the [npm release guide](docs/npm-releases.md) for setup, candidate downloads, and recovery.
 
 ## Contribute
 
-Use Node 24. The repository's [development guide](docs/development.md) covers dependency setup, native CLI tests, Renovate validation and local qualification. The unit tests can run directly from a checkout:
+Use Node 24. Run the unit tests from a checkout:
 
 ```sh
 npm test
 ```
 
-Changes to shared automation run fleet-wide checks in this repository's PR CI. Packages keep their own tests and release requirements.
-
-## Guides and source
-
-[Repository setup](docs/integration.md) · [Qualification details and Windows waiver](docs/qualification.md) · [npm releases](docs/npm-releases.md) · [Local development](docs/development.md)
-
-[Reusable workflows](.github/workflows/) · [Automation scripts](scripts/) · [Renovate preset](pi-extensions.json)
+Follow the [development guide](docs/development.md) for dependency setup, native CLI tests, Renovate validation, and local qualification.
