@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="760" viewBox="0 0 1600 760" role="img" aria-labelledby="title desc">
+  <title id="title">How a Pi extension PR is qualified</title>
+  <desc id="desc">The extension source and its contracts feed host resolution. The latest stable official Pi version and maintained fitchmultz/pi commit feed separate Node and platform lanes, which join at the compatibility aggregate. Windows lanes remain owner-waived diagnostics.</desc>
+  <!-- Composition: 1600 × 760; left-to-right entry, resolution, parallel hosts, aggregate.
+       Material type is at least 26px (14.3px at the 880px README preview).
+       Edges: PR → resolution; resolution → official and fork lanes; both → aggregate.
+       Source: pi-compatibility.yml, resolve-matrix.mjs, hosts.mjs, qualify.mjs. -->
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#060A12"/>
+      <stop offset="0.52" stop-color="#0B1120"/>
+      <stop offset="1" stop-color="#080C16"/>
+    </linearGradient>
+    <radialGradient id="blueBloom" cx="0.18" cy="0.18" r="0.8">
+      <stop stop-color="#2563EB" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#2563EB" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="violetBloom" cx="0.82" cy="0.36" r="0.7">
+      <stop stop-color="#8B5CF6" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#8B5CF6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#172238" stop-opacity="0.96"/>
+      <stop offset="1" stop-color="#0E1525" stop-opacity="0.98"/>
+    </linearGradient>
+    <linearGradient id="focus" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#172554" stop-opacity="0.82"/>
+      <stop offset="1" stop-color="#312E81" stop-opacity="0.58"/>
+    </linearGradient>
+    <pattern id="dotGrid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="1.5" cy="1.5" r="1.2" fill="#94A3B8" fill-opacity="0.11"/>
+    </pattern>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#02040A" flood-opacity="0.54"/>
+    </filter>
+    <marker id="arrowBlue" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M1 1 11 6 1 11Z" fill="#60A5FA"/>
+    </marker>
+    <marker id="arrowViolet" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M1 1 11 6 1 11Z" fill="#A78BFA"/>
+    </marker>
+    <style>
+      .sans { font-family: Inter, ui-sans-serif, Arial, sans-serif; }
+      .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+      .card-title { font: 650 32px Inter, ui-sans-serif, Arial, sans-serif; fill: #F8FAFC; }
+      .copy { font: 450 26px Inter, ui-sans-serif, Arial, sans-serif; fill: #B9C7DD; }
+      .chip { font: 650 21px "JetBrains Mono", ui-monospace, monospace; }
+      .connector { fill: none; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+
+  <!-- Solid canvas and restrained atmosphere. -->
+  <rect width="1600" height="760" fill="url(#canvas)"/>
+  <rect width="1600" height="760" fill="url(#blueBloom)"/>
+  <rect width="1600" height="760" fill="url(#violetBloom)"/>
+  <rect width="1600" height="760" fill="url(#dotGrid)"/>
+  <g class="sans">
+    <text x="64" y="80" font-size="48" font-weight="700" letter-spacing="-1" fill="#F8FAFC">One PR. Two Pi hosts. One compatibility result.</text>
+    <text x="64" y="128" class="copy">Shared qualification checks the package on its configured Node and platform lanes.</text>
+  </g>
+
+  <!-- Host zone distinguishes concurrent lanes from the sequential entry. -->
+  <rect x="738" y="176" width="414" height="448" rx="30" fill="#0D1423" fill-opacity="0.72" stroke="#293750"/>
+
+  <!-- Routes sit behind cards and use reserved whitespace. -->
+  <g class="connector">
+    <path d="M310 400H360" stroke="#60A5FA" marker-end="url(#arrowBlue)"/>
+    <path d="M690 400H714V294H760" stroke="#60A5FA" marker-end="url(#arrowBlue)"/>
+    <path d="M714 400V506H760" stroke="#A78BFA" marker-end="url(#arrowViolet)"/>
+    <path d="M1130 294H1164V400H1200" stroke="#60A5FA" marker-end="url(#arrowBlue)"/>
+    <path d="M1130 506H1164V400" stroke="#A78BFA"/>
+  </g>
+
+  <!-- Source and resolver. -->
+  <g class="sans" filter="url(#shadow)">
+    <g transform="translate(64 298)">
+      <rect width="246" height="204" rx="24" fill="url(#glass)" stroke="#293750"/>
+      <rect x="26" y="25" width="46" height="40" rx="9" fill="#60A5FA" fill-opacity="0.12"/>
+      <path d="M38 39h22M38 49h15" stroke="#93C5FD" stroke-width="3" stroke-linecap="round"/>
+      <text x="26" y="111" class="card-title">Extension PR</text>
+      <text x="26" y="153" class="copy">Source + its</text>
+      <text x="26" y="186" class="copy">own contracts</text>
+    </g>
+    <g transform="translate(360 277)">
+      <rect width="330" height="246" rx="26" fill="url(#focus)" stroke="#6D7DFF" stroke-opacity="0.62"/>
+      <rect x="26" y="24" width="178" height="36" rx="18" fill="#111A2A" stroke="#38517A"/>
+      <text x="115" y="49" text-anchor="middle" class="chip" fill="#93C5FD">ONCE PER RUN</text>
+      <text x="26" y="111" class="card-title">Resolve hosts</text>
+      <text x="26" y="156" class="copy">Freeze official version</text>
+      <text x="26" y="191" class="copy">and maintained</text>
+      <text x="26" y="226" class="copy">fork commit</text>
+    </g>
+  </g>
+
+  <!-- Independent host lanes reuse the same resolved identities. -->
+  <g class="sans" filter="url(#shadow)">
+    <g transform="translate(760 198)">
+      <rect width="370" height="192" rx="23" fill="url(#glass)" stroke="#293750"/>
+      <rect width="5" height="192" rx="2.5" fill="#60A5FA"/>
+      <text x="28" y="53" class="card-title">Official Pi</text>
+      <text x="28" y="99" class="copy">Latest stable release</text>
+      <text x="28" y="136" class="copy">Node + platform lanes</text>
+      <text x="28" y="173" class="chip" fill="#93C5FD">REQUIRED</text>
+    </g>
+    <g transform="translate(760 410)">
+      <rect width="370" height="192" rx="23" fill="url(#glass)" stroke="#293750"/>
+      <rect width="5" height="192" rx="2.5" fill="#A78BFA"/>
+      <text x="28" y="53" class="card-title">Maintained Pi</text>
+      <text x="28" y="99" class="copy">fitchmultz/pi main</text>
+      <text x="28" y="136" class="copy">One shared fork artifact</text>
+      <text x="28" y="173" class="chip" fill="#C4B5FD">REQUIRED</text>
+    </g>
+  </g>
+
+  <!-- Aggregate is a gate, never a publication step. -->
+  <g transform="translate(1200 277)" class="sans" filter="url(#shadow)">
+    <rect width="336" height="246" rx="26" fill="url(#glass)" stroke="#335948"/>
+    <circle cx="50" cy="49" r="22" fill="#4ADE80" fill-opacity="0.13"/>
+    <path d="m40 49 7 7 14-16" fill="none" stroke="#86EFAC" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="26" y="110" class="card-title">compatibility</text>
+    <text x="26" y="156" class="copy">All required lanes</text>
+    <text x="26" y="191" class="copy">must pass</text>
+    <text x="26" y="226" class="chip" fill="#86EFAC">CHECK + ARTIFACTS</text>
+  </g>
+
+  <!-- Concise shared test scope and platform boundary. -->
+  <g class="sans">
+    <text x="64" y="679" class="copy">Each lane: contracts → fresh Git install → real Pi CLI → npm tarball where applicable</text>
+    <text x="64" y="722" class="copy" fill="#91A0B8">Windows lanes are owner-waived diagnostics; other required gates remain in place.</text>
+  </g>
+</svg>
