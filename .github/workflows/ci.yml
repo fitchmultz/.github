@@ -147,6 +147,8 @@ jobs:
       # During the initial cross-repository PR rollout, this variable selects the candidate branches.
       # Clear it once those branches have merged; normal operation always qualifies main.
       source-ref: ${{ inputs.source-ref || vars.PI_COMPATIBILITY_SOURCE_REF || 'main' }}
+      # Non-gating Windows lanes held up the required check; the daily canary and manual dispatches keep them.
+      waived-platforms: ${{ github.event_name == 'workflow_dispatch' }}
 
   automation:
     if: always()
