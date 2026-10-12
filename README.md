@@ -41,7 +41,7 @@ The Pi release canary checks repository default branches and published npm versi
 
 The canary reports failures without publishing packages or changing Pi installations. Fix failures through the affected repository's normal PR process.
 
-## npm releases
+## Automatic npm releases
 
 Release only the package names in [fleet.json](fleet.json). Choose a stable version. Add a versioned changelog entry in a PR.
 
