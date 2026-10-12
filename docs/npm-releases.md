@@ -28,6 +28,8 @@ A daily **12:17 UTC** run and manual dispatch reconcile missed publications. Alr
   npm trust github PACKAGE --repo fitchmultz/REPO --file npm-release.yml --env npm --allow-publish --yes
   ```
 
+- If OIDC publication fails with `ENEEDAUTH` (npm's token exchange answers 404) although a matching trust record exists, add a fresh record with the command above and rerun the failed job; leave the old record. Records created on 2026-10-04 failed this way: Codex Goal 0.6.1 and Oracle 0.7.22 published through OIDC only after a fresh record was added, and every package without an OIDC publication received a fresh record on 2026-10-12. One web 2FA approval can cover several consecutive trust commands for a few minutes.
+
 - For existing channels, verify workflows, approval environments and npm trust before enabling the repository variable. For a first scoped publication, enable it after the reviewed source, green qualification, main-only environment and bootstrap credential are verified; publish first, then configure/read back native trust and remove the temporary secret:
 
   ```sh
