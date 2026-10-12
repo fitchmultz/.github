@@ -45,7 +45,7 @@ The canary reports failures without publishing packages or changing Pi installat
 
 Release only the package names in [fleet.json](fleet.json). Choose a stable version. Add a versioned changelog entry in a PR.
 
-After the PR merges, the release workflow verifies one candidate tarball on both Pi hosts. pi-agent-browser-native, pi-oracle, and pi-cursor-sdk also require manual evidence and approval of the `npm` environment.
+After the PR merges, the release workflow verifies one candidate tarball on both Pi hosts and publishes it without an approval step. pi-agent-browser-native, pi-oracle, and pi-cursor-sdk complete their manual release evidence before that merge.
 
 The release workflow does not republish existing versions. README updates need no release. Follow the [npm release guide](docs/npm-releases.md) for setup, candidate downloads, and recovery.
 

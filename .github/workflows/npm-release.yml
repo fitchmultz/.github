@@ -110,7 +110,7 @@ jobs:
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # The three approval packages have required reviewers here; every channel restricts this environment to main.
+    # `approval` channels add required reviewers here; every channel restricts this environment to main.
     environment:
       name: npm
       url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
