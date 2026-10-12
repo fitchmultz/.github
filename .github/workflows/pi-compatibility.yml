@@ -18,6 +18,10 @@ on:
         description: 'Host selection: both for normal qualification, fork for fork reverse dependencies'
         default: both
         type: string
+      waived-platforms:
+        description: Include owner-waived diagnostic platforms (Windows) in the matrix
+        default: true
+        type: boolean
       official-version:
         description: Official version already resolved earlier in this run; empty resolves latest
         default: ''
@@ -61,6 +65,7 @@ jobs:
           REPOSITORY: ${{ inputs.repository || github.repository }}
           SOURCE_REF: ${{ inputs.source-ref || github.sha }}
           HOST: ${{ inputs.host }}
+          WAIVED_PLATFORMS: ${{ inputs.waived-platforms }}
           OFFICIAL_VERSION: ${{ inputs.official-version }}
           FORK_REF: ${{ inputs.fork-ref }}
         run: node scripts/resolve-matrix.mjs

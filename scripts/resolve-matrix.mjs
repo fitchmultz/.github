@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { appendFileSync } from "node:fs";
-import { fleetPlatforms, readJson } from "./common.mjs";
+import { fleetPlatforms, readJson, waivedPlatforms } from "./common.mjs";
 import { resolveHostTargets } from "./hosts.mjs";
 
 const fleet = readJson(new URL("../fleet.json", import.meta.url));
 const requested = process.env.REPOSITORY;
 const host = process.env.HOST ?? "both";
 assert.ok(["both", "fork"].includes(host), "Host must be both or fork");
+const includeWaived = process.env.WAIVED_PLATFORMS ?? "true";
+assert.ok(["true", "false"].includes(includeWaived), "Waived platforms must be true or false");
 const selected = fleet.filter((entry) => (requested === "all" || `fitchmultz/${entry.repo}` === requested)
   && (host !== "fork" || entry.kind !== "cli"));
 assert.ok(selected.length, `No applicable fleet repository: ${requested} (host: ${host})`);
@@ -35,6 +37,7 @@ for (const entry of selected) {
     { host: "fork", label: "fork", version: "" },
   ];
   for (const platform of fleetPlatforms(entry)) {
+    if (includeWaived === "false" && waivedPlatforms.has(platform.os)) continue;
     for (const host of hosts) include.push({ repository, repo: entry.repo, ref, ...platform, ...host });
   }
 }

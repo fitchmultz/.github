@@ -118,6 +118,26 @@ test("fork reverse dependencies preserve all 45 fork lanes without any official 
   assert.ok(fork.requests.every((url) => url.startsWith("https://api.github.com/") && url.endsWith("/commits/compatibility%2Fpi-releases") && !url.includes("/pi-evidence/")));
 });
 
+test("PR and push fleet runs omit only the 8 owner-waived Windows lanes", async (t) => {
+  const full = await resolveFixture(t);
+  const trimmed = await resolveFixture(t, { WAIVED_PLATFORMS: "false" });
+  passed(full);
+  passed(trimmed);
+  assert.equal(trimmed.lanes.length, 82);
+  assert.deepEqual(trimmed.lanes, full.lanes.filter((lane) => lane.os !== "windows-latest"));
+  assert.deepEqual(platformLabels(trimmed.lanes.filter((lane) => lane.host === "fork"), "pi-agent-browser-native"), ["ubuntu-latest/24", "macos-latest/24"]);
+  assert.equal(new Set(trimmed.lanes.map((lane) => lane.repo)).size, 24);
+});
+
+test("invalid waived-platform selectors fail closed before fetching or emitting outputs", async (t) => {
+  for (const WAIVED_PLATFORMS of ["", "False", "yes"]) {
+    const result = await resolveFixture(t, { WAIVED_PLATFORMS });
+    assert.match(result.error?.message ?? "", /Waived platforms must be true or false/);
+    assert.deepEqual(result.outputs, {});
+    assert.deepEqual(result.requests, []);
+  }
+});
+
 test("an individual PR qualifies latest rather than selecting its stale locked development version", async (t) => {
   const result = await resolveFixture(t, { REPOSITORY: "fitchmultz/pi-calculator", SOURCE_REF: sourceSha });
   passed(result);
