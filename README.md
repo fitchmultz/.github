@@ -37,7 +37,7 @@ Windows checks remain owner-waived diagnostics. Review those diagnostics before 
 
 Read the compatibility check in GitHub Actions. Download its `qualification-*` artifacts to find the tested source, exact hosts, failed phase, and consumer output. Missing evidence, cancellation, or a failed required lane prevents a successful result.
 
-The Pi release canary checks repository default branches and published npm versions. It updates one issue per affected repository. Set `PI_COMPATIBILITY_ENABLED=true` in this repository's Actions variables to enable it.
+The Pi release canary checks repository default branches and published npm versions. It updates one issue per affected repository. When a repository leaves `fleet.json`, the canary closes its automation-owned issues as not planned, preserving the last evidence without claiming compatibility passed. Set `PI_COMPATIBILITY_ENABLED=true` in this repository's Actions variables to enable it.
 
 The canary reports failures without publishing packages or changing Pi installations. Fix failures through the affected repository's normal PR process.
 

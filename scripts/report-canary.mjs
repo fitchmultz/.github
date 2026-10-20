@@ -56,6 +56,17 @@ export function matchIssues(issues, report) {
   return { canonical, duplicates: related.filter((issue) => issue !== canonical && issue.state === "open") };
 }
 
+// Removed fleet entries produce no new qualification artifacts. Retire only open, marker-owned
+// issues for those entries, separately from passing qualification (which still needs full evidence).
+export function retiredIssues(issues, inventory = fleet) {
+  const active = new Set(inventory.map((entry) => entry.repo));
+  return issues.flatMap((issue) => {
+    if (issue.state !== "open" || issue.pull_request) return [];
+    const repo = issue.body?.match(/^<!-- pi-compatibility:([A-Za-z0-9_.-]+)(?::[^>\r\n]+)? -->$/m)?.[1];
+    return repo && repo !== "infrastructure" && !active.has(repo) ? [{ repo, issue }] : [];
+  });
+}
+
 async function main() {
   const [directory, conclusion] = process.argv.slice(2);
   assert.ok(directory && conclusion, "Usage: report-canary.mjs ARTIFACT_DIRECTORY QUALIFICATION_RESULT");
@@ -98,6 +109,11 @@ async function main() {
       await github(`issues/${duplicate.number}`, "PATCH", { state: "closed", state_reason: "not_planned" });
     }
     console.log(`${report.failed ? "FAIL" : report.complete ? "PASS" : "INCOMPLETE"} ${report.title}${canonical ? ` (#${canonical.number})` : ""}${duplicates.length ? `; superseded ${duplicates.map((issue) => `#${issue.number}`).join(", ")}` : ""}`);
+  }
+  for (const { repo, issue } of retiredIssues(issues)) {
+    await github(`issues/${issue.number}/comments`, "POST", { body: `fitchmultz/${repo} is no longer in this canary revision's fleet.json. Closing this automation-owned tracking issue as not planned, not as a passing compatibility check. The last qualification evidence above is retained. Latest canary: ${runUrl}` });
+    await github(`issues/${issue.number}`, "PATCH", { state: "closed", state_reason: "not_planned" });
+    console.log(`RETIRED Pi compatibility: ${repo} (#${issue.number})`);
   }
 }
 
