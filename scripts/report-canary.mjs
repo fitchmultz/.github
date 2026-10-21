@@ -80,13 +80,15 @@ async function main() {
     complete: conclusion === "success",
     title: "Pi compatibility: fleet qualification infrastructure", body: `<!-- pi-compatibility:infrastructure -->\n\nLatest run: ${runUrl}\n\nQualification result: ${conclusion}. A failed run without a package failure needs investigation in the resolver, fork build or runner jobs. Incomplete publication is infrastructure; it is not an extension incompatibility.` });
   async function github(path, method = "GET", body) {
-    const response = await fetch(`https://api.github.com/repos/${repository}/${path}`, { method,
+    const response = await fetch(`https://api.github.com/repos/${repository}${path ? `/${path}` : ""}`, { method,
       headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${process.env.GH_TOKEN}`, "Content-Type": "application/json" },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     if (!response.ok) throw new Error(`GitHub canary report ${method} ${path}: HTTP ${response.status}`);
     return response.json();
   }
+  // Resolve the current default branch independently of the trigger's webhook payload.
+  const { default_branch: defaultBranch } = await github("");
   const issues = [];
   for (let page = 1; ; page++) {
     const batch = await github(`issues?state=all&per_page=100&page=${page}`);
@@ -110,7 +112,6 @@ async function main() {
     }
     console.log(`${report.failed ? "FAIL" : report.complete ? "PASS" : "INCOMPLETE"} ${report.title}${canonical ? ` (#${canonical.number})` : ""}${duplicates.length ? `; superseded ${duplicates.map((issue) => `#${issue.number}`).join(", ")}` : ""}`);
   }
-  const defaultBranch = process.env.CANARY_DEFAULT_BRANCH;
   const canRetire = Boolean(defaultBranch) && process.env.GITHUB_REF === `refs/heads/${defaultBranch}`;
   for (const { repo, issue } of canRetire ? retiredIssues(issues) : []) {
     await github(`issues/${issue.number}/comments`, "POST", { body: `fitchmultz/${repo} is no longer in this canary revision's fleet.json. Closing this automation-owned tracking issue as not planned, not as a passing compatibility check. The last qualification evidence above is retained. Latest canary: ${runUrl}` });

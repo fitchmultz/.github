@@ -81,6 +81,7 @@ test("the reporter retires removed entries only on the current default branch, p
       { ref: "refs/heads/candidate", defaultBranch: "main", mayRetire: false },
       { ref: "refs/heads/main", defaultBranch: "main", mayRetire: true },
       { ref: "refs/heads/trunk", defaultBranch: "trunk", mayRetire: true },
+      { ref: "refs/heads/main", defaultBranch: "trunk", mayRetire: false },
       { ref: "refs/heads/main", defaultBranch: "", mayRetire: false },
       { ref: "", defaultBranch: "main", mayRetire: false },
     ]) {
@@ -90,13 +91,19 @@ test("the reporter retires removed entries only on the current default branch, p
         const calls = [];
         globalThis.fetch = async (url, options) => {
           calls.push({ url, method: options.method, body: options.body ? JSON.parse(options.body) : null });
-          return { ok: true, json: async () => options.method === "GET" ? ${JSON.stringify(issues)} : {} };
+          let response = {};
+          if (options.method === "GET") {
+            if (url === "https://api.github.com/repos/fitchmultz/.github") response = { default_branch: ${JSON.stringify(defaultBranch)} };
+            else if (url === "https://api.github.com/repos/fitchmultz/.github/issues?state=all&per_page=100&page=1") response = ${JSON.stringify(issues)};
+            else throw new Error("Unexpected GitHub read: " + url);
+          }
+          return { ok: true, json: async () => response };
         };
         process.argv = [process.execPath, ${JSON.stringify(script)}, ${JSON.stringify(root)}, "failure"];
         await import(pathToFileURL(${JSON.stringify(script)}));
         writeFileSync(${JSON.stringify(callsFile)}, JSON.stringify(calls));
       `], { encoding: "utf8", env: { ...process.env, GITHUB_REPOSITORY: "fitchmultz/.github", GITHUB_RUN_ID: "123", GH_TOKEN: "fixture-only",
-        GITHUB_REF: ref, CANARY_DEFAULT_BRANCH: defaultBranch } });
+        GITHUB_REF: ref, CANARY_DEFAULT_BRANCH: "" } });
       assert.equal(result.status, 0, result.stderr);
       const calls = JSON.parse(readFileSync(callsFile, "utf8"));
       for (const number of [96, 97]) {
