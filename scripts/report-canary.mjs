@@ -110,7 +110,9 @@ async function main() {
     }
     console.log(`${report.failed ? "FAIL" : report.complete ? "PASS" : "INCOMPLETE"} ${report.title}${canonical ? ` (#${canonical.number})` : ""}${duplicates.length ? `; superseded ${duplicates.map((issue) => `#${issue.number}`).join(", ")}` : ""}`);
   }
-  for (const { repo, issue } of retiredIssues(issues)) {
+  const defaultBranch = process.env.CANARY_DEFAULT_BRANCH;
+  const canRetire = Boolean(defaultBranch) && process.env.GITHUB_REF === `refs/heads/${defaultBranch}`;
+  for (const { repo, issue } of canRetire ? retiredIssues(issues) : []) {
     await github(`issues/${issue.number}/comments`, "POST", { body: `fitchmultz/${repo} is no longer in this canary revision's fleet.json. Closing this automation-owned tracking issue as not planned, not as a passing compatibility check. The last qualification evidence above is retained. Latest canary: ${runUrl}` });
     await github(`issues/${issue.number}`, "PATCH", { state: "closed", state_reason: "not_planned" });
     console.log(`RETIRED Pi compatibility: ${repo} (#${issue.number})`);
