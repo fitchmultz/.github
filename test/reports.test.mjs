@@ -20,7 +20,7 @@ test("one repository report keeps every host, Node and platform result together"
   assert.equal(reports[0].title, "Pi compatibility: pi-calculator");
   assert.equal(reports[0].failed, true);
   assert.match(reports[0].body, /seeded fixture failure/);
-  assert.match(reports[0].body, /Windows was not run, not that it passed/);
+  assert.match(reports[0].body, /missing Windows evidence is unqualified, not a pass/);
   assert.match(reports[0].body, /v22.19.0/);
   assert.match(reports[0].body, /--target 0.86.1/);
   assert.match(reports[0].body, new RegExp(`fork ${"b".repeat(40)}`));
