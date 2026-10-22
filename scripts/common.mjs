@@ -7,7 +7,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 export const codingAgent = "@earendil-works/pi-coding-agent";
 // Default Node floor/current lanes.
 export const defaultNodes = ["22.22.2", "24"];
-// Owner-waived platforms remain visible diagnostics without gating qualification.
+// Native Windows is best-effort; retain the existing export/input names for pinned callers.
 export const waivedPlatforms = new Set(["windows-latest"]);
 export const runnerPlatform = (os) => os.startsWith("windows") ? "win32" : os.startsWith("macos") ? "darwin" : "linux";
 

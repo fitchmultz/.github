@@ -31,13 +31,13 @@ Each extension lane runs package contracts, installs a fresh Git checkout with p
 
 The checks use empty profiles without provider credentials. Keep each package's separate browser, desktop, and paid-provider release checks.
 
-Windows checks remain owner-waived diagnostics. Review those diagnostics before you claim Windows support. The [qualification reference](docs/qualification.md) records the waiver, host preparation, lane settings, and command budgets.
+**Native Windows is best-effort.** Normal PRs, releases and the daily canary require Linux/macOS, not full Windows qualification. A small Windows environment smoke check remains nonblocking; deeper Windows suites are explicit opt-in diagnostics. Their real failures remain unresolved, and a passing required check does not certify Windows support. The [qualification reference](docs/qualification.md) records the policy, opt-in, host preparation, lane settings and command budgets.
 
 ## Results and failures
 
 Read the compatibility check in GitHub Actions. Download its `qualification-*` artifacts to find the tested source, exact hosts, failed phase, and consumer output. Missing evidence, cancellation, or a failed required lane prevents a successful result.
 
-The Pi release canary checks repository default branches and published npm versions. It updates one issue per affected repository. Set `PI_COMPATIBILITY_ENABLED=true` in this repository's Actions variables to enable it.
+The Pi release canary checks repository default branches and published npm versions. It updates one issue per affected repository. When a repository leaves `fleet.json`, a canary running on the automation repository's default branch closes its automation-owned issues as not planned, preserving the last evidence without claiming compatibility passed. Candidate-branch runs never retire trackers. Set `PI_COMPATIBILITY_ENABLED=true` in this repository's Actions variables to enable it.
 
 The canary reports failures without publishing packages or changing Pi installations. Fix failures through the affected repository's normal PR process.
 

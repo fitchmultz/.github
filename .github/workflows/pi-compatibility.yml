@@ -19,8 +19,8 @@ on:
         default: both
         type: string
       waived-platforms:
-        description: Include owner-waived diagnostic platforms (Windows) in the matrix
-        default: true
+        description: Include optional best-effort native Windows qualification
+        default: false
         type: boolean
       official-version:
         description: Official version already resolved earlier in this run; empty resolves latest
@@ -152,7 +152,7 @@ jobs:
     name: ${{ matrix.repo }} / ${{ matrix.label }} / ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.repo == 'pi-subagents' && 120 || matrix.os == 'windows-latest' && (matrix.repo == 'pi-agent-browser-native' && 70 || matrix.repo == 'pi-cursor-sdk' && 35 || 25) || matrix.repo == 'pi-agent-browser-native' && 45 || matrix.repo == 'pi-apply-edits' && matrix.os == 'macos-latest' && 45 || 25 }}
-    # The owner waived Windows qualification on 2026-09-21; retain actual diagnostic failures/artifacts.
+    # Native Windows is best-effort; retain actual diagnostic failures and artifacts.
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
     env:
       npm_config_cache: ${{ github.workspace }}/.npm-cache
@@ -224,6 +224,52 @@ jobs:
         run: |
           sysroot="$(rustc --print sysroot)"
           printf '%s\n' "$sysroot/bin" >> "$GITHUB_PATH"
+      - name: Install native skills test prerequisites
+        if: matrix.repo == 'pi-agent-skills'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends jq librsvg2-bin default-jre-headless
+      - name: Install D2 for real skills renderer checks
+        if: matrix.repo == 'pi-agent-skills'
+        run: |
+          curl -fsSL https://github.com/d2lang/d2/releases/download/v0.9.0/d2-v0.9.0-linux-amd64.tar.gz -o "$RUNNER_TEMP/d2.tar.gz"
+          printf '%s  %s\n' 5669ddc46b99e942cc96078f4a4e36d5e62103348f4c05179ede27802fdd87a9 "$RUNNER_TEMP/d2.tar.gz" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/d2"
+          tar -xzf "$RUNNER_TEMP/d2.tar.gz" -C "$RUNNER_TEMP/d2"
+          sudo install -m 755 "$(find "$RUNNER_TEMP/d2" -type f -name d2 -print -quit)" /usr/local/bin/d2
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        if: matrix.repo == 'pi-agent-skills'
+      - name: Install PMD for real code-smell helper checks
+        if: matrix.repo == 'pi-agent-skills'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dir="$RUNNER_TEMP/code-smells-pmd"
+          mkdir "$dir"
+          gh api repos/pmd/pmd/releases/latest > "$dir/release.json"
+          jq -e '[.assets[] | select(.name | startswith("pmd-dist-")) | select(.name | endswith("-bin.zip"))] |
+            if length == 1 then .[0] else error("Expected one PMD binary distribution") end' \
+            "$dir/release.json" > "$dir/asset.json"
+          url="$(jq -r .browser_download_url "$dir/asset.json")"
+          digest="$(jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))' "$dir/asset.json")"
+          curl -fL --retry 1 "$url" -o "$dir/pmd.zip"
+          printf '%s  %s\n' "${digest#sha256:}" "$dir/pmd.zip" | sha256sum -c -
+          unzip -q "$dir/pmd.zip" -d "$dir"
+          bin="$(find "$dir" -type f -path '*/bin/pmd' -print -quit)"
+          "$bin" --version
+          dirname "$bin" >> "$GITHUB_PATH"
+      - name: Verify native skills tools before qualification
+        if: matrix.repo == 'pi-agent-skills'
+        run: |
+          for tool in uv pmd java d2 rsvg-convert jq; do
+            command -v "$tool" || { echo "::error::Missing required pi-agent-skills test tool: $tool"; exit 1; }
+          done
+          uv --version
+          pmd --version
+          java -version
+          d2 --version
+          rsvg-convert --version
+          jq --version
       - name: Qualify the selected host and consumer artifacts
         timeout-minutes: ${{ matrix.os == 'windows-latest' && (matrix.repo == 'pi-agent-browser-native' && 60 || matrix.repo == 'pi-cursor-sdk' && 25 || 15) || 360 }}
         shell: bash

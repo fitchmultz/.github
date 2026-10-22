@@ -35,13 +35,13 @@ export function failureReports(qualifications, runUrl, inventory = fleet) {
     const hosts = [...new Set(results.map((result) => `${result.flavor} ${identity(result)}`))];
     const body = [reportKey(repo), `Latest qualification: ${runUrl}`, "",
       `Repository: fitchmultz/${repo}. Hosts: ${hosts.join(", ")}.`, "",
-      ...results.map((result) => `- ${result.flavor} ${identity(result)} / ${result.platform} / ${result.node}: **${result.result}**${result.phase ? ` (${result.phase})` : ""}${waived(result) ? " — owner-waived diagnostic" : ""}; source \`${result.source}\`.`), "",
-      ...[...failures, ...diagnostics].flatMap((result) => [`${result.flavor} ${identity(result)} / ${result.platform} / ${result.node}${waived(result) ? " (waived diagnostic)" : ""}:`,
+      ...results.map((result) => `- ${result.flavor} ${identity(result)} / ${result.platform} / ${result.node}: **${result.result}**${result.phase ? ` (${result.phase})` : ""}${waived(result) ? " — best-effort diagnostic" : ""}; source \`${result.source}\`.`), "",
+      ...[...failures, ...diagnostics].flatMap((result) => [`${result.flavor} ${identity(result)} / ${result.platform} / ${result.node}${waived(result) ? " (best-effort diagnostic)" : ""}:`,
         "```text", String(result.error ?? "See the failing job log").slice(0, 5000), "```", ""]),
       "Reproduce by checking out the recorded source commit and this run's automation revision, then running:", "",
       "```sh", ...[...new Set((failures.length ? failures : results).map((result) =>
         `node scripts/qualify.mjs --repo ${repo} --source /path/to/checkout --host ${result.flavor} --target ${result.flavor === "fork" ? "/path/to/downloaded/fork-host-artifact" : identity(result)} --output /tmp/pi-qualification`))], "```", "",
-      "This single issue tracks the repository across official and fork hosts; each canary run updates it and closes it once every required lane passes. Owner-waived Windows lanes are reported as diagnostics and do not keep it open. The run's qualification artifacts include the selected SDK/CLI paths and hashes, host provenance, packed npm artifact, and native probe output. Published-package failures are checked by adding --published. Repair through the repository's normal PR and compatibility checks; this canary never creates a repair PR or promotes a release.",
+      "This single issue tracks the repository across official and fork hosts; each canary run updates it and closes it once every required lane passes. Native Windows is best-effort and outside required coverage; Windows results are listed only when evidence is available; missing Windows evidence is unqualified, not a pass. Explicitly requested Windows lanes retain their actual diagnostic outcomes and do not keep this issue open. The run's qualification artifacts include the selected SDK/CLI paths and hashes, host provenance, packed npm artifact, and native probe output. Published-package failures are checked by adding --published. Repair through the repository's normal PR and compatibility checks; this canary never creates a repair PR or promotes a release.",
     ].join("\n");
     return { key: reportKey(repo), repo, failed: failures.length > 0, complete, title: `Pi compatibility: ${repo}`, body };
   });
@@ -54,6 +54,17 @@ export function matchIssues(issues, report) {
   const current = related.filter((issue) => issue.body?.includes(report.key));
   const canonical = current.find((issue) => issue.state === "open") ?? related.find((issue) => issue.state === "open") ?? current[0];
   return { canonical, duplicates: related.filter((issue) => issue !== canonical && issue.state === "open") };
+}
+
+// Removed fleet entries produce no new qualification artifacts. Retire only open, marker-owned
+// issues for those entries, separately from passing qualification (which still needs full evidence).
+export function retiredIssues(issues, inventory = fleet) {
+  const active = new Set(inventory.map((entry) => entry.repo));
+  return issues.flatMap((issue) => {
+    if (issue.state !== "open" || issue.pull_request) return [];
+    const repo = issue.body?.match(/^<!-- pi-compatibility:([A-Za-z0-9_.-]+)(?::[^>\r\n]+)? -->$/m)?.[1];
+    return repo && repo !== "infrastructure" && !active.has(repo) ? [{ repo, issue }] : [];
+  });
 }
 
 async function main() {
@@ -69,13 +80,15 @@ async function main() {
     complete: conclusion === "success",
     title: "Pi compatibility: fleet qualification infrastructure", body: `<!-- pi-compatibility:infrastructure -->\n\nLatest run: ${runUrl}\n\nQualification result: ${conclusion}. A failed run without a package failure needs investigation in the resolver, fork build or runner jobs. Incomplete publication is infrastructure; it is not an extension incompatibility.` });
   async function github(path, method = "GET", body) {
-    const response = await fetch(`https://api.github.com/repos/${repository}/${path}`, { method,
+    const response = await fetch(`https://api.github.com/repos/${repository}${path ? `/${path}` : ""}`, { method,
       headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${process.env.GH_TOKEN}`, "Content-Type": "application/json" },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     if (!response.ok) throw new Error(`GitHub canary report ${method} ${path}: HTTP ${response.status}`);
     return response.json();
   }
+  // Resolve the current default branch independently of the trigger's webhook payload.
+  const { default_branch: defaultBranch } = await github("");
   const issues = [];
   for (let page = 1; ; page++) {
     const batch = await github(`issues?state=all&per_page=100&page=${page}`);
@@ -98,6 +111,12 @@ async function main() {
       await github(`issues/${duplicate.number}`, "PATCH", { state: "closed", state_reason: "not_planned" });
     }
     console.log(`${report.failed ? "FAIL" : report.complete ? "PASS" : "INCOMPLETE"} ${report.title}${canonical ? ` (#${canonical.number})` : ""}${duplicates.length ? `; superseded ${duplicates.map((issue) => `#${issue.number}`).join(", ")}` : ""}`);
+  }
+  const canRetire = Boolean(defaultBranch) && process.env.GITHUB_REF === `refs/heads/${defaultBranch}`;
+  for (const { repo, issue } of canRetire ? retiredIssues(issues) : []) {
+    await github(`issues/${issue.number}/comments`, "POST", { body: `fitchmultz/${repo} is no longer in this canary revision's fleet.json. Closing this automation-owned tracking issue as not planned, not as a passing compatibility check. The last qualification evidence above is retained. Latest canary: ${runUrl}` });
+    await github(`issues/${issue.number}`, "PATCH", { state: "closed", state_reason: "not_planned" });
+    console.log(`RETIRED Pi compatibility: ${repo} (#${issue.number})`);
   }
 }
 
