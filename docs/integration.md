@@ -30,7 +30,7 @@ This setup is for a repository already represented in [`fleet.json`](../fleet.js
    Leave `host` at its default `both` for normal extension PRs. The workflow selects the caller's repository and source commit by default.
 3. Open a PR, inspect its compatibility aggregate, and require the repository's actual successful aggregate check in branch protection. The displayed check name depends on the caller's job name.
 
-Keep the workflow revision and `automation-ref` together. [Qualification](qualification.md) explains exact host selection, lane budgets, artifacts and the Windows waiver. [npm releases](npm-releases.md) covers the separate publishing setup.
+Keep the workflow revision and `automation-ref` together. [Qualification](qualification.md) explains exact host selection, lane budgets, artifacts and the Windows best-effort policy. [npm releases](npm-releases.md) covers the separate publishing setup.
 
 ## Repository callers
 
@@ -67,7 +67,7 @@ No `.github/dependabot.yml` is needed for security updates. Do not add a version
 ## Rollout and administration
 
 1. Qualify the full candidate fleet. `PI_COMPATIBILITY_SOURCE_REF` may temporarily select a coordinated rollout branch in this repository and an integrated fork caller; clear it after the extension branches merge.
-   To qualify an unmerged fork candidate, dispatch `Automation CI` at the reviewed automation branch with `fork-ref` set to its full commit SHA and `source-ref: main` after changed package PRs merge (or one coordinated source branch present in every fleet repository). The run freezes latest official and candidate fork identities and qualifies all 24 repositories across all 90 configured lanes, including 45 fork lanes; Windows remains waived diagnostics. An empty `fork-ref` still resolves maintained main. This dispatch does not activate code or update canary issues.
+   To qualify an unmerged fork candidate, dispatch `Automation CI` at the reviewed automation branch with `fork-ref` set to its full commit SHA and `source-ref: main` after changed package PRs merge (or one coordinated source branch present in every fleet repository). The run freezes latest official and candidate fork identities and qualifies all 24 repositories across 82 required Linux/macOS lanes, including 41 fork lanes. Native Windows is best-effort: explicitly set `waived-platforms: true` to add its eight diagnostic lanes (90 total, 45 fork lanes); ordinary dispatches and the daily canary omit them. An empty `fork-ref` still resolves maintained main. This dispatch does not activate code or update canary issues.
 2. Obtain the required owner-designated reviews before merging or activating the rollout. Publish the shared workflow's version tag only after approval, then keep callers pinned to its reviewed commit.
 3. Enable native GitHub Dependabot security updates for the selected repositories. Keep Renovate disabled and do not enable scheduled version updates or a second dependency updater. When switching an existing repository, close obsolete Renovate PRs and Dependency Dashboard issues after activation; preserve human-modified work and leave archived repositories untouched.
 4. Require each repository's actual successful aggregate compatibility check on its default branch, preserving existing protection and useful required checks. A fork integration must include reverse-dependency qualification in its `build-check-test` aggregate.

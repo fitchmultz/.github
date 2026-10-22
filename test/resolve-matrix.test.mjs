@@ -17,7 +17,7 @@ let invocation = 0;
 async function resolveFixture(t, environment = {}, { official = true, candidate = "9.8.7", main = { sha: mainSha }, mainStatus = 200 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "pi-resolve-"));
   const output = join(root, "output");
-  const env = { REPOSITORY: "all", HOST: undefined, SOURCE_REF: undefined, OFFICIAL_VERSION: undefined,
+  const env = { REPOSITORY: "all", HOST: undefined, WAIVED_PLATFORMS: undefined, SOURCE_REF: undefined, OFFICIAL_VERSION: undefined,
     FORK_REF: undefined, GH_TOKEN: undefined, ...environment, GITHUB_OUTPUT: output };
   const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
   const requests = [];
@@ -76,7 +76,7 @@ function passed(result) {
 
 const platformLabels = (lanes, repo) => lanes.filter((lane) => lane.repo === repo).map((lane) => `${lane.os}/${lane.node}`);
 
-test("default and explicit both preserve all 24 repositories and existing Node/platform lanes", async (t) => {
+test("default and explicit both preserve all 24 repositories and required Node/platform lanes", async (t) => {
   const result = await resolveFixture(t);
   const explicit = await resolveFixture(t, { HOST: "both" });
   passed(result);
@@ -85,7 +85,7 @@ test("default and explicit both preserve all 24 repositories and existing Node/p
   for (const run of [result, explicit]) assert.equal(run.requests.filter((url) => url === mainUrl).length, 1);
   assert.equal(result.outputs.forkRef, mainSha);
   assert.equal(result.outputs.needsFork, "true");
-  assert.equal(result.lanes.length, 90);
+  assert.equal(result.lanes.length, 82);
   assert.deepEqual([...new Set(result.lanes.map((lane) => lane.repo))], fleet.map((entry) => entry.repo));
   for (const entry of fleet) {
     const lanes = result.lanes.filter((lane) => lane.repo === entry.repo);
@@ -94,13 +94,13 @@ test("default and explicit both preserve all 24 repositories and existing Node/p
   assert.ok(result.lanes.filter((lane) => lane.host === "official").every((lane) => lane.version === "9.8.7" && lane.label === "official"));
   const fork = result.lanes.filter((lane) => lane.host === "fork");
   assert.deepEqual(platformLabels(fork, "pi-fitch-kit"), ["ubuntu-latest/24", "ubuntu-latest/26", "macos-latest/24"]);
-  assert.deepEqual(platformLabels(fork, "pi-agent-browser-native"), ["ubuntu-latest/24", "macos-latest/24", "windows-latest/24"]);
+  assert.deepEqual(platformLabels(fork, "pi-agent-browser-native"), ["ubuntu-latest/24", "macos-latest/24"]);
   assert.deepEqual(platformLabels(fork, "macuse"), ["macos-latest/24"]);
   assert.ok(result.requests.filter((url) => url.includes("/commits/")).every((url) => url.endsWith("/commits/main")));
   assert.equal(result.requests.filter((url) => url.startsWith("https://registry.npmjs.org/")).length, 2, "Cohort preflight is cached across the fleet");
 });
 
-test("fork reverse dependencies preserve all 45 fork lanes without any official npm or CLI lookup", async (t) => {
+test("fork reverse dependencies preserve all 41 required fork lanes without any official npm or CLI lookup", async (t) => {
   const both = await resolveFixture(t);
   const fork = await resolveFixture(t, { HOST: "fork", FORK_REF: forkSha, SOURCE_REF: "compatibility/pi-releases", OFFICIAL_VERSION: "latest" }, { official: false });
   passed(both);
@@ -108,7 +108,7 @@ test("fork reverse dependencies preserve all 45 fork lanes without any official 
   assert.deepEqual(fork.lanes, both.lanes.filter((lane) => lane.host === "fork"));
   assert.equal(fork.outputs.forkRef, forkSha);
   assert.equal(fork.outputs.needsFork, "true");
-  assert.equal(fork.lanes.length, 45);
+  assert.equal(fork.lanes.length, 41);
   assert.equal(new Set(fork.lanes.map((lane) => lane.repo)).size, 24);
   assert.ok(fork.lanes.some((lane) => lane.repo === "pi-posthorse"));
   assert.ok(fork.lanes.some((lane) => lane.repo === "pi-agent-skills"));
@@ -118,13 +118,21 @@ test("fork reverse dependencies preserve all 45 fork lanes without any official 
   assert.ok(fork.requests.every((url) => url.startsWith("https://api.github.com/") && url.endsWith("/commits/compatibility%2Fpi-releases") && !url.includes("/pi-evidence/")));
 });
 
-test("PR and push fleet runs omit only the 8 owner-waived Windows lanes", async (t) => {
-  const full = await resolveFixture(t);
+test("Windows diagnostics require explicit opt-in and preserve all 8 optional lanes", async (t) => {
+  const defaults = await resolveFixture(t);
+  const full = await resolveFixture(t, { WAIVED_PLATFORMS: "true" });
   const trimmed = await resolveFixture(t, { WAIVED_PLATFORMS: "false" });
+  const fork = await resolveFixture(t, { HOST: "fork", WAIVED_PLATFORMS: "true", FORK_REF: forkSha }, { official: false });
+  passed(defaults);
   passed(full);
   passed(trimmed);
+  passed(fork);
+  assert.equal(full.lanes.length, 90);
   assert.equal(trimmed.lanes.length, 82);
+  assert.deepEqual(defaults.outputs, trimmed.outputs);
   assert.deepEqual(trimmed.lanes, full.lanes.filter((lane) => lane.os !== "windows-latest"));
+  assert.equal(fork.lanes.length, 45);
+  assert.deepEqual(fork.lanes, full.lanes.filter((lane) => lane.host === "fork"));
   assert.deepEqual(platformLabels(trimmed.lanes.filter((lane) => lane.host === "fork"), "pi-agent-browser-native"), ["ubuntu-latest/24", "macos-latest/24"]);
   assert.equal(new Set(trimmed.lanes.map((lane) => lane.repo)).size, 24);
 });
@@ -152,7 +160,7 @@ test("an individual PR qualifies latest rather than selecting its stale locked d
 test("resolved identities stay frozen across later jobs instead of resolving a newer host mid-run", async (t) => {
   const result = await resolveFixture(t, { OFFICIAL_VERSION: "9.8.6", FORK_REF: forkSha, SOURCE_REF: "main" });
   passed(result);
-  assert.equal(result.lanes.length, 90);
+  assert.equal(result.lanes.length, 82);
   assert.equal(new Set(result.lanes.map((lane) => lane.repo)).size, 24);
   assert.ok(result.lanes.filter((lane) => lane.host === "official").every((lane) => lane.version === "9.8.6"));
   assert.equal(result.outputs.forkRef, forkSha);

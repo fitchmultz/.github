@@ -14,6 +14,10 @@ on:
         description: Exact candidate fork commit (empty resolves maintained main)
         type: string
         default: ''
+      waived-platforms:
+        description: Include optional best-effort native Windows qualification
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -92,7 +96,7 @@ jobs:
   windows-environment:
     needs: scope
     if: needs.scope.outputs.fleet-required == 'true'
-    # Windows qualification is owner-waived; retain this diagnostic without gating delivery.
+    # Retain a small best-effort Windows smoke check without gating delivery.
     continue-on-error: true
     runs-on: windows-latest
     timeout-minutes: 5
@@ -147,8 +151,8 @@ jobs:
       # During the initial cross-repository PR rollout, this variable selects the candidate branches.
       # Clear it once those branches have merged; normal operation always qualifies main.
       source-ref: ${{ inputs.source-ref || vars.PI_COMPATIBILITY_SOURCE_REF || 'main' }}
-      # Non-gating Windows lanes held up the required check; the daily canary and manual dispatches keep them.
-      waived-platforms: ${{ github.event_name == 'workflow_dispatch' }}
+      # Full native Windows qualification is an explicit manual diagnostic, not a delivery gate.
+      waived-platforms: ${{ github.event_name == 'workflow_dispatch' && inputs.waived-platforms }}
 
   automation:
     if: always()

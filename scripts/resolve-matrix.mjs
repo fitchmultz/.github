@@ -7,7 +7,7 @@ const fleet = readJson(new URL("../fleet.json", import.meta.url));
 const requested = process.env.REPOSITORY;
 const host = process.env.HOST ?? "both";
 assert.ok(["both", "fork"].includes(host), "Host must be both or fork");
-const includeWaived = process.env.WAIVED_PLATFORMS ?? "true";
+const includeWaived = process.env.WAIVED_PLATFORMS ?? "false";
 assert.ok(["true", "false"].includes(includeWaived), "Waived platforms must be true or false");
 const selected = fleet.filter((entry) => (requested === "all" || `fitchmultz/${entry.repo}` === requested)
   && (host !== "fork" || entry.kind !== "cli"));

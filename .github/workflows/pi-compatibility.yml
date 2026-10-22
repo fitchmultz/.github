@@ -19,8 +19,8 @@ on:
         default: both
         type: string
       waived-platforms:
-        description: Include owner-waived diagnostic platforms (Windows) in the matrix
-        default: true
+        description: Include optional best-effort native Windows qualification
+        default: false
         type: boolean
       official-version:
         description: Official version already resolved earlier in this run; empty resolves latest
@@ -152,7 +152,7 @@ jobs:
     name: ${{ matrix.repo }} / ${{ matrix.label }} / ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.repo == 'pi-subagents' && 120 || matrix.os == 'windows-latest' && (matrix.repo == 'pi-agent-browser-native' && 70 || matrix.repo == 'pi-cursor-sdk' && 35 || 25) || matrix.repo == 'pi-agent-browser-native' && 45 || matrix.repo == 'pi-apply-edits' && matrix.os == 'macos-latest' && 45 || 25 }}
-    # The owner waived Windows qualification on 2026-09-21; retain actual diagnostic failures/artifacts.
+    # Native Windows is best-effort; retain actual diagnostic failures and artifacts.
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
     env:
       npm_config_cache: ${{ github.workspace }}/.npm-cache

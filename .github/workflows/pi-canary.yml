@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '23 8 * * *'
   workflow_dispatch:
+    inputs:
+      waived-platforms:
+        description: Include optional best-effort native Windows qualification
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,6 +27,7 @@ jobs:
       repository: all
       source-ref: main
       check-published: true
+      waived-platforms: ${{ github.event_name == 'workflow_dispatch' && inputs.waived-platforms }}
 
   report:
     if: ${{ !cancelled() && vars.PI_COMPATIBILITY_ENABLED == 'true' }}
