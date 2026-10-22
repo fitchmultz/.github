@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="760" viewBox="0 0 1600 760" role="img" aria-labelledby="title desc">
   <title id="title">How a Pi extension PR is qualified</title>
-  <desc id="desc">The extension source and its contracts feed host resolution. The latest stable official Pi version and maintained fitchmultz/pi commit feed separate Node and platform lanes, which join at the compatibility aggregate. Windows lanes remain owner-waived diagnostics.</desc>
+  <desc id="desc">The extension source and its contracts feed host resolution. The latest stable official Pi version and maintained fitchmultz/pi commit feed separate Node and platform lanes, which join at the compatibility aggregate. Windows is best-effort: its smoke check is nonblocking, and full Windows qualification requires explicit opt-in. All other required gates remain strict.</desc>
   <!-- Composition: 1600 × 760; left-to-right entry, resolution, parallel hosts, aggregate.
        Material type is at least 26px (14.3px at the 880px README preview).
        Edges: PR → resolution; resolution → official and fork lanes; both → aggregate.
@@ -126,6 +126,6 @@
   <!-- Concise shared test scope and platform boundary. -->
   <g class="sans">
     <text x="64" y="679" class="copy">Each lane: contracts → fresh Git install → real Pi CLI → npm tarball where applicable</text>
-    <text x="64" y="722" class="copy" fill="#91A0B8">Windows lanes are owner-waived diagnostics; other required gates remain in place.</text>
+    <text x="64" y="722" class="copy" fill="#91A0B8">Windows best-effort: nonblocking smoke; opt-in full suites. Other gates stay required.</text>
   </g>
 </svg>
