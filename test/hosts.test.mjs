@@ -43,7 +43,8 @@ test("failed native host selection restores metadata and preserves caller-owned 
   const root = mkdtempSync(join(tmpdir(), "pi-host-selection-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const file = join(root, "package.json");
-  writeJson(file, { private: true, devDependencies: { [codingAgent]: "0.86.1" }, peerDependencies: { [codingAgent]: "*" } });
+  writeJson(file, { private: true, devDependencies: { [codingAgent]: "1.1.0" }, peerDependencies: { [codingAgent]: "*" },
+    overrides: { [`${codingAgent}@1.1.0`]: { undici: "8.12.2" }, "is-number@^6.0.0": "7.0.0" } });
   const original = readFileSync(file, "utf8");
   const lock = '{"name":"original public lock","lockfileVersion":3}\n';
   writeFileSync(join(root, "package-lock.json"), lock);
