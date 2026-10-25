@@ -223,6 +223,10 @@ export function selectDevelopmentHost(directory, host, env) {
   for (const [name, specifier] of Object.entries(specifiers)) {
     if (!manifest.dependencies?.[name] && !manifest.optionalDependencies?.[name]) manifest.devDependencies[name] = specifier;
   }
+  // Exact development overrides must not conflict with the selected host's file: dependencies.
+  for (const key of Object.keys(manifest.overrides ?? {})) {
+    if (Object.keys(specifiers).some((name) => key.startsWith(`${name}@`))) delete manifest.overrides[key];
+  }
   manifest.overrides = { ...manifest.overrides, ...specifiers };
   writeJson(file, manifest);
   try {

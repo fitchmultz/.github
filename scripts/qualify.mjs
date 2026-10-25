@@ -151,17 +151,22 @@ try {
   console.error(report.error);
   process.exitCode = 1;
 } finally {
+  let probeCopySucceeded = false;
   try {
     if (existsSync(join(root, "probes"))) cpSync(join(root, "probes"), join(output, "probes"), { recursive: true });
+    probeCopySucceeded = true;
   } catch (error) {
+    report.preservedRoot = root;
     recordFinalizationFailure("probe-copy", error);
   }
-  try {
-    // Go owns its read-only extracted module directories, not recursive filesystem deletion.
-    if (existsSync(env.GOMODCACHE)) run("go", ["clean", "-modcache"], { cwd: root, env });
-    rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 1000 });
-  } catch (error) {
-    recordFinalizationFailure("cleanup", error);
+  if (probeCopySucceeded) {
+    try {
+      // Go owns its read-only extracted module directories, not recursive filesystem deletion.
+      if (existsSync(env.GOMODCACHE)) run("go", ["clean", "-modcache"], { cwd: root, env });
+      rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 1000 });
+    } catch (error) {
+      recordFinalizationFailure("cleanup", error);
+    }
   }
   writeJson(join(output, "qualification.json"), report);
   if (process.env.GITHUB_STEP_SUMMARY) {
