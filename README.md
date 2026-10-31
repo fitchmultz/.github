@@ -43,7 +43,7 @@ The canary reports failures without publishing packages or changing Pi installat
 
 ## Automatic npm releases
 
-Release only the package names in [fleet.json](fleet.json). Each main merge is queued for an automatic patch version, lockfile update, and release notes. The version PR passes the repository's checks and reviews before it merges.
+Release only the package names in [fleet.json](fleet.json). Each main merge is queued for an automatic patch version, lockfile update, and release notes. Pi Durable addresses failing checks and review feedback, including Cursor's complete reports, before the version PR merges.
 
 The release workflow verifies one candidate tarball on both Pi hosts, then publishes the same version and source to npm and GitHub. Repository-specific release qualification still applies; the shared offline checks do not replace live or platform-specific gates.
 

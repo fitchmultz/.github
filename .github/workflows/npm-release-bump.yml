@@ -11,10 +11,21 @@ on:
         description: GitHub App client ID for version PRs
         required: true
         type: string
+      package-qualified:
+        description: Caller provides the package-specific release qualification
+        required: false
+        type: boolean
+        default: false
     secrets:
       RELEASE_APP_PRIVATE_KEY:
         description: Private key stored in the main-only release environment
         required: false
+      PI_DURABLE_ACCESS_TOKEN:
+        description: Pi Durable owner token stored in the release environment
+        required: true
+      CURSOR_API_KEY:
+        description: Cursor API key stored in the release environment
+        required: true
 
 permissions:
   contents: read
@@ -65,15 +76,34 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_GH_TOKEN: ${{ steps.app.outputs.token }}
           APP_SLUG: ${{ steps.app.outputs.app-slug }}
-        run: node automation/scripts/npm-version.mjs reconcile --source extension --app-slug "$APP_SLUG"
-      - id: checks
+        run: node automation/scripts/npm-version.mjs reconcile --source extension --app-slug "$APP_SLUG" ${{ inputs.package-qualified && '--package-qualified' || '' }}
+      - id: remediation
         if: steps.reconcile.outputs.pull != ''
+        name: Address complete reviewer reports and failing checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PI_DURABLE_ORIGIN: ${{ vars.PI_DURABLE_ORIGIN }}
+          PI_DURABLE_ACCESS_TOKEN: ${{ secrets.PI_DURABLE_ACCESS_TOKEN }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          PULL: ${{ steps.reconcile.outputs.pull }}
+          HEAD: ${{ steps.reconcile.outputs.head }}
+          RELEASE_SOURCE: ${{ steps.reconcile.outputs.source }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+        run: node automation/scripts/npm-remediation.mjs --source extension --pull "$PULL" --head "$HEAD" --release-source "$RELEASE_SOURCE" --app-slug "$APP_SLUG" ${{ inputs.package-qualified && '--package-qualified' || '' }}
+      - if: steps.remediation.outputs.refresh == 'true'
+        name: Reconcile the remediated version PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run npm-version.yml --repo "$GITHUB_REPOSITORY" --ref main
+      - id: checks
+        if: steps.remediation.outputs.ready == 'true'
         name: Wait for CI and current-head reviews
         env:
           GH_TOKEN: ${{ github.token }}
           PULL: ${{ steps.reconcile.outputs.pull }}
           HEAD: ${{ steps.reconcile.outputs.head }}
-        run: node automation/scripts/npm-version.mjs wait --pull "$PULL" --head "$HEAD"
+          CURSOR: ${{ steps.remediation.outputs.cursor }}
+        run: node automation/scripts/npm-version.mjs wait --pull "$PULL" --head "$HEAD" --cursor "$CURSOR" ${{ inputs.package-qualified && '--package-qualified' || '' }}
       - if: steps.checks.outputs.refresh == 'true'
         name: Reconcile resolved findings with a fresh App token
         env:
@@ -96,4 +126,5 @@ jobs:
           RELEASE_GH_TOKEN: ${{ steps.merge-app.outputs.token }}
           PULL: ${{ steps.reconcile.outputs.pull }}
           HEAD: ${{ steps.reconcile.outputs.head }}
-        run: node automation/scripts/npm-version.mjs merge --source extension --pull "$PULL" --head "$HEAD"
+          CURSOR: ${{ steps.remediation.outputs.cursor }}
+        run: node automation/scripts/npm-version.mjs merge --source extension --pull "$PULL" --head "$HEAD" --cursor "$CURSOR" ${{ inputs.package-qualified && '--package-qualified' || '' }}
