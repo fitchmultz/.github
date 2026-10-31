@@ -219,7 +219,7 @@ function resolveVersionFiles(source, main, conflicts, scopedGit, env, root) {
   scopedGit(["add", ...files]);
 }
 
-async function request(path, { method = "GET", body, token = process.env.RELEASE_GH_TOKEN, paginate = false } = {}) {
+export async function request(path, { method = "GET", body, token = process.env.RELEASE_GH_TOKEN, paginate = false } = {}) {
   assert.ok(token, "GitHub token is missing");
   let url = path.startsWith("https://") ? path : `https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/${path}`;
   const pages = [];
@@ -418,12 +418,13 @@ async function reconcile(source, entry, repository, appSlug) {
     // A new, empty head lets both native reviewers reassess the disposition without changing the release.
     if (pull && pull.head.sha === scopedGit(["rev-parse", "HEAD"])) {
       const pi = (await checkRuns(pull.head.sha)).find((check) => check.app?.slug === "pi-durable" && check.name === "Pi Durable Review");
-      if (pi?.status === "completed" && pi.conclusion === "failure") {
+      if (pi?.status === "completed" && pi.conclusion === "failure" && findingCheck(pi)) {
         const count = reportedFindings(pi, pull.base.sha, pull.head.sha);
-        const { resolvedPi } = await reviewThreads(number, pull.head.sha);
-        assert.ok(resolvedPi >= count, `Pi reported ${count} findings but only ${resolvedPi} resolved current-head Pi threads were found`);
-        scopedGit(["commit", "--allow-empty", "-m", "chore(release): recheck reviewed disposition", "-m", sourceMarker(selected)]);
-        scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
+        const { resolvedPi, addressedPi, unresolved, unanswered } = await reviewThreads(number, pull.head.sha, true, pi);
+        if (unresolved === 0 && unanswered.length === 0 && resolvedPi + addressedPi >= count) {
+          scopedGit(["commit", "--allow-empty", "-m", "chore(release): recheck reviewed disposition", "-m", sourceMarker(selected)]);
+          scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
+        }
       }
     }
     const current = await request(`pulls/${number}`);
@@ -436,7 +437,7 @@ async function reconcile(source, entry, repository, appSlug) {
   }
 }
 
-async function checkRuns(head) {
+export async function checkRuns(head) {
   const pages = await request(`commits/${head}/check-runs?per_page=100`, { token: process.env.GH_TOKEN, paginate: true });
   return pages.flatMap((page) => page.check_runs);
 }
@@ -444,6 +445,10 @@ async function checkRuns(head) {
 function reviewedPair(check, base, head) {
   const pair = /\*\*Reviewed pair:\*\* base `([a-f0-9]{40})` → head `([a-f0-9]{40})`/.exec(check.output?.summary ?? "");
   assert.ok(pair?.[1] === base && pair[2] === head && check.head_sha === head, "Pi did not review the current base and head");
+}
+
+export function findingCheck(check) {
+  return /^(?:Review completed|Completed review reused) — [1-9]\d* findings? reported$/.test(check.output?.title ?? "");
 }
 
 function reportedFindings(check, base, head) {
@@ -455,7 +460,12 @@ function reportedFindings(check, base, head) {
   return count;
 }
 
-async function reviewState(number, head, entry, allowPiFindings = false) {
+function failedCheck(check) {
+  return check.status === "completed"
+    && ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"].includes(check.conclusion);
+}
+
+async function reviewState(number, head, entry, cursorId, allowPiFindings = false) {
   const token = process.env.GH_TOKEN;
   const pull = await request(`pulls/${number}`, { token });
   assert.equal(pull.state, "open", "Version PR is no longer open");
@@ -465,11 +475,12 @@ async function reviewState(number, head, entry, allowPiFindings = false) {
     ...(entry.releaseChecks ?? ["compatibility / compatibility"]).map((name) => ["github-actions", name])];
   const required = expected.map(([app, name]) => checks.find((check) => check.app?.slug === app && check.name === name && check.head_sha === head));
   const pi = required[0];
-  const piFailure = allowPiFindings && pi?.status === "completed" && pi.conclusion === "failure"
+  assert.equal(required[1]?.id, cursorId, "The current Cursor review changed after its report was handled");
+  const piFailure = allowPiFindings && pi?.status === "completed" && pi.conclusion === "failure" && findingCheck(pi)
     ? reportedFindings(pi, pull.base.sha, head) : 0;
   for (const check of checks) {
     if (check === pi && piFailure) continue;
-    if (check.status === "completed" && ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"].includes(check.conclusion)) {
+    if (failedCheck(check)) {
       throw new Error(`${check.name} did not pass: ${check.html_url ?? check.details_url ?? ""}`);
     }
   }
@@ -482,7 +493,7 @@ async function reviewState(number, head, entry, allowPiFindings = false) {
   return { ready: required.every(passed), otherReady: required.slice(1).every(passed), piFailure };
 }
 
-async function reviewThreads(number, head, allowUnresolved = false) {
+export async function reviewThreads(number, head, allowUnresolved = false, pi = undefined) {
   const [owner, name] = process.env.GITHUB_REPOSITORY.split("/");
   let cursor = null;
   let resolvedPi = 0;
@@ -510,42 +521,70 @@ async function reviewThreads(number, head, allowUnresolved = false) {
     cursor = pull.reviewThreads.pageInfo.hasNextPage ? pull.reviewThreads.pageInfo.endCursor : null;
   } while (cursor);
   const comments = await request(`issues/${number}/comments?per_page=100`, { token: process.env.GH_TOKEN, paginate: true });
-  const standalone = comments.find((comment) => /<!-- pi-durable-review:/.test(comment.body ?? ""));
-  assert.ok(!standalone, `Version PR has a standalone Pi Durable finding requiring disposition: ${standalone?.html_url ?? ""}`);
+  const addressed = (url) => comments.some((comment) => ["pi-durable[bot]", "fitchmultz"].includes(comment.user?.login)
+    && comment.body?.includes(url) && comment.body.replace(url, "").trim());
+  const standalone = comments.filter((comment) => /<!-- pi-durable-review:/.test(comment.body ?? ""));
+  const unanswered = standalone.filter((comment) => !addressed(comment.html_url))
+    .map((comment) => ({ kind: "comment", id: comment.id, url: comment.html_url }));
+  const start = Date.parse(pi?.started_at ?? "");
+  const end = Date.parse(pi?.completed_at ?? "");
+  const addressedPi = standalone.filter((comment) => addressed(comment.html_url)
+    && Date.parse(comment.created_at ?? "") >= start && Date.parse(comment.created_at ?? "") <= end).length;
   const reviews = await request(`pulls/${number}/reviews?per_page=100`, { token: process.env.GH_TOKEN, paginate: true });
   for (const review of reviews.filter((item) => item.user?.login === "cursor[bot]" && item.body?.includes("CURSOR_AUTOMATION_ID"))) {
-    const comments = await request(`pulls/${number}/reviews/${review.id}/comments?per_page=100`, { token: process.env.GH_TOKEN, paginate: true });
-    assert.ok(comments.length, "Version PR has a standalone Cursor finding requiring disposition");
+    const inline = await request(`pulls/${number}/reviews/${review.id}/comments?per_page=100`, { token: process.env.GH_TOKEN, paginate: true });
+    if (!inline.length && !addressed(review.html_url)) unanswered.push({ kind: "review", id: review.id, url: review.html_url });
   }
-  if (!allowUnresolved) assert.equal(unresolved, 0, "Version PR has unresolved review threads");
-  return { resolvedPi, unresolved };
+  if (!allowUnresolved) {
+    assert.equal(unresolved, 0, "Version PR has unresolved review threads");
+    assert.equal(unanswered.length, 0, `Version PR has a standalone finding requiring disposition: ${unanswered[0]?.url ?? ""}`);
+  }
+  return { resolvedPi, addressedPi, unresolved, unanswered };
 }
 
-async function waitForChecks(number, head, entry) {
+async function waitForChecks(number, head, entry, cursorId) {
   while (true) {
-    const state = await reviewState(number, head, entry, true);
+    const failed = (await checkRuns(head)).find((check) => failedCheck(check)
+      && !(check.app?.slug === "pi-durable" && check.name === "Pi Durable Review"
+        && findingCheck(check)));
+    if (failed) {
+      console.log(`${failed.name} needs remediation: ${failed.html_url ?? failed.details_url ?? ""}`);
+      output({ refresh: "true" });
+      return;
+    }
+    const state = await reviewState(number, head, entry, cursorId, true);
     if (state.piFailure || state.ready) {
-      const { resolvedPi, unresolved } = await reviewThreads(number, head, true);
-      if (unresolved === 0 && state.piFailure && state.otherReady) {
-        assert.ok(resolvedPi >= state.piFailure,
-          `Pi reported ${state.piFailure} findings but only ${resolvedPi} resolved current-head Pi threads were found`);
+      const { resolvedPi, addressedPi, unresolved, unanswered } = await reviewThreads(number, head, true,
+        state.piFailure ? (await checkRuns(head)).find((check) => check.app?.slug === "pi-durable" && check.name === "Pi Durable Review") : undefined);
+      if (unresolved > 0 || unanswered.length > 0) {
+        output({ refresh: "true" });
+        console.log("New review findings need remediation");
+        return;
+      }
+      if (unresolved === 0 && unanswered.length === 0 && state.piFailure && state.otherReady) {
+        assert.ok(resolvedPi + addressedPi >= state.piFailure,
+          `Pi reported ${state.piFailure} findings but only ${resolvedPi + addressedPi} current-head dispositions were found`);
         output({ refresh: "true" });
         console.log("Resolved Pi findings require a fresh review on a new version PR head");
         return;
       }
-      if (unresolved === 0 && state.ready) {
+      if (unresolved === 0 && unanswered.length === 0 && state.ready) {
         const result = spawnSync("gh", ["pr", "checks", String(number), "--repo", process.env.GITHUB_REPOSITORY, "--watch", "--fail-fast"],
           { env: process.env, stdio: "inherit" });
         if (result.error) throw result.error;
+        if (result.status !== 0 && (await checkRuns(head)).some(failedCheck)) {
+          output({ refresh: "true" });
+          console.log("A check failed while waiting; reconcile it immediately");
+          return;
+        }
         assert.equal(result.status, 0, "Version PR checks did not pass");
-        const current = await reviewState(number, head, entry);
+        const current = await reviewState(number, head, entry, cursorId);
         const threads = await reviewThreads(number, head, true);
-        if (current.ready && threads.unresolved === 0) {
+        if (current.ready && threads.unresolved === 0 && threads.unanswered.length === 0) {
           output({ ready: "true" });
           return;
         }
       }
-      console.log("Waiting for review findings to be addressed and threads resolved");
       await new Promise((resolve) => setTimeout(resolve, 30_000));
     } else {
       console.log("Waiting for current-head compatibility and reviews");
@@ -554,8 +593,8 @@ async function waitForChecks(number, head, entry) {
   }
 }
 
-async function mergeVersion(source, number, head, entry) {
-  assert.ok((await reviewState(number, head, entry)).ready, "Version PR checks are not complete");
+async function mergeVersion(source, number, head, entry, cursorId) {
+  assert.ok((await reviewState(number, head, entry, cursorId)).ready, "Version PR checks are not complete");
   await reviewThreads(number, head);
   const pull = await request(`pulls/${number}`);
   git(source, ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"]);
@@ -574,7 +613,8 @@ async function mergeVersion(source, number, head, entry) {
 
 async function main() {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: {
-    source: { type: "string" }, "app-slug": { type: "string" }, pull: { type: "string" }, head: { type: "string" },
+    source: { type: "string" }, "app-slug": { type: "string" }, pull: { type: "string" }, head: { type: "string" }, cursor: { type: "string" },
+    "package-qualified": { type: "boolean", default: false },
   } });
   assert.equal(process.env.GITHUB_ACTIONS, "true", "Version automation only runs in GitHub Actions");
   assert.equal(process.env.GITHUB_REF, "refs/heads/main", "Version automation only runs from main");
@@ -582,15 +622,17 @@ async function main() {
   const entry = readJson(new URL("../fleet.json", import.meta.url)).find((item) => `fitchmultz/${item.repo}` === repository);
   assert.ok(entry?.npmRelease === "automatic", "Repository has no automatic npm release channel");
   assert.ok(!entry.versionQualification, `${repository} requires its exact-diff pre-commit and pre-push review before automatic versioning`);
-  assert.ok(!entry.releaseQualification, `${repository} requires its package-specific release qualification before automatic versioning`);
+  assert.ok(!entry.releaseQualification || values["package-qualified"], `${repository} requires its package-specific release qualification before automatic versioning`);
   if (positionals[0] === "reconcile") {
     assert.ok(values.source && values["app-slug"], "reconcile requires --source and --app-slug");
     await reconcile(resolve(values.source), entry, repository, values["app-slug"]);
   } else if (["wait", "merge"].includes(positionals[0])) {
     const number = Number(values.pull);
     assert.ok(Number.isSafeInteger(number) && number > 0 && /^[a-f0-9]{40}$/.test(values.head ?? ""), "wait/merge require --pull and --head");
-    if (positionals[0] === "wait") await waitForChecks(number, values.head, entry);
-    else { assert.ok(values.source, "merge requires --source"); await mergeVersion(resolve(values.source), number, values.head, entry); }
+    const cursorId = Number(values.cursor);
+    assert.ok(Number.isSafeInteger(cursorId) && cursorId > 0, "wait/merge require the handled Cursor check ID");
+    if (positionals[0] === "wait") await waitForChecks(number, values.head, entry, cursorId);
+    else { assert.ok(values.source, "merge requires --source"); await mergeVersion(resolve(values.source), number, values.head, entry, cursorId); }
   } else throw new Error("Choose reconcile, wait or merge");
 }
 
