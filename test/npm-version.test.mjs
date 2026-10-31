@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const script = fileURLToPath(new URL("../scripts/npm-version.mjs", import.meta.url));
+const remediation = fileURLToPath(new URL("../scripts/npm-remediation.mjs", import.meta.url));
 const api = fileURLToPath(new URL("./fixtures/npm-version-api.mjs", import.meta.url));
 const gh = fileURLToPath(new URL("./fixtures/npm-version-gh.mjs", import.meta.url));
 const repository = "fitchmultz/pi-copy-message";
@@ -59,6 +60,7 @@ function fixture(t, { unreleased = true } = {}) {
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, NODE_OPTIONS: `--import=${api}`,
     GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main",
     GITHUB_REPOSITORY: repository, GH_TOKEN: "read-fixture", RELEASE_GH_TOKEN: "app-fixture", GITHUB_OUTPUT: output,
+    PI_DURABLE_ORIGIN: "https://durable.example.invalid", PI_DURABLE_ACCESS_TOKEN: "durable-fixture", CURSOR_API_KEY: "cursor-fixture",
     FAKE_GITHUB_STATE: statePath, FAKE_GITHUB_REMOTE: remote, FAKE_GITHUB_LOG: log, FAKE_FAST_POLL: "1" };
   const state = () => read(statePath);
   const setState = (edit) => { const value = state(); edit(value); write(statePath, value); };
@@ -67,6 +69,11 @@ function fixture(t, { unreleased = true } = {}) {
     return spawnSync(process.execPath, [script, ...args], { cwd: root, encoding: "utf8", env: { ...env, GITHUB_EVENT_NAME: event } });
   };
   const reconcile = (event) => invoke(["reconcile", "--source", source, "--app-slug", "pi-durable"], event);
+  const remediate = (head, executable = remediation) => {
+    writeFileSync(output, "");
+    return spawnSync(process.execPath, [executable, "--source", source, "--pull", "1", "--head", head,
+      "--release-source", first, "--app-slug", "pi-durable"], { cwd: root, encoding: "utf8", env });
+  };
   const ref = (branch) => git(root, "--git-dir", remote, "rev-parse", `refs/heads/${branch}`);
   const advance = (text, note) => {
     writeFileSync(join(writer, "change.txt"), text);
@@ -77,15 +84,36 @@ function fixture(t, { unreleased = true } = {}) {
     git(writer, "add", "."); git(writer, "commit", "--quiet", "-m", text); git(writer, "push", "--quiet", "origin", "main");
     return git(writer, "rev-parse", "HEAD");
   };
-  return { root, source, remote, writer, state, setState, invoke, reconcile, ref, advance, output, log, first };
+  return { root, source, remote, writer, state, setState, invoke, reconcile, remediate, ref, advance, output, log, first };
 }
 
 function success(result) { assert.equal(result.status, 0, result.stderr); }
 function check(app, name, head, base, conclusion = "success") {
-  return { app: { slug: app }, name, head_sha: head, status: "completed", conclusion,
+  return { id: app === "cursor" ? 200 : app === "pi-durable" ? 100 : 300, app: { slug: app }, name, head_sha: head, status: "completed", conclusion,
     output: { title: conclusion === "failure" ? "Review completed — 1 finding reported" : "Review completed — no new findings",
       summary: `**Reviewed pair:** base \`${base}\` → head \`${head}\`` } };
 }
+
+test("remediation refuses a PR that is not the App-owned version for the selected source", (t) => {
+  const f = fixture(t); success(f.reconcile());
+  const head = f.ref(`npm-version/${f.first}`);
+  f.setState((state) => {
+    state.open[0].author = "someone-else";
+    state.checks = [check("github-actions", "compatibility / compatibility", head, f.first, "failure")];
+  });
+  let result = f.remediate(head);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /not owned by the release App/);
+  assert.equal(f.state().submissions, undefined);
+  f.setState((state) => {
+    delete state.open[0].author;
+    state.open[0].body = marker("a".repeat(40));
+  });
+  result = f.remediate(head);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /source marker changed/);
+  assert.equal(f.state().submissions, undefined);
+});
 
 test("version PR follows advancing main and drains source commits only after the previous release completes", (t) => {
   const f = fixture(t);
@@ -166,21 +194,22 @@ test("resolved Pi findings trigger one genuine fresh review without dismissing u
     s.threads = [{ isResolved: false, comments: { nodes: [{ author: { login: "pi-durable" }, originalCommit: { oid: original }, body: "<!-- pi-durable-review:findings -->" }] } }];
   });
   let result = f.reconcile();
-  assert.notEqual(result.status, 0); assert.match(result.stderr, /unresolved review threads/); assert.equal(f.ref(branch), original);
+  success(result); assert.equal(f.ref(branch), original);
   f.setState((s) => { s.threads[0].isResolved = true; s.comments = [{ body: "<!-- pi-durable-review:standalone -->", html_url: "https://github.com/example/finding" }]; });
   result = f.reconcile();
-  assert.notEqual(result.status, 0); assert.match(result.stderr, /standalone.*https:\/\/github\.com\/example\/finding/); assert.equal(f.ref(branch), original);
+  success(result); assert.equal(f.ref(branch), original);
   f.setState((s) => {
     s.comments = [];
     s.checks.push(check("cursor", "Cursor Automation: PR Bug Review - Maintained Repos", original, f.first),
       check("github-actions", "compatibility / compatibility", original, f.first));
   });
-  const wait = () => f.invoke(["wait", "--pull", "1", "--head", original]);
+  const wait = () => f.invoke(["wait", "--pull", "1", "--head", original, "--cursor", "200"]);
   success(wait());
   assert.match(readFileSync(f.output, "utf8"), /refresh=true/);
   f.setState((s) => { s.checks.at(-1).conclusion = "failure"; });
   result = wait();
-  assert.notEqual(result.status, 0); assert.match(result.stderr, /compatibility \/ compatibility did not pass/);
+  success(result); assert.match(readFileSync(f.output, "utf8"), /refresh=true/);
+  assert.match(result.stdout, /compatibility \/ compatibility needs remediation/);
   f.setState((s) => { s.checks.at(-1).conclusion = "success"; });
   success(f.reconcile());
   const refreshed = f.ref(branch);
@@ -303,18 +332,22 @@ test("merge waits for exact-head compatibility and the Pi-reviewed current base"
   const head = f.ref(`npm-version/${f.first}`);
   f.setState((s) => { s.checks = [check("pi-durable", "Pi Durable Review", head, f.first),
     check("cursor", "Cursor Automation: PR Bug Review - Maintained Repos", head, f.first)]; });
-  const merge = () => f.invoke(["merge", "--source", f.source, "--pull", "1", "--head", head]);
+  const merge = () => f.invoke(["merge", "--source", f.source, "--pull", "1", "--head", head, "--cursor", "200"]);
   let result = merge();
   assert.notEqual(result.status, 0); assert.match(result.stderr, /checks are not complete/);
   assert.doesNotMatch(readFileSync(f.log, "utf8"), /^merge /m);
   f.setState((s) => { s.checks.push(check("github-actions", "compatibility / compatibility", head, f.first)); });
+  f.setState((s) => { s.checks[1].id = 201; });
+  result = merge();
+  assert.notEqual(result.status, 0); assert.match(result.stderr, /Cursor review changed after its report was handled/);
+  f.setState((s) => { s.checks[1].id = 200; });
   f.advance("Main advanced during review");
   result = merge();
   assert.notEqual(result.status, 0); assert.match(result.stderr, /did not review the current base and head/);
   assert.doesNotMatch(readFileSync(f.log, "utf8"), /^merge /m);
 });
 
-test("a successful Cursor review still waits for its inline finding to be resolved", (t) => {
+test("a successful Cursor review sends a new inline finding for remediation", (t) => {
   const f = fixture(t); success(f.reconcile());
   const head = f.ref(`npm-version/${f.first}`);
   f.setState((s) => {
@@ -324,10 +357,138 @@ test("a successful Cursor review still waits for its inline finding to be resolv
     s.threads = [{ isResolved: false, comments: { nodes: [{ author: { login: "cursor" }, originalCommit: { oid: head }, body: "A finding" }] } }];
     s.resolveOnFirstLookup = true;
   });
-  const result = f.invoke(["wait", "--pull", "1", "--head", head]);
+  const result = f.invoke(["wait", "--pull", "1", "--head", head, "--cursor", "200"]);
   success(result);
-  assert.match(result.stdout, /Waiting for review findings/);
-  assert.match(readFileSync(f.output, "utf8"), /ready=true/);
+  assert.match(result.stdout, /New review findings need remediation/);
+  assert.match(readFileSync(f.output, "utf8"), /refresh=true/);
+});
+
+test("all completed Cursor reports reach a durable disposition and are not resubmitted", (t) => {
+  const f = fixture(t); success(f.reconcile());
+  const branch = `npm-version/${f.first}`;
+  const oldHead = f.ref(branch);
+  git(f.writer, "fetch", "--quiet", "origin", branch);
+  git(f.writer, "switch", "--quiet", "--detach", "FETCH_HEAD");
+  writeFileSync(join(f.writer, "reviewed.txt"), "A reviewed correction\n");
+  git(f.writer, "add", "reviewed.txt"); git(f.writer, "commit", "--quiet", "-m", "Address review");
+  git(f.writer, "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
+  const head = f.ref(branch);
+  git(f.source, "fetch", "--quiet", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
+  const firstAgent = "bc-11111111-1111-4111-8111-111111111111";
+  const nextAgent = "bc-22222222-2222-4222-8222-222222222222";
+  f.setState((s) => {
+    const earlier = check("cursor", "Cursor Automation: PR Bug Review - Maintained Repos", oldHead, f.first);
+    const current = check("cursor", "Cursor Automation: PR Bug Review - Maintained Repos", head, f.first);
+    earlier.id = 201; earlier.details_url = `https://cursor.com/agents/${firstAgent}`;
+    current.id = 202; current.details_url = `https://cursor.com/agents/${nextAgent}`;
+    s.checks = [earlier, current, check("pi-durable", "Pi Durable Review", head, f.first),
+      check("github-actions", "compatibility / compatibility", head, f.first)];
+    s.cursorReports = { [firstAgent]: "Earlier review: no concrete findings.", [nextAgent]: "Current review: no concrete findings." };
+  });
+  success(f.remediate(head));
+  assert.match(readFileSync(f.output, "utf8"), /cursor=202\nready=true/);
+  let submissions = f.state().submissions;
+  assert.equal(submissions.length, 2);
+  assert.match(submissions[0].prompt, /Earlier review: no concrete findings/);
+  assert.match(submissions[1].prompt, /Current review: no concrete findings/);
+  success(f.remediate(head));
+  submissions = f.state().submissions;
+  assert.equal(submissions.length, 2, "Existing native receipts must not be replayed");
+  f.setState((state) => { state.cursorReports[firstAgent] = "A different report for the same run."; });
+  const changed = f.remediate(head);
+  assert.notEqual(changed.status, 0);
+  assert.match(changed.stderr, /differs from its original prompt/);
+  assert.equal(f.state().submissions.length, 2);
+});
+
+test("an automation upgrade reconstructs the original prompt before resuming a source", (t) => {
+  const f = fixture(t); success(f.reconcile());
+  const head = f.ref(`npm-version/${f.first}`);
+  const agent = "bc-77777777-7777-4777-8777-777777777777";
+  f.setState((state) => {
+    const cursor = check("cursor", "Cursor Automation: PR Bug Review - Maintained Repos", head, f.first);
+    cursor.details_url = `https://cursor.com/agents/${agent}`;
+    state.checks = [cursor, check("pi-durable", "Pi Durable Review", head, f.first),
+      check("github-actions", "compatibility / compatibility", head, f.first)];
+    state.cursorReports = { [agent]: "No concrete findings." };
+  });
+  const automation = join(f.root, "automation");
+  const remote = join(f.root, "automation.git");
+  mkdirSync(automation);
+  cpSync(fileURLToPath(new URL("../scripts", import.meta.url)), join(automation, "scripts"), { recursive: true });
+  copyFileSync(fileURLToPath(new URL("../fleet.json", import.meta.url)), join(automation, "fleet.json"));
+  git(automation, "init", "--quiet", "--initial-branch=main");
+  git(automation, "config", "user.name", "Release test");
+  git(automation, "config", "user.email", "release-test@example.invalid");
+  git(automation, "add", "."); git(automation, "commit", "--quiet", "-m", "Original automation");
+  git(f.root, "clone", "--quiet", "--bare", automation, remote);
+  git(automation, "remote", "add", "origin", remote);
+  const executable = realpathSync(join(automation, "scripts/npm-remediation.mjs"));
+  let result = f.remediate(head, executable);
+  success(result);
+  assert.equal(f.state().submissions?.length, 1, result.stdout);
+  const promptFile = join(automation, "scripts/npm-remediation-prompt.mjs");
+  writeFileSync(promptFile, readFileSync(promptFile, "utf8").replace("Work alone;", "Work deliberately alone;"));
+  git(automation, "add", "."); git(automation, "commit", "--quiet", "-m", "Update automation");
+  git(automation, "push", "--quiet", "origin", "main");
+  result = f.remediate(head, executable);
+  success(result);
+  assert.equal(f.state().submissions.length, 1, "The admitted original operation must not be replayed");
+});
+
+test("an unposted Cursor finding cannot pass on an unverified or unanswered agent receipt", async (t) => {
+  for (const [name, outcome, expected] of [
+    ["unverified reply", { status: "done", text: JSON.stringify({ status: "addressed", reason: "Fixed", evidenceUrl: "https://github.com/example/missing" }) }, /No attributable PR reply/],
+    ["unanswered", { status: "unanswered", reason: "aborted" }, /will not be replayed/],
+  ]) await t.test(name, (t) => {
+    const f = fixture(t); success(f.reconcile());
+    const head = f.ref(`npm-version/${f.first}`);
+    const agent = "bc-33333333-3333-4333-8333-333333333333";
+    f.setState((s) => {
+      const cursor = check("cursor", "Cursor Automation: PR Bug Review - Maintained Repos", head, f.first);
+      cursor.details_url = `https://cursor.com/agents/${agent}`;
+      s.checks = [cursor, check("pi-durable", "Pi Durable Review", head, f.first),
+        check("github-actions", "compatibility / compatibility", head, f.first)];
+      s.cursorReports = { [agent]: "[P2] A concrete finding in the review report, not posted to the PR." };
+      s.durableOutcome = outcome;
+    });
+    let result = f.remediate(head);
+    assert.notEqual(result.status, 0); assert.match(result.stderr, expected);
+    assert.match(f.state().submissions[0].prompt, /A concrete finding in the review report/);
+    result = f.remediate(head);
+    assert.notEqual(result.status, 0); assert.equal(f.state().submissions.length, 1);
+    assert.doesNotMatch(readFileSync(f.output, "utf8"), /ready=true/);
+  });
+});
+
+test("an incomplete Pi review uses native recovery only after uncertain comments are ruled out", async (t) => {
+  for (const [name, posts, succeeds] of [
+    ["settled", {}, true],
+    ["uncertain comment", { finding: { status: "uncertain" } }, false],
+  ]) await t.test(name, (t) => {
+    const f = fixture(t); success(f.reconcile());
+    const head = f.ref(`npm-version/${f.first}`);
+    const delivery = "55555555-5555-4555-8555-555555555555";
+    const agent = "bc-66666666-6666-4666-8666-666666666666";
+    f.setState((s) => {
+      const pi = check("pi-durable", "Pi Durable Review", head, f.first);
+      pi.conclusion = "action_required"; pi.details_url = `https://durable.example.invalid/review#${delivery}`;
+      const cursor = check("cursor", "Cursor Automation: PR Bug Review - Maintained Repos", head, f.first);
+      cursor.details_url = `https://cursor.com/agents/${agent}`;
+      s.checks = [pi, cursor, check("github-actions", "compatibility / compatibility", head, f.first)];
+      s.cursorReports = { [agent]: "No concrete findings." };
+      s.piRuns = { [delivery]: { status: "incomplete", taskState: { status: "terminal" }, pair: { base: f.first, head }, posts } };
+    });
+    const result = f.remediate(head);
+    if (succeeds) {
+      success(result);
+      assert.equal(f.state().recoveries.length, 1);
+      assert.match(readFileSync(f.output, "utf8"), /ready=true/);
+    } else {
+      assert.notEqual(result.status, 0); assert.match(result.stderr, /uncertain comment/);
+      assert.equal(f.state().recoveries, undefined);
+    }
+  });
 });
 
 test("version automation stays held when a package's required release gates are not wired", () => {
@@ -338,4 +499,18 @@ test("version automation stays held when a package's required release gates are 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, name === "pi-cursor-sdk" ? /exact-diff pre-commit and pre-push review/ : /package-specific release qualification/);
   }
+});
+
+test("a qualified caller may version its package, but cannot bypass exact-diff version review", () => {
+  const env = { ...process.env, GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main" };
+  const qualified = spawnSync(process.execPath, [script, "reconcile", "--package-qualified"], {
+    encoding: "utf8", env: { ...env, GITHUB_REPOSITORY: "fitchmultz/pi-agent-browser-native" },
+  });
+  assert.notEqual(qualified.status, 0);
+  assert.match(qualified.stderr, /reconcile requires --source and --app-slug/);
+  const exactDiff = spawnSync(process.execPath, [script, "reconcile", "--package-qualified"], {
+    encoding: "utf8", env: { ...env, GITHUB_REPOSITORY: "fitchmultz/pi-cursor-sdk" },
+  });
+  assert.notEqual(exactDiff.status, 0);
+  assert.match(exactDiff.stderr, /exact-diff pre-commit and pre-push review/);
 });
