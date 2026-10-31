@@ -43,11 +43,11 @@ The canary reports failures without publishing packages or changing Pi installat
 
 ## Automatic npm releases
 
-Release only the package names in [fleet.json](fleet.json). Choose a stable version. Add a versioned changelog entry in a PR.
+Release only the package names in [fleet.json](fleet.json). Each main merge is queued for an automatic patch version, lockfile update, and release notes. The version PR passes the repository's checks and reviews before it merges.
 
-After the PR merges, the release workflow verifies one candidate tarball on both Pi hosts and publishes it without an approval step. pi-agent-browser-native, pi-oracle, and pi-cursor-sdk complete their manual release evidence before that merge.
+The release workflow verifies one candidate tarball on both Pi hosts, then publishes the same version and source to npm and GitHub. Repository-specific release qualification still applies; the shared offline checks do not replace live or platform-specific gates.
 
-The release workflow does not republish existing versions. README updates need no release. Follow the [npm release guide](docs/npm-releases.md) for setup, candidate downloads, and recovery.
+An unfinished release is reconciled without overwriting published bytes. Follow the [npm release guide](docs/npm-releases.md) for setup, package-specific prerequisites, and recovery.
 
 ## Contribute
 
