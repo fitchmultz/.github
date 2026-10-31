@@ -1,0 +1,99 @@
+name: npm version
+
+on:
+  workflow_call:
+    inputs:
+      automation-ref:
+        description: Exact reviewed automation commit
+        required: true
+        type: string
+      app-client-id:
+        description: GitHub App client ID for version PRs
+        required: true
+        type: string
+    secrets:
+      RELEASE_APP_PRIVATE_KEY:
+        description: Private key stored in the main-only release environment
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/.github
+          ref: ${{ inputs.automation-ref }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: extension
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          check-latest: true
+          package-manager-cache: false
+      - name: Use the reviewed automation npm
+        run: |
+          PM="$(node -p 'require("./automation/package.json").packageManager')"
+          npm exec --yes --package="$PM" -- npm install --global "$PM"
+      - id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.repository }}
+          permission-contents: write
+          permission-pull-requests: write
+      - id: reconcile
+        name: Reconcile the next main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+        run: node automation/scripts/npm-version.mjs reconcile --source extension --app-slug "$APP_SLUG"
+      - id: checks
+        if: steps.reconcile.outputs.pull != ''
+        name: Wait for CI and current-head reviews
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL: ${{ steps.reconcile.outputs.pull }}
+          HEAD: ${{ steps.reconcile.outputs.head }}
+        run: node automation/scripts/npm-version.mjs wait --pull "$PULL" --head "$HEAD"
+      - if: steps.checks.outputs.refresh == 'true'
+        name: Reconcile resolved findings with a fresh App token
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run npm-version.yml --repo "$GITHUB_REPOSITORY" --ref main
+      - id: merge-app
+        if: steps.checks.outputs.ready == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.repository }}
+          permission-contents: write
+          permission-pull-requests: write
+      - if: steps.checks.outputs.ready == 'true'
+        name: Merge only the reviewed version PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_GH_TOKEN: ${{ steps.merge-app.outputs.token }}
+          PULL: ${{ steps.reconcile.outputs.pull }}
+          HEAD: ${{ steps.reconcile.outputs.head }}
+        run: node automation/scripts/npm-version.mjs merge --source extension --pull "$PULL" --head "$HEAD"

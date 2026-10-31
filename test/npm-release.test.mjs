@@ -37,6 +37,16 @@ function fixture(t, version = "4.0.1", changelog = `## ${version} - 2026-10-04\n
   return { root, source, ref, repository: repo, name: packageName, version, output: join(root, "output") };
 }
 
+function versionCommit(f) {
+  f.trigger = f.ref;
+  mkdirSync(join(f.source, ".github", "workflows"), { recursive: true });
+  writeFileSync(join(f.source, ".github", "workflows", "npm-version.yml"), "name: npm version\n");
+  exec("git", ["add", ".github/workflows/npm-version.yml"], f.source);
+  exec("git", ["commit", "--quiet", "-m", "chore(release): version", "-m", `<!-- pi-npm-source: ${f.trigger} -->`], f.source);
+  f.ref = exec("git", ["rev-parse", "HEAD"], f.source);
+  return f;
+}
+
 function metadata(latest = "4.0.0") {
   return { name, maintainers: [{ name: "fitchmultz" }], "dist-tags": { latest },
     versions: { [latest]: { name, version: latest, repository: { type: "git", url: repositoryUrl } } } };
@@ -71,8 +81,9 @@ async function invoke(t, fixture, command, { data = metadata(), pulls, draft, re
       const page = Number(new URL(url).searchParams.get("page"));
       return Response.json(releasePages?.[page - 1] ?? (draft ? [{ ...draft, tag_name: `v${data["dist-tags"].latest}` }] : []), { status: releaseStatus });
     }
-    assert.equal(String(url), `https://api.github.com/repos/${repository}/commits/${fixture.ref}/pulls`);
-    return Response.json(pulls ?? [{ merged_at: "2026-10-04T12:00:00Z", base: { ref: "main" }, merge_commit_sha: fixture.ref }]);
+    assert.equal(String(url), `https://api.github.com/repos/${repository}/commits/${fixture.ref}/pulls?per_page=100`);
+    return Response.json(pulls ?? [{ merged_at: "2026-10-04T12:00:00Z", base: { ref: "main" }, merge_commit_sha: fixture.ref,
+      head: { ref: `npm-version/${fixture.trigger}`, repo: { full_name: repository } }, user: { type: "Bot" } }]);
   });
   const logs = [];
   const log = t.mock.method(console, "log", (value) => logs.push(String(value)));
@@ -117,14 +128,29 @@ test("an already-published version is a read-only no-op, even with unversioned n
   assert.equal(exec("git", ["status", "--porcelain"], f.source), "");
 });
 
-test("a newer, owned version with versioned notes and a merged main PR becomes a candidate", async (t) => {
-  const f = fixture(t);
+test("a merged automatic version PR becomes a candidate with its original source", async (t) => {
+  const f = versionCommit(fixture(t));
   const result = await invoke(t, f, "plan", { args: ["--source-ref", f.ref] });
   assert.equal(result.failed, false, result.errors);
-  assert.deepEqual(result.outputs, { release: "true", source: f.ref, version: "4.0.1", "official-version": "9.8.7", "fork-ref": forkRef });
+  assert.deepEqual(result.outputs, { release: "true", source: f.ref, version: "4.0.1", "release-source": f.trigger, "official-version": "9.8.7", "fork-ref": forkRef });
   assert.equal(result.requests.filter((url) => url.endsWith("/latest")).length, 1);
   assert.equal(result.requests.filter((url) => url === "https://api.github.com/repos/fitchmultz/pi/commits/main").length, 1);
   assert.equal(existsSync(join(f.source, "published")), false);
+});
+
+test("a legacy caller can still release a manually versioned merged PR without a release-source input", async (t) => {
+  const f = fixture(t);
+  const result = await invoke(t, f, "plan", { args: ["--source-ref", f.ref] });
+  assert.equal(result.failed, false, result.errors);
+  assert.deepEqual(result.outputs, { release: "true", source: f.ref, version: "4.0.1", "release-source": f.ref,
+    "official-version": "9.8.7", "fork-ref": forkRef });
+  const { directory, candidate } = artifact(f);
+  writeJson(join(directory, "release.json"), candidate);
+  writeFileSync(join(directory, "release-notes.md"), `${candidate.notes}\n`);
+  const verified = await invoke(t, f, "verify", { args: ["--artifact", directory, "--source-ref", f.ref] });
+  assert.equal(verified.failed, false, verified.errors);
+  const invalid = fixture(t);
+  refused(await invoke(t, invalid, "plan", { pulls: [] }), /merged PR to main/);
 });
 
 test("only this automation's exact-commit draft is resumed after npm publication succeeds", async (t) => {
@@ -136,7 +162,7 @@ test("only this automation's exact-commit draft is resumed after npm publication
       : `<!-- pi-npm-release: ${kind === "other-source" ? "a".repeat(40) : f.ref} sha512-published-candidate -->` };
     const releasePages = kind === "later-page" ? [Array.from({ length: 100 }, (_, index) => ({ tag_name: `v3.0.${index}`, draft: false })), [{ ...draft, tag_name: "v4.0.1" }]] : undefined;
     const result = await invoke(t, f, "plan", { data, draft, releasePages, releaseStatus: kind === "forbidden" ? 403 : 200 });
-    if (kind === "forbidden") refused(result, /GitHub release lookup: HTTP 403/);
+    if (kind === "forbidden") refused(result, /GitHub releases.*HTTP 403/);
     else {
       assert.equal(result.failed, false, result.errors);
       assert.equal(result.outputs.release, String(kind === "matching" || kind === "later-page"));
@@ -156,25 +182,27 @@ test("foreign npm ownership, source identity changes and registry failures never
   }
 });
 
-test("direct pushes, unmerged PRs and a different merged commit do not authorize publication", async (t) => {
+test("a marker without its merged bot version PR cannot authorize publication", async (t) => {
   for (const pulls of [[], [{ merged_at: null, base: { ref: "main" } }],
     [{ merged_at: "2026-10-04", base: { ref: "other" } }],
     [{ merged_at: "2026-10-04", base: { ref: "main" }, merge_commit_sha: "a".repeat(40) }]]) {
-    const f = fixture(t);
-    refused(await invoke(t, f, "plan", { pulls }), /merged PR to main/);
+    const f = versionCommit(fixture(t));
+    const result = await invoke(t, f, "plan", { pulls });
+    assert.equal(result.failed, false, result.errors);
+    assert.equal(result.outputs.release, "false");
   }
 });
 
 test("downgrades and prereleases cannot move the automated latest channel", async (t) => {
   for (const [version, latest, reason] of [["4.0.0", "4.0.1", /move latest backwards/], ["4.1.0-beta.1", "4.0.0", /stable x.y.z/]]) {
-    const f = fixture(t, version);
+    const f = versionCommit(fixture(t, version));
     refused(await invoke(t, f, "plan", { data: metadata(latest) }), reason);
   }
 });
 
 test("missing, empty or duplicate versioned release notes block a new release", async (t) => {
   for (const changelog of ["## Unreleased\n\nPending changes.\n", "## 4.0.1\n\n## 4.0.0\n\nOlder.\n", "## 4.0.1\n\nOne.\n\n## [4.0.1]\n\nTwo.\n"]) {
-    const f = fixture(t, "4.0.1", changelog);
+    const f = versionCommit(fixture(t, "4.0.1", changelog));
     refused(await invoke(t, f, "plan"), /versioned section|notes are empty/);
   }
 });
@@ -204,8 +232,20 @@ test("publication requires exact frozen host identities before artifact access",
   ]) {
     const f = fixture(t);
     const result = await invoke(t, f, "publish", { environment,
-      args: ["--artifact", "/does-not-exist", "--source-ref", f.ref, ...args] });
+      args: ["--artifact", "/does-not-exist", "--source-ref", f.ref, "--release-source", f.ref, ...args] });
     refused(result, reason);
+    assert.deepEqual(result.requests, []);
+  }
+});
+
+test("package-specific release qualifications cannot be bypassed by the shared publisher", async (t) => {
+  for (const packageName of ["pi-subagents", "pi-agent-browser-native", "pi-oracle", "pi-cursor-sdk", "pi-zai-mcp", "pi-codex-goal", "pi-posthorse", "pi-mcp-adapter", "pi-workflows"]) {
+    const repo = `fitchmultz/${packageName}`;
+    const f = fixture(t, "1.0.0", undefined, repo, packageName);
+    const environment = { GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main",
+      GITHUB_WORKFLOW_REF: `${repo}/.github/workflows/npm-release.yml@refs/heads/main` };
+    const result = await invoke(t, f, "publish", { environment });
+    refused(result, /requires its package-specific exact-candidate release qualification/);
     assert.deepEqual(result.requests, []);
   }
 });
@@ -234,7 +274,7 @@ test("downloaded artifact checksum, commit and manifest mismatches fail before c
     if (kind === "version") candidate.version = "4.0.2";
     writeJson(join(directory, "release.json"), candidate);
     writeFileSync(join(directory, "release-notes.md"), `${candidate.notes}\n`);
-    const result = await invoke(t, f, "verify", { args: ["--artifact", directory, "--source-ref", f.ref] });
+    const result = await invoke(t, f, "verify", { args: ["--artifact", directory, "--source-ref", f.ref, "--release-source", f.ref] });
     refused(result, kind === "bytes" ? /checksum changed/ : kind === "commit" ? /different source commit/ : /4\.0\.1.*4\.0\.2/s);
     assert.deepEqual(result.requests, []);
   }
@@ -243,10 +283,10 @@ test("downloaded artifact checksum, commit and manifest mismatches fail before c
 test("each enabled owned scoped channel can plan its real first patch without inventing a previous latest", async (t) => {
   for (const [repo, version] of [["pi-subagents", "0.44.4"], ["pi-calculator", "4.1.1"],
     ["pi-ask-question", "0.5.1"], ["pi-workflows", "0.2.1"], ["pi-verbosity-control", "0.6.1"]]) {
-    const f = fixture(t, version, undefined, `fitchmultz/${repo}`, `@fitchmultz/${repo}`);
+    const f = versionCommit(fixture(t, version, undefined, `fitchmultz/${repo}`, `@fitchmultz/${repo}`));
     const result = await invoke(t, f, "plan", { status: 404, data: null, args: ["--source-ref", f.ref] });
     assert.equal(result.failed, false, result.errors);
-    assert.deepEqual(result.outputs, { release: "true", source: f.ref, version,
+    assert.deepEqual(result.outputs, { release: "true", source: f.ref, version, "release-source": f.trigger,
       "official-version": "9.8.7", "fork-ref": forkRef });
     assert.equal(existsSync(join(f.source, "published")), false);
     assert.equal(exec("git", ["status", "--porcelain"], f.source), "");
@@ -268,16 +308,20 @@ test("first-publication absence never relaxes namespace, registry, merged-source
       exec("git", ["commit", "--quiet", "-m", "Invalid identity"], f.source);
       f.ref = exec("git", ["rev-parse", "HEAD"], f.source);
     }
+    versionCommit(f);
     const result = await invoke(t, f, "plan", { status: typeof kind === "number" ? kind : 404, data: null,
       pulls: kind === "direct" ? [] : undefined });
     const reasons = { unscoped: /HTTP 404/, namespace: /Package name differs/, repository: /repository identity/,
-      private: /Private packages/, prerelease: /stable x.y.z/, direct: /merged PR to main/, notes: /versioned section/ };
-    refused(result, typeof kind === "number" ? new RegExp(`HTTP ${kind}`) : reasons[kind]);
+      private: /Private packages/, prerelease: /stable x.y.z/, notes: /versioned section/ };
+    if (kind === "direct") {
+      assert.equal(result.failed, false, result.errors);
+      assert.equal(result.outputs.release, "false");
+    } else refused(result, typeof kind === "number" ? new RegExp(`HTTP ${kind}`) : reasons[kind]);
   }
 });
 
 function publicationFixture(t, existing = false, scopedRepo = "pi-calculator", version = "4.1.1") {
-  const f = existing ? fixture(t) : fixture(t, version, undefined, `fitchmultz/${scopedRepo}`, `@fitchmultz/${scopedRepo}`);
+  const f = versionCommit(existing ? fixture(t) : fixture(t, version, undefined, `fitchmultz/${scopedRepo}`, `@fitchmultz/${scopedRepo}`));
   const { directory, candidate } = artifact(f);
   f.directory = directory;
   f.candidate = candidate;
@@ -289,7 +333,7 @@ function publicationFixture(t, existing = false, scopedRepo = "pi-calculator", v
     GITHUB_SHA: f.ref, ACTIONS_ID_TOKEN_REQUEST_TOKEN: "fixture", ACTIONS_ID_TOKEN_REQUEST_URL: "https://example.invalid/oidc",
     GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", RUNNER_ENVIRONMENT: "github-hosted",
     GH_TOKEN: "github-fixture", AWS_SECRET_ACCESS_KEY: "ambient-fixture" };
-  f.args = ["--artifact", f.directory, "--source-ref", f.ref, "--official-version", "9.8.7", "--fork-ref", forkRef];
+  f.args = ["--artifact", f.directory, "--source-ref", f.ref, "--release-source", f.ref, "--official-version", "9.8.7", "--fork-ref", forkRef];
   f.published = { name: f.name, version: f.version, repository: { url: `git+https://github.com/${f.repository}.git` },
     dist: { integrity: f.candidate.integrity } };
   f.metadata = (latest = f.version) => ({ name: f.name, maintainers: [{ name: "fitchmultz" }],
@@ -344,7 +388,7 @@ function publicationBoundary(t, f, { guard, bootstrap = false, recovery = false 
       const path = args[1]?.replace(`repos/${f.repository}/`, "");
       if (path === "environments/npm") value = { deployment_branch_policy: { custom_branch_policies: guard !== "environment" } };
       else if (path === "environments/npm/deployment-branch-policies") value = { branch_policies: [{ name: "main", type: "branch" }] };
-      else if (path === "commits/main") value = { sha: guard === "main" ? "a".repeat(40) : f.ref };
+      else if (path === `compare/${f.ref}...main`) value = { status: guard === "main" ? "diverged" : "ahead" };
       else if (path === "releases?per_page=100") value = recovery || guard === "release"
         ? [[{ tag_name: `v${f.version}`, draft: true, assets: [],
           body: guard === "release" ? "Unrelated" : `<!-- pi-npm-release: ${f.ref} ${f.candidate.integrity} -->` }]] : [[]];
@@ -370,7 +414,7 @@ test("bootstrap auth is admitted only after all guards and before any GitHub rel
       const result = await invoke(t, f, "publish", { status: 404, data: null, args: f.args,
         environment: { ...f.environment, ...(guard === "missing-token" ? {} : { NPM_BOOTSTRAP_TOKEN: "bootstrap-fixture" }) } });
       const reasons = { "missing-token": /NPM_BOOTSTRAP_TOKEN/, environment: /restrict publication/,
-        main: /Main advanced/, release: /Existing GitHub release/, tag: /different commit/, account: /bootstrap.*fitchmultz/i };
+        main: /no longer an ancestor/, release: /Existing GitHub release/, tag: /different commit/, account: /bootstrap.*fitchmultz/i };
       refused(result, reasons[guard]);
       assert.equal(boundary.calls.some(({ command, args }) => command === "gh" && (args.includes("POST") || args[0] === "release")), false);
       assert.equal(boundary.calls.some(({ command, args }) => command === "npm" && args[0] === "publish"), false);
@@ -383,6 +427,7 @@ test("first-publication npm child alone gets bootstrap auth; a package appearing
   for (const mode of ["existing", "bootstrap", "later", "recovery", "foreign", "integrity"]) {
     await t.test(mode, async (t) => {
       const f = publicationFixture(t, mode === "existing");
+      if (mode === "existing") f.args.splice(f.args.indexOf("--release-source"), 2);
       if (mode === "later") {
         const plan = await invoke(t, f, "plan", { status: 404, data: null });
         assert.equal(plan.failed, false, plan.errors);
@@ -505,7 +550,9 @@ test("post-publication verification fails closed on HTTP, identity, integrity an
 test("owned native staging latest waits after exact publication or recovery, never admitting a new candidate", async (t) => {
   for (const mode of ["bootstrap", "recovery", "plan", "preflight"]) {
     await t.test(mode, async (t) => {
-      const f = publicationFixture(t, false, "pi-workflows", "0.2.1");
+      const f = mode === "plan"
+        ? publicationFixture(t, false, "pi-workflows", "0.2.1")
+        : publicationFixture(t);
       const boundary = publicationBoundary(t, f, { bootstrap: mode === "bootstrap", recovery: mode === "recovery" });
       let elapsed = 0;
       t.mock.method(Date, "now", () => elapsed);
@@ -527,7 +574,7 @@ test("owned native staging latest waits after exact publication or recovery, nev
         assert.equal(result.failed, false, result.errors);
         assert.equal(elapsed, 400_000);
         assert.ok(result.logs.some((line) => line.includes("latest=0.0.0-stage")));
-        assert.equal(result.requests.filter((url) => url.endsWith("/0.2.1")).length, 1, "verified exact bytes are retained across latest retries");
+        assert.equal(result.requests.filter((url) => url.endsWith(`/${f.version}`)).length, 1, "verified exact bytes are retained across latest retries");
         assert.equal(boundary.calls.filter(({ command, args }) => command === "npm" && args[0] === "publish").length, mode === "bootstrap" ? 1 : 0);
         assert.equal(boundary.calls.filter(({ args }) => args.includes("--draft=false")).length, 1);
       }

@@ -6,11 +6,13 @@ import { parseArgs } from "node:util";
 import { checkResources, probeCli } from "./cli-probe.mjs";
 import { awaitsFirstPublication, isolatedEnvironment, readJson, run, sha256, stageSource, writeJson } from "./common.mjs";
 import { prepareHost, resolveHostTargets, selectDevelopmentHost } from "./hosts.mjs";
+import { identity as assertIdentity, markedSource, newer, registry, sourceMarker, versionParts } from "./npm-release-core.mjs";
+import { history, versionCommit } from "./npm-version.mjs";
 
-const registry = "https://registry.npmjs.org/";
+const identity = (manifest) => assertIdentity(entry, repository, manifest);
 const { values, positionals } = parseArgs({ allowPositionals: true, options: {
   source: { type: "string" }, repository: { type: "string" }, output: { type: "string" },
-  fork: { type: "string" }, artifact: { type: "string" }, "source-ref": { type: "string" },
+  fork: { type: "string" }, artifact: { type: "string" }, "source-ref": { type: "string" }, "release-source": { type: "string" },
   "official-version": { type: "string" }, "fork-ref": { type: "string" },
   help: { type: "boolean", short: "h" },
 } });
@@ -22,44 +24,6 @@ function output(values) {
   for (const [key, value] of Object.entries(values)) {
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
   }
-}
-
-function versionParts(version) {
-  // ponytail: only stable releases go to latest. Add an explicit prerelease/dist-tag policy before supporting prereleases.
-  assert.match(version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/, "Automatic releases require a stable x.y.z version");
-  const parts = version.split(".").map(Number);
-  assert.ok(parts.every(Number.isSafeInteger), "Version components exceed the safe integer range");
-  return parts;
-}
-
-function newer(candidate, latest) {
-  const left = versionParts(candidate);
-  const right = versionParts(latest);
-  for (let index = 0; index < left.length; index++) {
-    if (left[index] !== right[index]) return left[index] > right[index];
-  }
-  return false;
-}
-
-function identity(manifest) {
-  assert.ok(entry?.npmPackage && ["automatic", "approval"].includes(entry.npmRelease), "Repository has no enabled, owned npm release channel");
-  assert.equal(manifest.name, entry.npmPackage, "Package name differs from the owned npm channel");
-  assert.notEqual(manifest.private, true, "Private packages cannot be released");
-  versionParts(manifest.version);
-  const url = typeof manifest.repository === "string" ? manifest.repository : manifest.repository?.url;
-  assert.equal(url?.replace(/^git\+/, "").replace(/\.git\/?$/, "").replace(/\/$/, ""), `https://github.com/${repository}`, "Package repository identity differs from its caller");
-  const config = manifest.publishConfig ?? {};
-  function inspect(object) {
-    for (const [key, value] of Object.entries(object)) {
-      assert.ok(!/auth|password|username|token|otp|certfile|keyfile/i.test(key), "Credential-shaped publishConfig is forbidden");
-      if (value && typeof value === "object") inspect(value);
-      if (/registry$/i.test(key)) assert.equal(value?.replace(/\/$/, ""), registry.replace(/\/$/, ""), "Only the public npm registry is allowed");
-    }
-  }
-  inspect(config);
-  assert.equal(config.tag ?? "latest", "latest", "Only the latest channel is automated");
-  assert.ok(config.access === undefined || config.access === "public", "Only public publishing is allowed");
-  assert.notEqual(config.provenance, false, "Automatic releases require npm provenance");
 }
 
 function visibilityRemaining(deadline) {
@@ -161,35 +125,40 @@ async function plan() {
   const existing = data?.versions[manifest.version];
   const headers = { Accept: "application/vnd.github+json" };
   if (process.env.GH_TOKEN) headers.Authorization = `Bearer ${process.env.GH_TOKEN}`;
-  let release = !existing;
-  if (existing) {
-    // Drafts are visible through the list API only with push access, not releases/tags/TAG.
-    for (let page = 1; ; page++) {
-      const response = await fetch(`https://api.github.com/repos/${repository}/releases?per_page=100&page=${page}`, { headers, signal: AbortSignal.timeout(30_000) });
-      assert.ok(response.ok, `GitHub release lookup: HTTP ${response.status}`);
-      const releases = await response.json();
-      const draft = releases.find((item) => item.tag_name === `v${manifest.version}`);
-      if (draft) {
-        release = draft.draft === true && ownsRelease(draft, ref, existing.dist?.integrity);
-        break;
-      }
-      if (releases.length < 100) break;
-    }
+  const github = async (path) => {
+    const response = await fetch(`https://api.github.com/repos/${repository}/${path}`, { headers, signal: AbortSignal.timeout(30_000) });
+    assert.ok(response.ok, `GitHub ${path}: HTTP ${response.status}`);
+    return response.json();
+  };
+  const releases = [];
+  for (let page = 1; ; page++) {
+    const items = await github(`releases?per_page=100&page=${page}`);
+    releases.push(...items);
+    if (items.length < 100) break;
   }
+  const draft = releases.find((item) => item.tag_name === `v${manifest.version}`);
+  const draftMarker = /<!-- pi-npm-release: ([a-f0-9]{40}) (sha512-[^\s]+) -->/.exec(draft?.body ?? "");
+  const matchingDraft = draft?.draft === true && draftMarker?.[1] === ref
+    && (!existing || draftMarker[2] === existing.dist?.integrity);
+  const automatic = existsSync(join(source, ".github/workflows/npm-version.yml"));
+  const bump = automatic ? await versionCommit(history(source), repository, (sha) => github(`commits/${sha}/pulls?per_page=100`)) : null;
+  const bumpVersion = bump && JSON.parse(run("git", ["show", `${bump.sha}:package.json`], { cwd: source, quiet: true })).version;
+  const release = matchingDraft || (!existing && !draft && (!automatic || Boolean(bump && bumpVersion === manifest.version)));
   let hosts;
   if (release) {
-    if (!existing && data) assert.ok(newer(manifest.version, data["dist-tags"].latest), "Refusing to move latest backwards; bump to a newer version");
+    if (!existing && data) assert.ok(newer(manifest.version, data["dist-tags"].latest), "Refusing to move latest backwards");
     releaseNotes(source, manifest.version);
-    const response = await fetch(`https://api.github.com/repos/${repository}/commits/${ref}/pulls`, { headers, signal: AbortSignal.timeout(30_000) });
-    assert.ok(response.ok, `Merged release PR lookup: HTTP ${response.status}`);
-    const pulls = await response.json();
-    assert.ok(pulls.some((pull) => pull.merged_at && pull.base?.ref === "main" && pull.merge_commit_sha === ref), "Release candidate must come from a merged PR to main, not a direct push");
+    if (!automatic) {
+      const pulls = await github(`commits/${ref}/pulls?per_page=100`);
+      assert.ok(pulls.some((pull) => pull.merged_at && pull.base?.ref === "main" && pull.merge_commit_sha === ref),
+        "Release candidate must come from a merged PR to main, not a direct push");
+    }
     hosts = await resolveHostTargets();
   }
   output({ release: String(release), source: ref, version: manifest.version,
-    ...(hosts ? { "official-version": hosts.officialVersion, "fork-ref": hosts.forkRef } : {}) });
-  console.log(release ? `${manifest.name}@${manifest.version}: ${existing ? "unfinished GitHub release" : "unpublished candidate"} ${ref}`
-    : `${manifest.name}@${manifest.version}: already published; source changes require a new version`);
+    ...(release ? { "release-source": bump?.source ?? ref, "official-version": hosts.officialVersion, "fork-ref": hosts.forkRef } : {}) });
+  console.log(release ? `${manifest.name}@${manifest.version}: ${matchingDraft ? "unfinished GitHub release" : `${automatic ? "automatic" : "manual"} version candidate`} ${ref}`
+    : `${manifest.name}@${manifest.version}: no release candidate at ${ref}`);
 }
 
 async function prepare() {
@@ -197,6 +166,9 @@ async function prepare() {
   const source = resolve(values.source);
   const destination = resolve(values.output);
   const { manifest, ref } = sourceIdentity(source);
+  const releaseSource = values["release-source"] || values["source-ref"] || ref;
+  assert.match(releaseSource, /^[a-f0-9]{40}$/, "prepare requires an exact release source");
+  run("git", ["merge-base", "--is-ancestor", releaseSource, ref], { cwd: source, quiet: true });
   const notes = releaseNotes(source, manifest.version);
   mkdirSync(destination, { recursive: true });
   const root = mkdtempSync("/tmp/npm-release-");
@@ -213,6 +185,7 @@ async function prepare() {
     run("npm", ["run", "build", "--if-present"], { cwd: development, env });
     // Pack reviewed bundled dependencies, retaining the output compiled against the selected latest SDK.
     run("npm", ["ci", "--ignore-scripts"], { cwd: development, env });
+    run("npm", ["run", "release:dry-run", "--if-present"], { cwd: development, env });
     run("git", ["diff", "--exit-code"], { cwd: development, env });
     const packedJson = JSON.parse(run("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", destination], { cwd: development, env, quiet: true }));
     const packed = Array.isArray(packedJson) ? packedJson : Object.values(packedJson);
@@ -244,7 +217,7 @@ async function prepare() {
       hosts[flavor] = { ...host, observation: probeCli(host, installed, join(root, flavor, "probe"), env) };
     }
     assert.equal(sha256(tarball), hash, "Release tarball changed during consumer verification");
-    writeJson(join(destination, "release.json"), { repository, source: ref, name: manifest.name, version: manifest.version,
+    writeJson(join(destination, "release.json"), { repository, source: ref, releaseSource, name: manifest.name, version: manifest.version,
       approval: entry.npmRelease === "approval", filename, sha256: hash, integrity, notes, hosts });
     writeFileSync(join(destination, "release-notes.md"), `${notes}\n`);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
@@ -254,13 +227,14 @@ async function prepare() {
   }
 }
 
-function verifyArtifact(directory, env) {
+function verifyArtifact(directory, env, currentHosts = true) {
   const candidate = readJson(join(directory, "release.json"));
   assert.equal(candidate.repository, repository);
   assert.equal(candidate.name, entry?.npmPackage);
   versionParts(candidate.version);
   assert.match(candidate.source, /^[a-f0-9]{40}$/);
   assert.equal(candidate.source, values["source-ref"], "Artifact came from a different source commit");
+  assert.equal(candidate.releaseSource ?? candidate.source, values["release-source"] || values["source-ref"], "Artifact came from a different release source");
   assert.equal(candidate.approval, entry.npmRelease === "approval", "Artifact approval policy changed");
   assert.equal(basename(candidate.filename), candidate.filename);
   const tarball = join(directory, candidate.filename);
@@ -271,26 +245,56 @@ function verifyArtifact(directory, env) {
   assert.equal(manifest.version, candidate.version);
   assert.equal(readFileSync(join(directory, "release-notes.md"), "utf8").trim(), candidate.notes);
   for (const flavor of ["official", "fork"]) assert.equal(candidate.hosts?.[flavor]?.flavor, flavor, `Missing ${flavor} artifact verification`);
-  if (values["official-version"]) assert.equal(candidate.hosts.official.version, values["official-version"], "Official artifact differs from this run's resolved host");
-  if (values["fork-ref"]) assert.equal(candidate.hosts.fork.provenance.ref, values["fork-ref"], "Fork artifact differs from this run's resolved host");
+  assert.match(candidate.hosts.official.version ?? "", /^\d+\.\d+\.\d+$/, "Missing exact official host identity");
+  assert.match(candidate.hosts.fork.provenance?.ref ?? "", /^[a-f0-9]{40}$/, "Missing exact fork host identity");
+  if (currentHosts && values["official-version"]) assert.equal(candidate.hosts.official.version, values["official-version"], "Official artifact differs from this run's resolved host");
+  if (currentHosts && values["fork-ref"]) assert.equal(candidate.hosts.fork.provenance.ref, values["fork-ref"], "Fork artifact differs from this run's resolved host");
   return candidate;
+}
+
+function recoverDraft(release, prepared, root, gh, env) {
+  if (!release?.draft) return null;
+  const receipts = release.assets.filter((asset) => /^verification-\d+-\d+\.json$/.test(asset.name));
+  for (const receipt of receipts) {
+    const directory = join(root, `recovery-${receipt.id}`);
+    mkdirSync(directory);
+    gh(["release", "download", release.tag_name, "--repo", repository, "--pattern", receipt.name, "--dir", directory]);
+    const receiptPath = join(directory, receipt.name);
+    assert.equal(receipt.digest, `sha256:${sha256(receiptPath)}`, "Saved release receipt checksum differs from GitHub");
+    const saved = readJson(receiptPath);
+    if (saved.repository !== repository || saved.name !== prepared.name || saved.version !== prepared.version
+      || saved.source !== prepared.source || (saved.releaseSource ?? saved.source) !== (prepared.releaseSource ?? prepared.source)
+      || !ownsRelease(release, saved.source, saved.integrity)) continue;
+    assert.equal(basename(saved.filename), saved.filename);
+    const tarball = release.assets.find((asset) => asset.name === saved.filename);
+    assert.ok(tarball, "Saved release candidate tarball is missing");
+    gh(["release", "download", release.tag_name, "--repo", repository, "--pattern", saved.filename, "--dir", directory]);
+    assert.equal(tarball.digest, `sha256:${sha256(join(directory, saved.filename))}`, "Saved release tarball checksum differs from GitHub");
+    cpSync(receiptPath, join(directory, "release.json"));
+    writeFileSync(join(directory, "release-notes.md"), `${saved.notes}\n`);
+    const candidate = verifyArtifact(directory, env, false);
+    console.log(`Recovered the originally verified ${candidate.name}@${candidate.version} tarball from its draft release`);
+    return { candidate, directory };
+  }
+  return null;
 }
 
 async function publish() {
   assert.equal(process.env.GITHUB_ACTIONS, "true", "Publication only runs in GitHub Actions");
   assert.equal(process.env.GITHUB_REF, "refs/heads/main", "Publication only runs from main");
   assert.equal(process.env.GITHUB_WORKFLOW_REF, `${repository}/.github/workflows/npm-release.yml@refs/heads/main`, "Unexpected trusted publisher caller");
+  assert.ok(!entry.releaseQualification, `${repository} requires its package-specific exact-candidate release qualification before automatic publication`);
   assert.ok(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN && process.env.ACTIONS_ID_TOKEN_REQUEST_URL, "OIDC permission is missing");
   assert.match(process.env.GITHUB_RUN_ID ?? "", /^\d+$/, "Missing GitHub run identity");
   assert.match(process.env.GITHUB_RUN_ATTEMPT ?? "", /^\d+$/, "Missing GitHub run attempt");
   assert.ok(values.artifact && values["source-ref"], "publish requires --artifact and --source-ref");
   assert.match(values["official-version"] ?? "", /^\d+\.\d+\.\d+$/, "publish requires exact --official-version from this run's planner");
   assert.match(values["fork-ref"] ?? "", /^[a-f0-9]{40}$/, "publish requires exact --fork-ref from this run's planner");
-  const directory = resolve(values.artifact);
+  let directory = resolve(values.artifact);
   const root = mkdtempSync("/tmp/npm-publish-");
   const env = isolatedEnvironment(root);
   try {
-    const candidate = verifyArtifact(directory, env);
+    let candidate = verifyArtifact(directory, env);
     assert.equal(process.env.GITHUB_SHA, candidate.source, "Caller commit differs from the verified artifact");
     for (const [name, value] of Object.entries(process.env)) {
       if (name.startsWith("GITHUB_") || name.startsWith("ACTIONS_ID_TOKEN_REQUEST_")) env[name] = value;
@@ -305,16 +309,22 @@ async function publish() {
     if (candidate.approval) {
       assert.ok(environment.protection_rules.some((rule) => rule.type === "required_reviewers" && rule.reviewers.some((reviewer) => reviewer.reviewer.login === "fitchmultz")), "Required maintainer release approval was removed");
     }
+    const tag = `v${candidate.version}`;
+    const releases = JSON.parse(gh(["api", `repos/${repository}/releases?per_page=100`, "--paginate", "--slurp"])).flat();
+    let release = releases.find((item) => item.tag_name === tag);
+    if (release && !ownsRelease(release, candidate.source, candidate.integrity)) {
+      const recovered = recoverDraft(release, candidate, root, gh, env);
+      assert.ok(recovered, "Existing GitHub release is not this exact automation candidate; leave it untouched");
+      ({ candidate, directory } = recovered);
+    }
     const data = await metadata(candidate.name);
     const existing = data?.versions[candidate.version];
     if (existing) assert.equal(existing.dist.integrity, candidate.integrity, "This version was published with different bytes; never overwrite it");
     else {
-      assert.equal(api("commits/main").sha, candidate.source, "Main advanced while release checks/approval were pending; rerun on the current main commit");
+      const comparison = api(`compare/${candidate.source}...main`);
+      assert.ok(["ahead", "identical"].includes(comparison.status), "Release source is no longer an ancestor of main");
       if (data) assert.ok(newer(candidate.version, data["dist-tags"].latest), "Refusing to move latest backwards");
     }
-    const tag = `v${candidate.version}`;
-    const releases = JSON.parse(gh(["api", `repos/${repository}/releases?per_page=100`, "--paginate", "--slurp"])).flat();
-    let release = releases.find((item) => item.tag_name === tag);
     if (release) assert.ok(ownsRelease(release, candidate.source, candidate.integrity), "Existing GitHub release is not this exact automation candidate; leave it untouched");
     const refs = api(`git/matching-refs/tags/${tag}`);
     const ref = refs.find((item) => item.ref === `refs/tags/${tag}`);
@@ -340,7 +350,7 @@ async function publish() {
     }
     if (!release) {
       release = api("releases", { tag_name: tag, name: `${candidate.name} ${candidate.version}`, draft: true,
-        body: `${candidate.notes}\n\n<!-- pi-npm-release: ${candidate.source} ${candidate.integrity} -->\n\n[Release verification](https://github.com/${repository}/actions/runs/${process.env.GITHUB_RUN_ID})\n` });
+        body: `${candidate.notes}\n\n${sourceMarker(candidate.releaseSource ?? candidate.source)}\n<!-- pi-npm-release: ${candidate.source} ${candidate.integrity} -->\n\n[Release verification](https://github.com/${repository}/actions/runs/${process.env.GITHUB_RUN_ID})\n` });
     }
     const receipt = `verification-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}.json`;
     cpSync(join(directory, "release.json"), join(root, receipt));
@@ -365,7 +375,7 @@ async function publish() {
 
 try {
   if (values.help) {
-    console.log(`Usage: node scripts/npm-release.mjs <plan|prepare|verify|publish> [options]\n\nOptions:\n  --repository OWNER/REPO  Owned channel (defaults to GITHUB_REPOSITORY)\n  --source PATH            Clean source checkout for plan/prepare\n  --source-ref SHA          Expected immutable commit; required by verify/publish\n  --fork PATH               Verified fork host artifact directory for prepare\n  --official-version X.Y.Z  Frozen official identity; required by publish (local prepare otherwise resolves latest)\n  --fork-ref SHA            Frozen fork identity; required by publish\n  --output PATH             Candidate artifact directory for prepare\n  --artifact PATH           Candidate artifact directory for verify/publish\n  -h, --help                Show this help\n\nExamples:\n  node scripts/npm-release.mjs plan --repository fitchmultz/pi-copy-message --source ../extension\n  node scripts/npm-release.mjs prepare --repository fitchmultz/pi-copy-message --source ../extension --source-ref COMMIT --fork /tmp/fork-package --output /tmp/candidate\n  node scripts/npm-release.mjs verify --repository fitchmultz/pi-copy-message --source-ref COMMIT --artifact /tmp/candidate\n\nplan is read-only; prepare builds/tests without credentials. publish runs only in GitHub Actions and creates npm/GitHub releases. Existing packages use OIDC only; an absent enabled @fitchmultz/REPO requires NPM_BOOTSTRAP_TOKEN for its first publication.\nExit codes: 0 = success (including already-published plan), 1 = invalid input, failed gate, or release failure.`);
+    console.log(`Usage: node scripts/npm-release.mjs <plan|prepare|verify|publish> [options]\n\nOptions:\n  --repository OWNER/REPO  Owned channel (defaults to GITHUB_REPOSITORY)\n  --source PATH            Clean source checkout for plan/prepare\n  --source-ref SHA          Expected immutable commit; required by verify/publish\n  --release-source SHA      Original queued commit; defaults to the publication source for legacy callers\n  --fork PATH               Verified fork host artifact directory for prepare\n  --official-version X.Y.Z  Frozen official identity; required by publish (local prepare otherwise resolves latest)\n  --fork-ref SHA            Frozen fork identity; required by publish\n  --output PATH             Candidate artifact directory for prepare\n  --artifact PATH           Candidate artifact directory for verify/publish\n  -h, --help                Show this help\n\nExamples:\n  node scripts/npm-release.mjs plan --repository fitchmultz/pi-copy-message --source ../extension\n  node scripts/npm-release.mjs prepare --repository fitchmultz/pi-copy-message --source ../extension --source-ref COMMIT --release-source SOURCE --fork /tmp/fork-package --output /tmp/candidate\n  node scripts/npm-release.mjs verify --repository fitchmultz/pi-copy-message --source-ref COMMIT --release-source SOURCE --artifact /tmp/candidate\n\nplan is read-only; prepare builds/tests without credentials. publish runs only in GitHub Actions and creates npm/GitHub releases. Existing packages use OIDC only; an absent enabled @fitchmultz/REPO requires NPM_BOOTSTRAP_TOKEN for its first publication.\nExit codes: 0 = success (including already-published plan), 1 = invalid input, failed gate, or release failure.`);
   } else {
     assert.equal(positionals.length, 1, "Choose plan, prepare, verify, or publish; use --help");
     assert.ok(entry?.npmRelease, "Repository has no enabled npm release channel");
