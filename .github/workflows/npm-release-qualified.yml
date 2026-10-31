@@ -1,0 +1,59 @@
+name: Qualified npm release
+
+on:
+  workflow_call:
+    inputs:
+      automation-ref:
+        description: Exact reviewed automation commit
+        required: true
+        type: string
+      source-ref:
+        description: Exact caller commit whose candidate passed package qualification
+        required: true
+        type: string
+      release-source:
+        description: Original main commit covered by this version; defaults to source-ref
+        required: false
+        type: string
+      official-version:
+        description: Official version resolved and qualified in the caller
+        required: true
+        type: string
+      fork-ref:
+        description: Maintained fork SHA resolved and qualified in the caller
+        required: true
+        type: string
+    secrets:
+      NPM_BOOTSTRAP_TOKEN:
+        description: Environment-only credential for a first scoped publication
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: npm
+      url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/.github
+          ref: ${{ inputs.automation-ref }}
+          path: automation
+          persist-credentials: false
+      - uses: ./automation/.github/actions/npm-publish
+        with:
+          source-ref: ${{ inputs.source-ref }}
+          release-source: ${{ inputs.release-source || inputs.source-ref }}
+          official-version: ${{ inputs.official-version }}
+          fork-ref: ${{ inputs.fork-ref }}
+          qualified: 'true'
+          bootstrap-token: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}

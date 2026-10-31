@@ -160,6 +160,30 @@ export function hostIdentity(directory, env = process.env) {
     runtimeLockSha256: sha256(join(directory, "package-lock.json")), runtimeGraphSha256: graph.digest("hex") };
 }
 
+export function verifyForkArtifact(target) {
+  const receipt = readJson(join(target, "receipt.json"));
+  assert.match(receipt.ref, /^[a-f0-9]{40}$/);
+  assert.equal(sha256(join(target, "manifest.json")), receipt.artifactManifestSha256, "Changed fork artifact manifest");
+  const artifacts = readJson(join(target, "manifest.json"));
+  assert.deepEqual(artifacts.source, { commit: receipt.ref, dirty: false }, "Fork artifacts do not identify the exact clean source");
+  for (const [file, hash] of Object.entries(receipt.installFiles)) {
+    assert.ok(["package.json", "package-lock.json", "install-lock/package.json", "install-lock/package-lock.json"].includes(file), "Unexpected fork install input");
+    assert.equal(sha256(join(target, file)), hash, `Changed fork install input: ${file}`);
+  }
+  assert.equal(Object.keys(receipt.installFiles).length, 4, "Fork artifact must carry source and consumer installer inputs");
+  for (const pkg of receipt.packages) {
+    const tarball = resolve(target, pkg.file);
+    assert.match(pkg.file, /^tarballs\/[^/\\]+\.tgz$/, "Fork archive must stay in its artifact directory");
+    assert.equal(sha256(tarball), pkg.sha256, `Changed fork artifact: ${pkg.name}`);
+    assert.deepEqual(artifacts.packages.find((artifact) => artifact.name === pkg.name),
+      { name: pkg.name, version: pkg.version, tarball: pkg.file, integrity: pkg.integrity }, "Fork receipt differs from native artifact identity");
+    assert.equal(`sha512-${createHash("sha512").update(readFileSync(tarball)).digest("base64")}`, pkg.integrity);
+  }
+  assert.equal(artifacts.packages.length, receipt.packages.length);
+  assert.ok(receipt.packages.some((pkg) => pkg.name === codingAgent), "Fork artifact does not contain coding-agent");
+  return receipt;
+}
+
 export async function prepareHost(directory, flavor, target, env) {
   mkdirSync(directory, { recursive: true });
   let provenance;
@@ -171,28 +195,8 @@ export async function prepareHost(directory, flavor, target, env) {
     writeJson(join(directory, "package-lock.json"), installer.lock);
   } else {
     assert.equal(flavor, "fork");
-    const receipt = readJson(join(target, "receipt.json"));
-    assert.match(receipt.ref, /^[a-f0-9]{40}$/);
-    assert.equal(sha256(join(target, "manifest.json")), receipt.artifactManifestSha256, "Changed fork artifact manifest");
-    const artifacts = readJson(join(target, "manifest.json"));
-    assert.deepEqual(artifacts.source, { commit: receipt.ref, dirty: false }, "Fork artifacts do not identify the exact clean source");
-    for (const [file, hash] of Object.entries(receipt.installFiles)) {
-      assert.ok(["package.json", "package-lock.json", "install-lock/package.json", "install-lock/package-lock.json"].includes(file), "Unexpected fork install input");
-      assert.equal(sha256(join(target, file)), hash, `Changed fork install input: ${file}`);
-    }
-    assert.equal(Object.keys(receipt.installFiles).length, 4, "Fork artifact must carry source and consumer installer inputs");
-    for (const pkg of receipt.packages) {
-      const tarball = resolve(target, pkg.file);
-      assert.match(pkg.file, /^tarballs\/[^/\\]+\.tgz$/, "Fork archive must stay in its artifact directory");
-      assert.equal(sha256(tarball), pkg.sha256, `Changed fork artifact: ${pkg.name}`);
-      assert.deepEqual(artifacts.packages.find((artifact) => artifact.name === pkg.name),
-        { name: pkg.name, version: pkg.version, tarball: pkg.file, integrity: pkg.integrity }, "Fork receipt differs from native artifact identity");
-      assert.equal(`sha512-${createHash("sha512").update(readFileSync(tarball)).digest("base64")}`, pkg.integrity);
-    }
-    assert.equal(artifacts.packages.length, receipt.packages.length);
-    assert.ok(receipt.packages.some((pkg) => pkg.name === codingAgent), "Fork artifact does not contain coding-agent");
+    provenance = verifyForkArtifact(target);
     cpSync(target, directory, { recursive: true });
-    provenance = receipt;
   }
   run("npm", ["ci", "--ignore-scripts", "--omit=dev", "--include=optional"], { cwd: directory, env });
   const identity = hostIdentity(directory, env);
