@@ -9,13 +9,13 @@ const help = `Usage:
 scope compares immutable Git commits (the merge base for a PR), prints JSON,
 and writes fleet-required=true|false to GITHUB_OUTPUT when set.
 Manual dispatch always requires the full fleet and needs no base/head.
-check requires SCOPE, HOSTS, TESTS and CONFIGURATION=success, plus an explicit
+check requires SCOPE, HOSTS, TESTS, WINDOWS_RELEASE and CONFIGURATION=success, plus an explicit
 FLEET_REQUIRED=true|false and FLEET=success (or skipped only when not required).
 Both commands write their decision to GITHUB_STEP_SUMMARY when set.
 
 Examples:
   node scripts/ci.mjs scope --event push --base "$(git rev-parse HEAD^)" --head "$(git rev-parse HEAD)"
-  SCOPE=success HOSTS=success TESTS=success CONFIGURATION=success FLEET_REQUIRED=false FLEET=skipped node scripts/ci.mjs check
+  SCOPE=success HOSTS=success TESTS=success WINDOWS_RELEASE=success CONFIGURATION=success FLEET_REQUIRED=false FLEET=skipped node scripts/ci.mjs check
 
 Exit codes: 0 = planned or checks passed; 1 = invalid input, Git failure or failed gate.
   -h, --help  Show this help`;
@@ -82,7 +82,7 @@ function scope(values) {
 }
 
 function check() {
-  for (const name of ["SCOPE", "HOSTS", "TESTS", "CONFIGURATION"]) {
+  for (const name of ["SCOPE", "HOSTS", "TESTS", "WINDOWS_RELEASE", "CONFIGURATION"]) {
     if (process.env[name] !== "success") throw new Error(`${name} must succeed (received ${JSON.stringify(process.env[name])})`);
   }
   const required = process.env.FLEET_REQUIRED;

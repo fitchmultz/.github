@@ -101,6 +101,23 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  windows-release-verifier:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          check-latest: true
+          package-manager-cache: false
+      - name: Verify a retained release from a native Windows path
+        shell: bash
+        run: |
+          tar --version
+          node --test test/release-verifier.native.mjs
+
   windows-environment:
     needs: scope
     if: needs.scope.outputs.fleet-required == 'true'
@@ -164,7 +181,7 @@ jobs:
 
   automation:
     if: always()
-    needs: [scope, hosts, tests, configuration, fleet]
+    needs: [scope, hosts, tests, windows-release-verifier, configuration, fleet]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -179,6 +196,7 @@ jobs:
           SCOPE: ${{ needs.scope.result }}
           HOSTS: ${{ needs.hosts.result }}
           TESTS: ${{ needs.tests.result }}
+          WINDOWS_RELEASE: ${{ needs.windows-release-verifier.result }}
           CONFIGURATION: ${{ needs.configuration.result }}
           FLEET_REQUIRED: ${{ needs.scope.outputs.fleet-required }}
           FLEET: ${{ needs.fleet.result }}
