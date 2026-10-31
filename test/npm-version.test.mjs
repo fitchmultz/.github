@@ -21,7 +21,7 @@ const git = (cwd, ...args) => command("git", args, cwd);
 const read = (path) => JSON.parse(readFileSync(path, "utf8"));
 const write = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 
-function fixture(t, { unreleased = true } = {}) {
+function fixture(t, { unreleased = true, repo = repository, packageName = "pi-copy-message" } = {}) {
   const root = mkdtempSync("/tmp/npm-version-test-");
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const source = join(root, "source");
@@ -32,9 +32,9 @@ function fixture(t, { unreleased = true } = {}) {
   const log = join(root, "github.log");
   const output = join(root, "output");
   mkdirSync(source); mkdirSync(bin);
-  const manifest = { name: "pi-copy-message", version: "4.0.0", description: "Original description",
+  const manifest = { name: packageName, version: "4.0.0", description: "Original description",
     license: "MIT", author: "Original author", contributors: ["Original contributor"],
-    repository: { type: "git", url: `git+https://github.com/${repository}.git` } };
+    repository: { type: "git", url: `git+https://github.com/${repo}.git` } };
   write(join(source, "package.json"), manifest);
   write(join(source, "package-lock.json"), { name: manifest.name, version: manifest.version, lockfileVersion: 3, requires: true,
     packages: { "": { name: manifest.name, version: manifest.version } } });
@@ -59,7 +59,7 @@ function fixture(t, { unreleased = true } = {}) {
     registry: { name: manifest.name, maintainers: [{ name: "fitchmultz" }], "dist-tags": { latest: manifest.version }, versions: { [manifest.version]: manifest } } });
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, NODE_OPTIONS: `--import=${api}`,
     GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main",
-    GITHUB_REPOSITORY: repository, GH_TOKEN: "read-fixture", RELEASE_GH_TOKEN: "app-fixture", GITHUB_OUTPUT: output,
+    GITHUB_REPOSITORY: repo, GH_TOKEN: "read-fixture", RELEASE_GH_TOKEN: "app-fixture", GITHUB_OUTPUT: output,
     PI_DURABLE_ORIGIN: "https://durable.example.invalid", PI_DURABLE_ACCESS_TOKEN: "durable-fixture", CURSOR_API_KEY: "cursor-fixture",
     FAKE_GITHUB_STATE: statePath, FAKE_GITHUB_REMOTE: remote, FAKE_GITHUB_LOG: log, FAKE_FAST_POLL: "1" };
   const state = () => read(statePath);
@@ -68,11 +68,11 @@ function fixture(t, { unreleased = true } = {}) {
     writeFileSync(output, "");
     return spawnSync(process.execPath, [script, ...args], { cwd: root, encoding: "utf8", env: { ...env, GITHUB_EVENT_NAME: event } });
   };
-  const reconcile = (event) => invoke(["reconcile", "--source", source, "--app-slug", "pi-durable"], event);
-  const remediate = (head, executable = remediation) => {
+  const reconcile = (event, extra = []) => invoke(["reconcile", "--source", source, "--app-slug", "pi-durable", ...extra], event);
+  const remediate = (head, executable = remediation, extra = []) => {
     writeFileSync(output, "");
     return spawnSync(process.execPath, [executable, "--source", source, "--pull", "1", "--head", head,
-      "--release-source", first, "--app-slug", "pi-durable"], { cwd: root, encoding: "utf8", env });
+      "--release-source", first, "--app-slug", "pi-durable", ...extra], { cwd: root, encoding: "utf8", env });
   };
   const ref = (branch) => git(root, "--git-dir", remote, "rev-parse", `refs/heads/${branch}`);
   const advance = (text, note) => {
@@ -501,13 +501,27 @@ test("version automation stays held when a package's required release gates are 
   }
 });
 
-test("a qualified caller may version its package, but cannot bypass exact-diff version review", () => {
-  const env = { ...process.env, GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main" };
-  const qualified = spawnSync(process.execPath, [script, "reconcile", "--package-qualified"], {
-    encoding: "utf8", env: { ...env, GITHUB_REPOSITORY: "fitchmultz/pi-agent-browser-native" },
+test("a qualified caller versions and remediates its package, but cannot bypass exact-diff version review", (t) => {
+  const f = fixture(t, { repo: "fitchmultz/pi-agent-browser-native", packageName: "pi-agent-browser-native" });
+  const held = f.reconcile();
+  assert.notEqual(held.status, 0);
+  assert.match(held.stderr, /package-specific release qualification/);
+  success(f.reconcile(undefined, ["--package-qualified"]));
+  const head = f.ref(`npm-version/${f.first}`);
+  assert.equal(f.state().open.length, 1);
+  const agent = "bc-88888888-8888-4888-8888-888888888888";
+  f.setState((state) => {
+    const cursor = check("cursor", "Cursor Automation: PR Bug Review - Maintained Repos", head, f.first);
+    cursor.details_url = `https://cursor.com/agents/${agent}`;
+    state.checks = [cursor, check("pi-durable", "Pi Durable Review", head, f.first),
+      ...["quality", "Native lifecycle Linux", "Official Pi / Node 24", "Fork Pi / Node 24", "macOS package smoke"]
+        .map((name) => check("github-actions", name, head, f.first))];
+    state.cursorReports = { [agent]: "No concrete findings." };
   });
-  assert.notEqual(qualified.status, 0);
-  assert.match(qualified.stderr, /reconcile requires --source and --app-slug/);
+  success(f.remediate(head, remediation, ["--package-qualified"]));
+  assert.match(readFileSync(f.output, "utf8"), /ready=true/);
+  assert.equal(f.state().submissions.length, 1);
+  const env = { ...process.env, GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main" };
   const exactDiff = spawnSync(process.execPath, [script, "reconcile", "--package-qualified"], {
     encoding: "utf8", env: { ...env, GITHUB_REPOSITORY: "fitchmultz/pi-cursor-sdk" },
   });
