@@ -129,8 +129,8 @@ function mergeLines(source, env, root, name, base, ours, theirs) {
   const conflict = /^<<<<<<< ours\n([\s\S]*?)^\|\|\|\|\|\|\| base\n([\s\S]*?)^=======\n([\s\S]*?)^>>>>>>> theirs\n/gm;
   const unique = (text, part) => part && text.indexOf(part) >= 0 && text.indexOf(part) === text.lastIndexOf(part);
   const result = merged.stdout.replace(conflict, (_, ourPart, basePart, theirPart) => {
-    if (unique(theirPart, basePart)) return theirPart.replace(basePart, ourPart);
-    if (unique(ourPart, basePart)) return ourPart.replace(basePart, theirPart);
+    if (unique(theirPart, basePart)) return theirPart.replace(basePart, () => ourPart);
+    if (unique(ourPart, basePart)) return ourPart.replace(basePart, () => theirPart);
     throw new Error(`Concurrent ${name} edits need review`);
   });
   assert.ok(!/^<<<<<<< ours$/m.test(result), `Concurrent ${name} edits need review`);
@@ -182,7 +182,7 @@ function resolveChangelog(source, version, scopedGit, env, root) {
   assert.equal(merged.stdout.split(anchor).length, 2, "Merged changelog lost its release position");
   const heading = sections[2]?.heading ?? sections[1]?.heading;
   const insertion = [heading, reviewedRelease].filter(Boolean).join("\n\n");
-  writeFileSync(join(source, "CHANGELOG.md"), merged.stdout.replace(anchor, insertion));
+  writeFileSync(join(source, "CHANGELOG.md"), merged.stdout.replace(anchor, () => insertion));
   scopedGit(["add", "CHANGELOG.md"]);
 }
 

@@ -13,7 +13,8 @@ on:
         type: string
       release-source:
         description: Original main commit covered by this automatic version
-        required: true
+        required: false
+        default: ''
         type: string
       official-version:
         description: Latest official version resolved by this run's planner and checked in the caller
@@ -91,7 +92,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_REF: ${{ inputs.source-ref }}
-          RELEASE_SOURCE: ${{ inputs.release-source }}
+          RELEASE_SOURCE: ${{ inputs.release-source || inputs.source-ref }}
           OFFICIAL_VERSION: ${{ inputs.official-version }}
           FORK_REF: ${{ inputs.fork-ref }}
         run: |
@@ -147,7 +148,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
           SOURCE_REF: ${{ inputs.source-ref }}
-          RELEASE_SOURCE: ${{ inputs.release-source }}
+          RELEASE_SOURCE: ${{ inputs.release-source || inputs.source-ref }}
           OFFICIAL_VERSION: ${{ inputs.official-version }}
           FORK_REF: ${{ inputs.fork-ref }}
         run: |

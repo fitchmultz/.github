@@ -6,6 +6,8 @@
 
 [`fleet.json`](../fleet.json) lists the owned npm channels. A repository's callers enable its channel only after its existing release qualifications can run for the exact publication source. A fleet entry or a green offline compatibility check alone is not proof that a package is ready to publish.
 
+Installing `.github/workflows/npm-version.yml` enables the automatic queue below. A repository that has not installed it can continue publishing manually versioned, merged PRs through its existing pinned release caller; its release source defaults to the publication commit. The holds described below apply when adopting this automation revision.
+
 1. A merge to `main` enters the version queue. The first queued commit installs the version workflow; later source commits are processed in first-parent order, even if the first run is delayed. The workflow verifies the preceding aligned npm/GitHub release and waits for each automatic version to appear on both registries before starting another.
 2. A repository-scoped GitHub App opens a version PR. It chooses the next stable patch above the manifest, npm versions and existing tags; updates `package.json` and `package-lock.json`; and combines `Unreleased` notes, the source commit and generated GitHub release notes under a versioned changelog heading. The original source commit remains recorded even when `main` advances during review.
 3. The PR is updated to current `main` and must pass its actual current-head compatibility checks, Pi Durable and Cursor reviews, and resolved review threads. GitHub still enforces the repository's branch rules. If a Pi finding is genuinely addressed and its inline thread resolved, the version branch receives an empty recheck commit so the reviewers can reassess it on a new head. Standalone findings have no GitHub resolution state and require an actual agent disposition; a green check alone does not establish that they were addressed.
@@ -14,14 +16,17 @@
 
 Version PRs and their release notes are generated automatically; maintainers can keep writing useful `Unreleased` notes. Package lifecycle scripts are disabled during the final credentialed `npm publish`, so each caller must provide any additional release gate before invoking the shared publisher:
 
+- **pi-subagents:** its packed entry must load through real Pi and exercise an actual native child session on the selected hosts; a loader-only smoke is not equivalent.
 - **pi-agent-browser-native:** its own release verification includes the configured-source Pi lifecycle and required macOS/Ubuntu Crabbox smoke; its release instructions also require real-site dogfood. The shared host checks do not replace them.
 - **pi-oracle:** its `release:check` requires eight actual ChatGPT preset jobs for the exact post-merge HEAD and its doctor-first macOS, Ubuntu and native Windows platform suites. A PR-head run or offline test is not equivalent.
 - **pi-cursor-sdk:** its release instructions require a deep maintainability review of the exact release diff, with findings addressed and review repeated until clear, in addition to applicable verification.
 - **pi-zai-mcp:** its release and completion checks include the production `npm audit`, which is not part of `check:compat`.
 - **pi-codex-goal:** release-sensitive changes require interactive real-model `/goal` session evidence, which offline compatibility does not provide.
 - **pi-posthorse:** delivery requires independent evidence that the complete verification workflow rejects each documented class of bad change.
+- **pi-mcp-adapter:** the packed candidate must pass its real tool/SDK and consumer-type checks, not only a separately packed CI build.
+- **pi-workflows:** the packed candidate must pass discovery and real Subagents composition, recipe and child-session checks.
 
-The shared versioner and publisher hold these six channels until their additional gates are wired; Cursor also needs its required pre-commit and pre-push review. Keep their callers disabled. Other package-specific requirements remain in their repositories and are not waived by this guide. If a package defines `release:dry-run`, preparation runs it without publication credentials before packing.
+The shared versioner and publisher hold these nine channels until their additional gates are wired; Cursor also needs its required pre-commit and pre-push review. Keep their callers disabled. Other package-specific requirements remain in their repositories and are not waived by this guide. If a package defines `release:dry-run`, preparation runs it without publication credentials before packing.
 
 ## Recovery
 
@@ -35,7 +40,7 @@ If a review or CI check fails, address the real finding or failure and resolve i
 
 - Configure an `npm` environment restricted to `main`. Configure npm trusted publishing for the repository's caller filename `npm-release.yml` and environment `npm`; the reusable workflow authenticates as that caller. Existing packages use OIDC rather than an npm token.
 - Configure a separate `release` environment restricted to `main` with `RELEASE_APP_PRIVATE_KEY`, and a repository variable `RELEASE_APP_CLIENT_ID` for the installed GitHub App. Its per-repository token needs contents and pull-request write access. The version workflow uses the ordinary GitHub token for check, pull-request and Actions reads/retries.
-- The repository's `npm-version.yml` calls `.github/workflows/npm-release-bump.yml` at a reviewed immutable automation revision, passing that same revision as `automation-ref`, the App client ID, and the named environment secret. Its main-push, external Pi Durable and Cursor check-run completion, release-completion, schedule and dispatch events share a native queued concurrency group. These events run trusted main automation in the main-only environment, never code from an untrusted PR.
+- The repository's `npm-version.yml` calls `.github/workflows/npm-release-bump.yml` at a reviewed immutable automation revision, passing that same revision as `automation-ref`, the App client ID, and the named environment secret. Its main-push, external Pi Durable and Cursor check-run completion, PR issue-comment, release-completion, schedule and dispatch events share a native queued concurrency group. These events run trusted main automation in the main-only environment, never code from an untrusted PR.
 - The `npm-release.yml` caller keeps its existing package jobs, calls the shared planner, and forwards `source`, `release-source`, `official-version` and `fork-ref` to the shared publisher. It runs publication from the exact main push or a rerun of that push. Both the workflow reference and `automation-ref` use the same reviewed revision.
 - Before enabling the caller, verify that the latest npm version, its published GitHub release and tag, and the manifest at that tag agree, with the tag commit on main's first-parent history. The initial version queue starts at the caller's installation commit. Preserve all actual branch protections and package-specific qualification.
 

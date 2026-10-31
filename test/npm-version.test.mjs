@@ -193,8 +193,8 @@ test("resolved Pi findings trigger one genuine fresh review without dismissing u
 
 test("main may insert or revise unreleased notes without losing reviewed version notes", async (t) => {
   for (const [name, edit, expected] of [
-    ["insert", (text) => text.replace("A real pending change.", "An inserted note.\nA real pending change."), /An inserted note/],
-    ["revise", (text) => text.replace("A real pending change.", "A corrected pending change."), /A corrected pending change/],
+    ["insert", (text) => text.replace("A real pending change.", () => "- Stop enumerating graphemes once a message preview is known to need truncation; preserve preview and copied text.\nA real pending change."), "- Stop enumerating graphemes once a message preview is known to need truncation; preserve preview and copied text."],
+    ["revise", (text) => text.replace("A real pending change.", "A corrected pending change."), "A corrected pending change."],
   ]) await t.test(name, (t) => {
     const f = fixture(t); success(f.reconcile());
     const branch = `npm-version/${f.first}`;
@@ -202,7 +202,9 @@ test("main may insert or revise unreleased notes without losing reviewed version
     git(f.writer, "switch", "--quiet", "--detach", "FETCH_HEAD");
     const path = join(f.writer, "CHANGELOG.md");
     const prior = name === "insert" ? "A real pending change." : "A second pending change.";
-    writeFileSync(path, readFileSync(path, "utf8").replace(prior, "A reviewed pending correction.").replace("Meaningful change", "Reviewed release note"));
+    // This real pi-posthorse history note contains "$`", which is special in string replacements.
+    const correction = "- All-session search and bare-ID history reads use ripgrep (Pi's managed copy, then `PATH`) to skip session files that cannot match. Without ripgrep, and for queries that could match escaped or label-only text (quotes, backslashes, brackets, parentheses, braces, colons, `$`, edge spaces, or phrases such as \"Call ID\" and \"No handoff\"), every file is scanned as before; image-count and comma queries also search every file with an image block. Results always match a full scan.";
+    writeFileSync(path, readFileSync(path, "utf8").replace(prior, () => correction).replace("Meaningful change", "Reviewed release note"));
     git(f.writer, "add", "CHANGELOG.md"); git(f.writer, "commit", "--quiet", "-m", "Address review");
     git(f.writer, "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
     git(f.writer, "switch", "--quiet", "main");
@@ -213,8 +215,9 @@ test("main may insert or revise unreleased notes without losing reviewed version
     const notes = git(f.root, "--git-dir", f.remote, "show", `${f.ref(branch)}:CHANGELOG.md`);
     assert.match(notes, /## Unreleased\s+## 4\.0\.1/);
     const released = notes.slice(notes.indexOf("## 4.0.1"));
-    assert.match(released, expected);
-    assert.match(released, /A reviewed pending correction\.[\s\S]*Reviewed release note/);
+    assert.ok(released.includes(expected), "Incoming note must be preserved verbatim");
+    assert.ok(released.includes(correction), "Reviewed note must be preserved verbatim");
+    assert.match(released, /Reviewed release note/);
     assert.doesNotMatch(released, new RegExp(prior.replaceAll(".", "\\.")));
   });
 });
@@ -308,7 +311,7 @@ test("a successful Cursor review still waits for its inline finding to be resolv
 });
 
 test("version automation stays held when a package's required release gates are not wired", () => {
-  for (const name of ["pi-agent-browser-native", "pi-oracle", "pi-cursor-sdk", "pi-zai-mcp", "pi-codex-goal", "pi-posthorse"]) {
+  for (const name of ["pi-subagents", "pi-agent-browser-native", "pi-oracle", "pi-cursor-sdk", "pi-zai-mcp", "pi-codex-goal", "pi-posthorse", "pi-mcp-adapter", "pi-workflows"]) {
     const result = spawnSync(process.execPath, [script, "reconcile", "--source", ".", "--app-slug", "pi-durable"], {
       encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: `fitchmultz/${name}` },
     });

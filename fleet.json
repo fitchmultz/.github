@@ -1,5 +1,5 @@
 [
-  { "repo": "pi-subagents", "kind": "extension", "npmPackage": "@fitchmultz/pi-subagents", "npmRelease": "automatic", "releaseChecks": ["compatibility"], "nodes": ["24"], "extraPlatforms": ["macos-latest"], "contractTimeoutMs": { "linux": 3540000, "darwin": 3540000 } },
+  { "repo": "pi-subagents", "kind": "extension", "npmPackage": "@fitchmultz/pi-subagents", "npmRelease": "automatic", "releaseQualification": true, "releaseChecks": ["compatibility"], "nodes": ["24"], "extraPlatforms": ["macos-latest"], "contractTimeoutMs": { "linux": 3540000, "darwin": 3540000 } },
   { "repo": "pi-agent-browser-native", "kind": "extension", "npmPackage": "pi-agent-browser-native", "npmRelease": "automatic", "releaseQualification": true, "releaseChecks": ["quality", "Native lifecycle Linux", "Official Pi / Node 24", "Fork Pi / Node 24", "macOS package smoke"], "nodes": ["24"], "extraPlatforms": ["macos-latest", "windows-latest"], "contractTimeoutMs": { "linux": 1800000, "darwin": 1800000, "win32": 2700000 } },
   { "repo": "pi-verbosity-control", "kind": "extension", "npmPackage": "@fitchmultz/pi-verbosity-control", "npmRelease": "automatic", "nodes": ["24"] },
   { "repo": "pi-change-working-dir", "kind": "extension", "nodes": ["24.15.0", "24"], "extraPlatforms": ["macos-latest"] },
@@ -11,7 +11,7 @@
   { "repo": "pi-oracle", "kind": "extension", "npmPackage": "pi-oracle", "npmRelease": "automatic", "releaseQualification": true, "extraPlatforms": ["macos-latest", "windows-latest"] },
   { "repo": "pi-todo-list", "kind": "extension", "nodes": ["24"] },
   { "repo": "pi-posthorse", "kind": "extension", "npmPackage": "pi-posthorse", "npmRelease": "automatic", "releaseQualification": true, "releaseChecks": ["Strict code quality", "Pi official", "Pi fork"], "nodes": ["24"], "extraPlatforms": ["macos-latest"], "contractTimeoutMs": { "linux": 1200000, "darwin": 1200000 } },
-  { "repo": "pi-mcp-adapter", "kind": "extension", "npmPackage": "@fitchmultz/pi-mcp-adapter", "npmRelease": "automatic", "releaseChecks": ["compatibility / compatibility", "extras"], "nodes": ["24"], "extraPlatforms": ["macos-latest"] },
+  { "repo": "pi-mcp-adapter", "kind": "extension", "npmPackage": "@fitchmultz/pi-mcp-adapter", "npmRelease": "automatic", "releaseQualification": true, "releaseChecks": ["compatibility / compatibility", "extras"], "nodes": ["24"], "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-codex-goal", "kind": "extension", "npmPackage": "pi-codex-goal", "npmRelease": "automatic", "releaseQualification": true, "nodes": ["24"], "extraPlatforms": ["macos-latest", "windows-latest"] },
   { "repo": "pi-cursor-sdk", "kind": "extension", "npmPackage": "pi-cursor-sdk", "npmRelease": "automatic", "releaseQualification": true, "versionQualification": true, "nodes": ["24"], "extraPlatforms": ["macos-latest", "windows-latest"] },
   { "repo": "pi-calculator", "kind": "extension", "npmPackage": "@fitchmultz/pi-calculator", "npmRelease": "automatic", "nodes": ["24"] },
@@ -20,7 +20,7 @@
   { "repo": "pi-ask-question", "kind": "extension", "npmPackage": "@fitchmultz/pi-ask-question", "npmRelease": "automatic", "nodes": ["24"] },
   { "repo": "pi-copy-message", "kind": "extension", "npmPackage": "pi-copy-message", "npmRelease": "automatic", "nodes": ["24"] },
   { "repo": "pi-zai-mcp", "kind": "extension", "npmPackage": "pi-zai-mcp", "npmRelease": "automatic", "releaseQualification": true },
-  { "repo": "pi-workflows", "kind": "extension", "npmPackage": "@fitchmultz/pi-workflows", "npmRelease": "automatic" },
+  { "repo": "pi-workflows", "kind": "extension", "npmPackage": "@fitchmultz/pi-workflows", "npmRelease": "automatic", "releaseQualification": true },
   { "repo": "pi-zai-agents", "kind": "extension", "npmPackage": "pi-zai-agents", "npmRelease": "automatic" },
   { "repo": "ponytail", "kind": "extension", "nodes": ["24.15.0", "24"] }
 ]

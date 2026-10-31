@@ -39,7 +39,10 @@ function fixture(t, version = "4.0.1", changelog = `## ${version} - 2026-10-04\n
 
 function versionCommit(f) {
   f.trigger = f.ref;
-  exec("git", ["commit", "--quiet", "--allow-empty", "-m", "chore(release): version", "-m", `<!-- pi-npm-source: ${f.trigger} -->`], f.source);
+  mkdirSync(join(f.source, ".github", "workflows"), { recursive: true });
+  writeFileSync(join(f.source, ".github", "workflows", "npm-version.yml"), "name: npm version\n");
+  exec("git", ["add", ".github/workflows/npm-version.yml"], f.source);
+  exec("git", ["commit", "--quiet", "-m", "chore(release): version", "-m", `<!-- pi-npm-source: ${f.trigger} -->`], f.source);
   f.ref = exec("git", ["rev-parse", "HEAD"], f.source);
   return f;
 }
@@ -135,6 +138,21 @@ test("a merged automatic version PR becomes a candidate with its original source
   assert.equal(existsSync(join(f.source, "published")), false);
 });
 
+test("a legacy caller can still release a manually versioned merged PR without a release-source input", async (t) => {
+  const f = fixture(t);
+  const result = await invoke(t, f, "plan", { args: ["--source-ref", f.ref] });
+  assert.equal(result.failed, false, result.errors);
+  assert.deepEqual(result.outputs, { release: "true", source: f.ref, version: "4.0.1", "release-source": f.ref,
+    "official-version": "9.8.7", "fork-ref": forkRef });
+  const { directory, candidate } = artifact(f);
+  writeJson(join(directory, "release.json"), candidate);
+  writeFileSync(join(directory, "release-notes.md"), `${candidate.notes}\n`);
+  const verified = await invoke(t, f, "verify", { args: ["--artifact", directory, "--source-ref", f.ref] });
+  assert.equal(verified.failed, false, verified.errors);
+  const invalid = fixture(t);
+  refused(await invoke(t, invalid, "plan", { pulls: [] }), /merged PR to main/);
+});
+
 test("only this automation's exact-commit draft is resumed after npm publication succeeds", async (t) => {
   for (const kind of ["matching", "later-page", "other-source", "unrecognized", "finished", "forbidden"]) {
     const f = fixture(t);
@@ -221,7 +239,7 @@ test("publication requires exact frozen host identities before artifact access",
 });
 
 test("package-specific release qualifications cannot be bypassed by the shared publisher", async (t) => {
-  for (const packageName of ["pi-agent-browser-native", "pi-oracle", "pi-cursor-sdk", "pi-zai-mcp", "pi-codex-goal", "pi-posthorse"]) {
+  for (const packageName of ["pi-subagents", "pi-agent-browser-native", "pi-oracle", "pi-cursor-sdk", "pi-zai-mcp", "pi-codex-goal", "pi-posthorse", "pi-mcp-adapter", "pi-workflows"]) {
     const repo = `fitchmultz/${packageName}`;
     const f = fixture(t, "1.0.0", undefined, repo, packageName);
     const environment = { GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main",
@@ -409,6 +427,7 @@ test("first-publication npm child alone gets bootstrap auth; a package appearing
   for (const mode of ["existing", "bootstrap", "later", "recovery", "foreign", "integrity"]) {
     await t.test(mode, async (t) => {
       const f = publicationFixture(t, mode === "existing");
+      if (mode === "existing") f.args.splice(f.args.indexOf("--release-source"), 2);
       if (mode === "later") {
         const plan = await invoke(t, f, "plan", { status: 404, data: null });
         assert.equal(plan.failed, false, plan.errors);
@@ -531,7 +550,9 @@ test("post-publication verification fails closed on HTTP, identity, integrity an
 test("owned native staging latest waits after exact publication or recovery, never admitting a new candidate", async (t) => {
   for (const mode of ["bootstrap", "recovery", "plan", "preflight"]) {
     await t.test(mode, async (t) => {
-      const f = publicationFixture(t, false, "pi-workflows", "0.2.1");
+      const f = mode === "plan"
+        ? publicationFixture(t, false, "pi-workflows", "0.2.1")
+        : publicationFixture(t);
       const boundary = publicationBoundary(t, f, { bootstrap: mode === "bootstrap", recovery: mode === "recovery" });
       let elapsed = 0;
       t.mock.method(Date, "now", () => elapsed);
@@ -553,7 +574,7 @@ test("owned native staging latest waits after exact publication or recovery, nev
         assert.equal(result.failed, false, result.errors);
         assert.equal(elapsed, 400_000);
         assert.ok(result.logs.some((line) => line.includes("latest=0.0.0-stage")));
-        assert.equal(result.requests.filter((url) => url.endsWith("/0.2.1")).length, 1, "verified exact bytes are retained across latest retries");
+        assert.equal(result.requests.filter((url) => url.endsWith(`/${f.version}`)).length, 1, "verified exact bytes are retained across latest retries");
         assert.equal(boundary.calls.filter(({ command, args }) => command === "npm" && args[0] === "publish").length, mode === "bootstrap" ? 1 : 0);
         assert.equal(boundary.calls.filter(({ args }) => args.includes("--draft=false")).length, 1);
       }
