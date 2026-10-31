@@ -23,18 +23,18 @@ function nextVersion(manifestVersion, publishedVersions, tags) {
 
 function versionChangelog(changelog, version, generated, date) {
   versionParts(version);
-  const notes = generated.trim().replace(/^##\s+/gm, "### ");
+  const notes = generated.trim().replace(/^##[ \t]+/gm, "### ");
   assert.ok(notes, "Generated release notes are empty");
-  const unreleased = /^##\s+\[?Unreleased\]?(?:\s.*)?$/im.exec(changelog);
+  const unreleased = /^##[ \t]+\[?Unreleased\]?(?:[ \t].*)?\r?$/im.exec(changelog);
   if (unreleased) {
     const start = unreleased.index + unreleased[0].length;
-    const next = /^##\s+/m.exec(changelog.slice(start));
+    const next = /^##[ \t]+/m.exec(changelog.slice(start));
     const end = next ? start + next.index : changelog.length;
     const pending = changelog.slice(start, end).trim();
     const body = `${pendingStart}\n${pending ? `${pending}\n` : ""}${pendingEnd}\n\n${notes}`;
     return `${changelog.slice(0, start)}\n\n## ${version} - ${date}\n\n${body}\n\n${changelog.slice(end)}`;
   }
-  const heading = /^##\s+/m.exec(changelog);
+  const heading = /^##[ \t]+/m.exec(changelog);
   const position = heading?.index ?? changelog.length;
   const prefix = changelog.slice(0, position).trimEnd();
   return `${prefix}\n\n## ${version} - ${date}\n\n${pendingStart}\n${pendingEnd}\n\n${notes}\n\n${changelog.slice(position)}`;
@@ -64,7 +64,7 @@ function stageVersion(source, version, notes, date) {
 function retargetVersion(source, previous, version) {
   const path = join(source, "CHANGELOG.md");
   const changelog = readFileSync(path, "utf8");
-  const heading = new RegExp(`^(##\\s+\\[?v?)${previous.replaceAll(".", "\\.")}(\\]?(?:\\s.*)?)$`, "gm");
+  const heading = new RegExp(`^(##[ \\t]+\\[?v?)${previous.replaceAll(".", "\\.")}(\\]?(?:[ \\t].*)?\\r?)$`, "gm");
   assert.equal([...changelog.matchAll(heading)].length, 1, `Expected one ${previous} changelog heading`);
   setVersion(source, version);
   writeFileSync(path, changelog.replace(heading, (_, prefix, suffix) => `${prefix}${version}${suffix}`));
@@ -110,7 +110,7 @@ function changelogSection(text, heading) {
   if (!matches.length) return null;
   const start = matches[0].index;
   const headerEnd = start + matches[0][0].length;
-  const next = /^##\s+/m.exec(text.slice(headerEnd));
+  const next = /^##[ \t]+/m.exec(text.slice(headerEnd));
   const end = next ? headerEnd + next.index : text.length;
   return { start, end, heading: matches[0][0], body: text.slice(headerEnd, end).trim() };
 }
@@ -145,8 +145,8 @@ function mergeLines(source, env, root, name, base, ours, theirs) {
 }
 
 function resolveChangelog(source, version, scopedGit, env, root) {
-  const unreleased = /^##\s+\[?Unreleased\]?(?:\s.*)?$/gim;
-  const versionHeading = new RegExp(`^##\\s+\\[?v?${version.replaceAll(".", "\\.")}\\]?(?:\\s.*)?$`, "gm");
+  const unreleased = /^##[ \t]+\[?Unreleased\]?(?:[ \t].*)?\r?$/gim;
+  const versionHeading = new RegExp(`^##[ \\t]+\\[?v?${version.replaceAll(".", "\\.")}\\]?(?:[ \\t].*)?\\r?$`, "gm");
   const [base, ours, theirs] = [1, 2, 3].map((stage) => scopedGit(["show", `:${stage}:CHANGELOG.md`]));
   const sections = [base, ours, theirs].map((text) => changelogSection(text, unreleased));
   const versionSection = changelogSection(ours, versionHeading);
@@ -168,7 +168,7 @@ function resolveChangelog(source, version, scopedGit, env, root) {
     if (removeVersion) text = text.slice(0, versionSection.start) + text.slice(versionSection.end);
     const section = changelogSection(text, unreleased);
     if (section) return `${text.slice(0, section.start)}${anchor}\n\n${text.slice(section.end)}`;
-    const first = /^##\s+/m.exec(text);
+    const first = /^##[ \t]+/m.exec(text);
     const position = first?.index ?? text.length;
     const prefix = text.slice(0, position);
     return `${prefix}${prefix && !prefix.endsWith("\n") ? "\n\n" : ""}${anchor}\n\n${text.slice(position)}`;

@@ -195,6 +195,7 @@ test("main may insert or revise unreleased notes without losing reviewed version
   for (const [name, edit, expected] of [
     ["insert", (text) => text.replace("A real pending change.", () => "- Stop enumerating graphemes once a message preview is known to need truncation; preserve preview and copied text.\nA real pending change."), "- Stop enumerating graphemes once a message preview is known to need truncation; preserve preview and copied text."],
     ["revise", (text) => text.replace("A real pending change.", "A corrected pending change."), "A corrected pending change."],
+    ["adjacent", (text) => text.replace("## Unreleased\n\n", "## Unreleased\n- New note without a blank line.\n\n").replace("A real pending change.", "A revised pending change."), "- New note without a blank line."],
   ]) await t.test(name, (t) => {
     const f = fixture(t); success(f.reconcile());
     const branch = `npm-version/${f.first}`;
@@ -231,6 +232,25 @@ test("a newly added Unreleased section is included in the version being reviewed
   success(f.reconcile());
   const notes = git(f.root, "--git-dir", f.remote, "show", `${f.ref(`npm-version/${f.first}`)}:CHANGELOG.md`);
   assert.match(notes, /## Unreleased\s+## 4\.0\.1[\s\S]*### Added\n\n- New pending note\./);
+});
+
+test("versioned changelogs preserve notes and prior releases when headings have no blank line", async (t) => {
+  for (const [name, afterHeading] of [
+    ["pending note", "- Pending change.\n\n## 4.0.0\n\nPrevious release.\n"],
+    ["prior heading", "## 4.0.0\n\nPrevious release.\n"],
+  ]) await t.test(name, (t) => {
+    const f = fixture(t);
+    const path = join(f.writer, "CHANGELOG.md");
+    writeFileSync(path, `# Changes\n\n## Unreleased\n${afterHeading}`);
+    git(f.writer, "add", "CHANGELOG.md"); git(f.writer, "commit", "--quiet", "-m", "Update changelog");
+    git(f.writer, "push", "--quiet", "origin", "main");
+    success(f.reconcile());
+    const notes = git(f.root, "--git-dir", f.remote, "show", `${f.ref(`npm-version/${f.first}`)}:CHANGELOG.md`);
+    const released = notes.slice(notes.indexOf("## 4.0.1"), notes.indexOf("## 4.0.0"));
+    assert.match(notes, /## 4\.0\.0\n\nPrevious release\./);
+    if (name === "pending note") assert.match(released, /- Pending change\./);
+    assert.doesNotMatch(released, /Previous release\./);
+  });
 });
 
 test("an adjacent main manifest edit survives the automatic version change", (t) => {
