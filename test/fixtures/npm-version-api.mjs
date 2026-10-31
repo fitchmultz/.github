@@ -5,11 +5,11 @@ const state = () => JSON.parse(readFileSync(process.env.FAKE_GITHUB_STATE, "utf8
 const sha = (ref) => execFileSync("git", ["--git-dir", process.env.FAKE_GITHUB_REMOTE, "rev-parse", ref], { encoding: "utf8" }).trim();
 const pull = (item) => ({ number: item.number, state: "open", base: { ref: "main", sha: sha("refs/heads/main") },
   head: { ref: item.branch, sha: sha(`refs/heads/${item.branch}`), repo: { full_name: process.env.GITHUB_REPOSITORY } },
-  user: { login: "pi-durable[bot]" }, body: item.body });
+  user: { login: item.author ?? "pi-durable[bot]" }, body: item.body });
 const json = (value, status = 200) => Response.json(value, { status });
 if (process.env.FAKE_FAST_POLL) {
   const sleep = globalThis.setTimeout;
-  globalThis.setTimeout = (callback, ms, ...args) => sleep(callback, ms === 30_000 ? 1 : ms, ...args);
+  globalThis.setTimeout = (callback, ms, ...args) => sleep(callback, ms === 30_000 || ms === 10_000 ? 1 : ms, ...args);
 }
 
 globalThis.fetch = async (input, options = {}) => {
@@ -17,6 +17,52 @@ globalThis.fetch = async (input, options = {}) => {
   const data = state();
   const prefix = `/repos/${process.env.GITHUB_REPOSITORY}/`;
   if (url.hostname === "registry.npmjs.org") return json(data.registry);
+  if (url.hostname === "api.cursor.com") {
+    const match = /^\/v1\/agents\/(bc-[a-f0-9-]+)(\/runs)?(?:\/(run-[a-f0-9-]+))?$/.exec(url.pathname);
+    if (!match) throw new Error(`Unexpected Cursor path: ${url}`);
+    const item = data.cursorReports[match[1]];
+    if (!item) return json({ message: "Not Found" }, 404);
+    const run = { id: `run-${match[1].slice(3)}`, agentId: match[1], status: "FINISHED" };
+    return json(match[3] ? { ...run, result: item } : match[2] ? { items: [run] } : { id: match[1], latestRunId: run.id });
+  }
+  if (url.hostname === "durable.example.invalid") {
+    const path = url.pathname;
+    const review = /^\/api\/reviewer\/runs\/([^/]+)$/.exec(path);
+    if (review) return data.piRuns?.[review[1]] ? json(data.piRuns[review[1]]) : json({ error: "Not found" }, 404);
+    if (path === "/api/reviewer/reconcile" && options.method === "POST") {
+      const body = JSON.parse(options.body);
+      data.recoveries ??= [];
+      data.recoveries.push(body);
+      const check = data.checks.find((item) => item.app.slug === "pi-durable");
+      check.status = "completed"; check.conclusion = "success";
+      writeFileSync(process.env.FAKE_GITHUB_STATE, JSON.stringify(data));
+      return json({ delivery: "44444444-4444-4444-8444-444444444444", accepted: true }, 202);
+    }
+    if (path === "/api/chats" && options.method === "POST") {
+      const id = JSON.parse(options.body).id;
+      data.chatMetadata ??= {};
+      data.chatMetadata[id] ??= { id, title: "New chat", createdAt: 1, updatedAt: 1 };
+      writeFileSync(process.env.FAKE_GITHUB_STATE, JSON.stringify(data));
+      return json(data.chatMetadata[id]);
+    }
+    const metadata = /^\/api\/chats\/([^/]+)\/metadata$/.exec(path);
+    if (metadata && options.method === "POST") {
+      Object.assign(data.chatMetadata[metadata[1]], JSON.parse(options.body), { updatedAt: 2 });
+      writeFileSync(process.env.FAKE_GITHUB_STATE, JSON.stringify(data));
+      return json(data.chatMetadata[metadata[1]]);
+    }
+    const match = /^\/api\/chats\/([^/]+)(?:\/operations\/([^/]+))?$/.exec(path);
+    if (!match) throw new Error(`Unexpected Pi Durable path: ${url}`);
+    if (match[2]) return data.operations?.[match[2]] ? json(data.operations[match[2]]) : json({ error: "Not found" }, 404);
+    if (options.method !== "POST") return json({ connectionReady: true });
+    const body = JSON.parse(options.body);
+    data.operations ??= {};
+    data.submissions ??= [];
+    data.submissions.push({ operationId: body.operationId, prompt: body.prompt });
+    data.operations[body.operationId] = data.durableOutcome ?? { status: "done", text: JSON.stringify({ status: "no_findings", reason: "No finding in this report" }) };
+    writeFileSync(process.env.FAKE_GITHUB_STATE, JSON.stringify(data));
+    return json({ operationId: body.operationId, accepted: true }, 202);
+  }
   if (url.hostname !== "api.github.com") throw new Error(`Unexpected host: ${url}`);
   if (options.method && options.method !== "GET") appendFileSync(process.env.FAKE_GITHUB_LOG, `${options.method} ${url.pathname}\n`);
   if (url.pathname === "/users/pi-durable%5Bbot%5D") return json({ id: 123 });
