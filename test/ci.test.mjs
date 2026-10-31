@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const cli = fileURLToPath(new URL("../scripts/ci.mjs", import.meta.url));
-const gate = { SCOPE: "success", HOSTS: "success", TESTS: "success", CONFIGURATION: "success", FLEET_REQUIRED: "true", FLEET: "success" };
+const gate = { SCOPE: "success", HOSTS: "success", TESTS: "success", WINDOWS_RELEASE: "success", CONFIGURATION: "success", FLEET_REQUIRED: "true", FLEET: "success" };
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), "pi-ci-"));
@@ -209,7 +209,7 @@ test("automation requires every cheap check and only permits an explicit intenti
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.summary, environment.FLEET === "skipped" ? /not fleet qualification/ : /full fleet qualification/);
   }
-  for (const name of ["SCOPE", "HOSTS", "TESTS", "CONFIGURATION"]) {
+  for (const name of ["SCOPE", "HOSTS", "TESTS", "WINDOWS_RELEASE", "CONFIGURATION"]) {
     for (const state of ["", "failure", "cancelled", "skipped", "unknown"]) {
       const result = f.invoke(["check"], { ...gate, [name]: state, FLEET_REQUIRED: "false", FLEET: "skipped" });
       assert.equal(result.status, 1, `${name}=${state}: ${result.stdout}`);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { checkResources, probeCli } from "./cli-probe.mjs";
 import { awaitsFirstPublication, isolatedEnvironment, readJson, run, sha256, stageSource, writeJson } from "./common.mjs";
@@ -93,6 +93,12 @@ async function verifyPublication(candidate) {
     console.log(`Waiting for npm registry visibility: ${candidate.name}@${candidate.version} (${pending})`);
     await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, visibilityRemaining(deadline))));
   }
+}
+
+function packedManifest(tarball, env) {
+  return JSON.parse(run("tar", ["-xOf", basename(tarball), "package/package.json"], {
+    cwd: dirname(tarball), env, quiet: true,
+  }));
 }
 
 function sourceIdentity(source) {
@@ -258,7 +264,7 @@ async function prepare() {
       assert.equal(integrity, packed[0].integrity);
     }
     const tarball = join(destination, filename);
-    identity(JSON.parse(run("tar", ["-xOf", tarball, "package/package.json"], { env, quiet: true })));
+    identity(packedManifest(tarball, env));
     const hosts = {};
     for (const flavor of ["official", "fork"]) {
       const host = flavor === "official" ? official : await prepareHost(join(root, "fork", "host"), "fork", resolve(values.fork), env);
@@ -300,7 +306,7 @@ function verifyArtifact(directory, env, currentHosts = true, legacy = false) {
   const tarball = join(directory, candidate.filename);
   assert.equal(sha256(tarball), candidate.sha256, "Release tarball checksum changed");
   assert.equal(`sha512-${createHash("sha512").update(readFileSync(tarball)).digest("base64")}`, candidate.integrity, "Release tarball integrity changed");
-  const manifest = JSON.parse(run("tar", ["-xOf", tarball, "package/package.json"], { env, quiet: true }));
+  const manifest = packedManifest(tarball, env);
   identity(manifest);
   assert.equal(manifest.version, candidate.version);
   assert.equal(readFileSync(join(directory, "release-notes.md"), "utf8").trim(), candidate.notes);
@@ -478,7 +484,7 @@ async function publish() {
         "fitchmultz", "Bootstrap publication must authenticate as fitchmultz");
     }
     const forkArchive = join(root, "fork-host.tgz");
-    run("tar", ["-czf", forkArchive, "-C", forkDirectory, "receipt.json", "manifest.json",
+    run("tar", ["-czf", basename(forkArchive), "-C", forkDirectory, "receipt.json", "manifest.json",
       ...Object.keys(forkReceipt.installFiles), ...forkReceipt.packages.map((pkg) => pkg.file)], { cwd: root, env, quiet: true });
     const forkAsset = `fork-host-${sha256(forkArchive)}.tgz`;
     cpSync(forkArchive, join(root, forkAsset));
