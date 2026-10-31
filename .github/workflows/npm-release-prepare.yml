@@ -1,0 +1,180 @@
+name: npm release preparation
+
+on:
+  workflow_call:
+    inputs:
+      automation-ref:
+        description: Exact reviewed automation commit
+        required: true
+        type: string
+      source-ref:
+        description: Exact caller commit to prepare
+        required: true
+        type: string
+      release-source:
+        description: Original main commit covered by this version; defaults to source-ref
+        required: false
+        type: string
+      official-version:
+        description: Official version resolved by the caller's planner
+        required: true
+        type: string
+      fork-ref:
+        description: Maintained fork SHA resolved by the caller's planner
+        required: true
+        type: string
+    outputs:
+      sha256:
+        value: ${{ jobs.prepare.outputs.sha256 }}
+      receipt-sha256:
+        value: ${{ jobs.prepare.outputs.receipt-sha256 }}
+
+permissions:
+  contents: read
+
+jobs:
+  select:
+    # GitHub requires push access to inspect draft releases; this job executes no package code.
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    outputs:
+      recovered: ${{ steps.select.outputs.recovered }}
+      sha256: ${{ steps.select.outputs.sha256 }}
+      receipt-sha256: ${{ steps.select.outputs.receipt-sha256 }}
+      attempt: ${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/.github
+          ref: ${{ inputs.automation-ref }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source-ref }}
+          path: extension
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          check-latest: true
+          package-manager-cache: false
+      - name: Select the original draft candidate before preparing hosts
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REF: ${{ inputs.source-ref }}
+          RELEASE_SOURCE: ${{ inputs.release-source || inputs.source-ref }}
+        run: |
+          test "$SOURCE_REF" = "$GITHUB_SHA"
+          node automation/scripts/npm-release.mjs select --source extension --source-ref "$SOURCE_REF" \
+            --release-source "$RELEASE_SOURCE" --output "$RUNNER_TEMP/npm-recovered"
+      - if: steps.select.outputs.recovered == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-recovered-${{ inputs.source-ref }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/npm-recovered
+          if-no-files-found: error
+          retention-days: 7
+
+  prepare:
+    needs: select
+    # The official host's GitHub release lookup needs authentication on shared runners.
+    # Package commands receive isolated environments, and this job's token is read-only.
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      sha256: ${{ steps.prepare.outputs.sha256 }}
+      receipt-sha256: ${{ steps.prepare.outputs.receipt-sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/.github
+          ref: ${{ inputs.automation-ref }}
+          path: automation
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source-ref }}
+          path: extension
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          check-latest: true
+          package-manager-cache: false
+      - if: needs.select.outputs.recovered == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-recovered-${{ inputs.source-ref }}-${{ needs.select.outputs.attempt }}
+          path: ${{ runner.temp }}/npm-recovered
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        id: fork
+        with:
+          repository: fitchmultz/pi
+          ref: ${{ inputs.fork-ref }}
+          path: fork
+          persist-credentials: false
+      - name: Install native offline prerequisites
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.sources
+          sudo apt-get update
+          sudo apt-get install -y fd-find ripgrep zstd attr
+          sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+      - name: Use the reviewed automation npm
+        run: |
+          PM="$(node -p 'require("./automation/package.json").packageManager')"
+          npm exec --yes --package="$PM" -- npm install --global "$PM"
+      - name: Build the exact fork host
+        working-directory: fork
+        env:
+          FORK_REF: ${{ steps.fork.outputs.commit }}
+          PI_OFFLINE: '1'
+          PI_TELEMETRY: '0'
+        run: |
+          npm ci --ignore-scripts --no-audit
+          npm run hydrate:model-data
+          npm run build:offline
+          git diff --exit-code
+          node ../automation/scripts/pack-fork.mjs . "$RUNNER_TEMP/fork-package" "$FORK_REF"
+      - name: Use the package's reviewed build npm
+        run: |
+          PM="$(node -p 'require("./extension/package.json").packageManager ?? require("./automation/package.json").packageManager')"
+          npm exec --yes --package="$PM" -- npm install --global "$PM"
+      - name: Verify the exact candidate on both selected hosts
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REF: ${{ inputs.source-ref }}
+          RELEASE_SOURCE: ${{ inputs.release-source || inputs.source-ref }}
+          OFFICIAL_VERSION: ${{ inputs.official-version }}
+          FORK_REF: ${{ inputs.fork-ref }}
+          RECOVERED: ${{ needs.select.outputs.recovered }}
+          RECOVERED_SHA256: ${{ needs.select.outputs.sha256 }}
+          RECOVERED_RECEIPT_SHA256: ${{ needs.select.outputs.receipt-sha256 }}
+        run: |
+          args=()
+          if [ "$RECOVERED" = true ]; then
+            args+=(--recovered "$RUNNER_TEMP/npm-recovered" --recovered-sha256 "$RECOVERED_SHA256" \
+              --recovered-receipt-sha256 "$RECOVERED_RECEIPT_SHA256")
+          fi
+          node automation/scripts/npm-release.mjs prepare --source extension --source-ref "$SOURCE_REF" --release-source "$RELEASE_SOURCE" \
+            --official-version "$OFFICIAL_VERSION" --fork-ref "$FORK_REF" \
+            --fork "$RUNNER_TEMP/fork-package" --output "$RUNNER_TEMP/npm-candidate" "${args[@]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-candidate-${{ inputs.source-ref }}
+          path: ${{ runner.temp }}/npm-candidate
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-fork-host-${{ inputs.source-ref }}
+          path: ${{ runner.temp }}/fork-package
+          if-no-files-found: error
+          retention-days: 7

@@ -12,105 +12,36 @@ on:
         required: true
         type: string
       release-source:
-        description: Original main commit covered by this automatic version
+        description: Original main commit covered by this version; defaults to source-ref
         required: false
-        default: ''
         type: string
       official-version:
-        description: Latest official version resolved by this run's planner and checked in the caller
+        description: Official version resolved by the caller's planner
         required: true
         type: string
       fork-ref:
-        description: Latest maintained fork SHA resolved by this run's planner and checked in the caller
+        description: Maintained fork SHA resolved by the caller's planner
         required: true
         type: string
     secrets:
       NPM_BOOTSTRAP_TOKEN:
         description: Environment-only credential for a first scoped publication
         required: false
+
 permissions:
   contents: read
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: fitchmultz/.github
-          ref: ${{ inputs.automation-ref }}
-          path: automation
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.source-ref }}
-          path: extension
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        id: fork
-        with:
-          repository: fitchmultz/pi
-          ref: ${{ inputs.fork-ref }}
-          path: fork
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '24'
-          check-latest: true
-          package-manager-cache: false
-      - name: Install native offline prerequisites
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.sources
-          sudo apt-get update
-          sudo apt-get install -y fd-find ripgrep zstd attr
-          sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
-      - name: Use the reviewed automation npm
-        run: |
-          PM="$(node -p 'require("./automation/package.json").packageManager')"
-          # Install with the target npm itself: an older npm cannot replace itself across majors in place.
-          npm exec --yes --package="$PM" -- npm install --global "$PM"
-      - name: Build the exact fork host
-        working-directory: fork
-        env:
-          FORK_REF: ${{ steps.fork.outputs.commit }}
-          PI_OFFLINE: '1'
-          PI_TELEMETRY: '0'
-        run: |
-          npm ci --ignore-scripts --no-audit
-          npm run hydrate:model-data
-          npm run build:offline
-          git diff --exit-code
-          node ../automation/scripts/pack-fork.mjs . "$RUNNER_TEMP/fork-package" "$FORK_REF"
-      - name: Use the package's reviewed build npm
-        run: |
-          PM="$(node -p 'require("./extension/package.json").packageManager ?? require("./automation/package.json").packageManager')"
-          # Install with the target npm itself: an older npm cannot replace itself across majors in place.
-          npm exec --yes --package="$PM" -- npm install --global "$PM"
-      - name: Pack once and verify that tarball on both latest resolved hosts
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_REF: ${{ inputs.source-ref }}
-          RELEASE_SOURCE: ${{ inputs.release-source || inputs.source-ref }}
-          OFFICIAL_VERSION: ${{ inputs.official-version }}
-          FORK_REF: ${{ inputs.fork-ref }}
-        run: |
-          node automation/scripts/npm-release.mjs prepare --source extension --source-ref "$SOURCE_REF" --release-source "$RELEASE_SOURCE" \
-            --official-version "$OFFICIAL_VERSION" --fork-ref "$FORK_REF" \
-            --fork "$RUNNER_TEMP/fork-package" --output "$RUNNER_TEMP/npm-candidate"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: npm-candidate-${{ inputs.source-ref }}
-          path: ${{ runner.temp }}/npm-candidate
-          if-no-files-found: error
-          retention-days: 7
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: npm-fork-host-${{ inputs.source-ref }}
-          path: ${{ runner.temp }}/fork-package
-          if-no-files-found: error
-          retention-days: 7
+    permissions:
+      contents: write
+    uses: ./.github/workflows/npm-release-prepare.yml
+    with:
+      automation-ref: ${{ inputs.automation-ref }}
+      source-ref: ${{ inputs.source-ref }}
+      release-source: ${{ inputs.release-source || inputs.source-ref }}
+      official-version: ${{ inputs.official-version }}
+      fork-ref: ${{ inputs.fork-ref }}
 
   publish:
     needs: prepare
@@ -129,29 +60,11 @@ jobs:
           ref: ${{ inputs.automation-ref }}
           path: automation
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./automation/.github/actions/npm-publish
         with:
-          node-version: '24'
-          check-latest: true
-          registry-url: https://registry.npmjs.org/
-          package-manager-cache: false
-      - name: Use the reviewed publishing npm
-        run: |
-          PM="$(node -p 'require("./automation/package.json").packageManager')"
-          npm exec --yes --package="$PM" -- npm install --global "$PM"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: npm-candidate-${{ inputs.source-ref }}
-          path: ${{ runner.temp }}/npm-candidate
-      - name: Publish the verified artifact without lifecycle scripts
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
-          SOURCE_REF: ${{ inputs.source-ref }}
-          RELEASE_SOURCE: ${{ inputs.release-source || inputs.source-ref }}
-          OFFICIAL_VERSION: ${{ inputs.official-version }}
-          FORK_REF: ${{ inputs.fork-ref }}
-        run: |
-          node automation/scripts/npm-release.mjs publish \
-            --artifact "$RUNNER_TEMP/npm-candidate" --source-ref "$SOURCE_REF" --release-source "$RELEASE_SOURCE" \
-            --official-version "$OFFICIAL_VERSION" --fork-ref "$FORK_REF"
+          source-ref: ${{ inputs.source-ref }}
+          release-source: ${{ inputs.release-source || inputs.source-ref }}
+          official-version: ${{ inputs.official-version }}
+          fork-ref: ${{ inputs.fork-ref }}
+          qualified: 'false'
+          bootstrap-token: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}

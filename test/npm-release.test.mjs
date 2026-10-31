@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import childProcess from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { syncBuiltinESMExports } from "node:module";
 import test from "node:test";
@@ -59,7 +59,7 @@ async function invoke(t, fixture, command, { data = metadata(), pulls, draft, re
   const argv = process.argv;
   const exitCode = process.exitCode;
   const env = { GITHUB_REPOSITORY: repository, GITHUB_OUTPUT: fixture.output, GH_TOKEN: undefined,
-    GITHUB_ACTIONS: undefined, GITHUB_REF: undefined, GITHUB_WORKFLOW_REF: undefined,
+    GITHUB_ACTIONS: undefined, GITHUB_REF: undefined, GITHUB_WORKFLOW_REF: undefined, GITHUB_SHA: undefined,
     ACTIONS_ID_TOKEN_REQUEST_TOKEN: undefined, ACTIONS_ID_TOKEN_REQUEST_URL: undefined,
     GITHUB_RUN_ID: undefined, GITHUB_RUN_ATTEMPT: undefined, NPM_BOOTSTRAP_TOKEN: undefined,
     NODE_AUTH_TOKEN: undefined, NPM_TOKEN: undefined, ...environment };
@@ -232,7 +232,7 @@ test("publication requires exact frozen host identities before artifact access",
   ]) {
     const f = fixture(t);
     const result = await invoke(t, f, "publish", { environment,
-      args: ["--artifact", "/does-not-exist", "--source-ref", f.ref, "--release-source", f.ref, ...args] });
+      args: ["--artifact", "/does-not-exist", "--fork", "/does-not-exist", "--source-ref", f.ref, "--release-source", f.ref, ...args] });
     refused(result, reason);
     assert.deepEqual(result.requests, []);
   }
@@ -256,11 +256,34 @@ function artifact(f) {
   const packedJson = JSON.parse(exec("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", directory], f.source));
   const [packed] = Array.isArray(packedJson) ? packedJson : Object.values(packedJson);
   const tarball = join(directory, packed.filename);
-  const candidate = { repository: f.repository, source: f.ref, name: f.name, version: f.version, approval: false, filename: packed.filename,
+  const fork = join(f.root, "fork-artifact");
+  mkdirSync(join(fork, "tarballs"), { recursive: true });
+  mkdirSync(join(fork, "install-lock"));
+  for (const file of ["package.json", "package-lock.json", "install-lock/package.json", "install-lock/package-lock.json"]) {
+    writeFileSync(join(fork, file), "{}\n");
+  }
+  const forkTarball = "tarballs/coding-agent.tgz";
+  writeFileSync(join(fork, forkTarball), "fixture fork archive");
+  const hash = (file) => createHash("sha256").update(readFileSync(join(fork, file))).digest("hex");
+  const forkPackage = { name: codingAgent, version: "9.8.7", file: forkTarball, sha256: hash(forkTarball),
+    integrity: `sha512-${createHash("sha512").update(readFileSync(join(fork, forkTarball))).digest("base64")}` };
+  writeJson(join(fork, "manifest.json"), { source: { commit: forkRef, dirty: false },
+    packages: [{ name: forkPackage.name, version: forkPackage.version, tarball: forkPackage.file, integrity: forkPackage.integrity }] });
+  const forkReceipt = { ref: forkRef, artifactManifestSha256: hash("manifest.json"),
+    installFiles: Object.fromEntries(["package.json", "package-lock.json", "install-lock/package.json", "install-lock/package-lock.json"]
+      .map((file) => [file, hash(file)])), packages: [forkPackage] };
+  writeJson(join(fork, "receipt.json"), forkReceipt);
+  const cohort = { [codingAgent]: "9.8.7" };
+  const host = (flavor, provenance) => {
+    const identity = { version: "9.8.7", indexSha256: "a".repeat(64), cliSha256: "b".repeat(64) };
+    return { flavor, ...identity, runtimeLockSha256: "c".repeat(64), runtimeGraphSha256: "d".repeat(64),
+      cohort, companions: { typebox: "1.0.0" }, provenance, observation: identity };
+  };
+  const candidate = { repository: f.repository, source: f.ref, releaseSource: f.ref, name: f.name, version: f.version, approval: false, filename: packed.filename,
     sha256: createHash("sha256").update(readFileSync(tarball)).digest("hex"), integrity: packed.integrity,
-    notes: "Fix copying a selected message.", hosts: { official: { flavor: "official", version: "9.8.7" },
-      fork: { flavor: "fork", provenance: { ref: forkRef } } } };
-  return { directory, tarball, candidate };
+    notes: "Fix copying a selected message.", hosts: { official: host("official", { version: "9.8.7", cohort }),
+      fork: host("fork", forkReceipt) } };
+  return { directory, tarball, candidate, fork };
 }
 
 test("downloaded artifact checksum, commit and manifest mismatches fail before credentials or publication", async (t) => {
@@ -322,9 +345,10 @@ test("first-publication absence never relaxes namespace, registry, merged-source
 
 function publicationFixture(t, existing = false, scopedRepo = "pi-calculator", version = "4.1.1") {
   const f = versionCommit(existing ? fixture(t) : fixture(t, version, undefined, `fitchmultz/${scopedRepo}`, `@fitchmultz/${scopedRepo}`));
-  const { directory, candidate } = artifact(f);
+  const { directory, candidate, fork } = artifact(f);
   f.directory = directory;
   f.candidate = candidate;
+  f.fork = fork;
   // This transport receipt exercises publish admission, not real host qualification or registry/OIDC success.
   writeJson(join(f.directory, "release.json"), f.candidate);
   writeFileSync(join(f.directory, "release-notes.md"), `${f.candidate.notes}\n`);
@@ -333,7 +357,7 @@ function publicationFixture(t, existing = false, scopedRepo = "pi-calculator", v
     GITHUB_SHA: f.ref, ACTIONS_ID_TOKEN_REQUEST_TOKEN: "fixture", ACTIONS_ID_TOKEN_REQUEST_URL: "https://example.invalid/oidc",
     GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", RUNNER_ENVIRONMENT: "github-hosted",
     GH_TOKEN: "github-fixture", AWS_SECRET_ACCESS_KEY: "ambient-fixture" };
-  f.args = ["--artifact", f.directory, "--source-ref", f.ref, "--release-source", f.ref, "--official-version", "9.8.7", "--fork-ref", forkRef];
+  f.args = ["--artifact", f.directory, "--fork", f.fork, "--source-ref", f.ref, "--release-source", f.ref, "--official-version", "9.8.7", "--fork-ref", forkRef];
   f.published = { name: f.name, version: f.version, repository: { url: `git+https://github.com/${f.repository}.git` },
     dist: { integrity: f.candidate.integrity } };
   f.metadata = (latest = f.version) => ({ name: f.name, maintainers: [{ name: "fitchmultz" }],
@@ -341,7 +365,45 @@ function publicationFixture(t, existing = false, scopedRepo = "pi-calculator", v
   return f;
 }
 
-function publicationBoundary(t, f, { guard, bootstrap = false, recovery = false } = {}) {
+test("an unfinished published draft selects its original release bytes before qualification", async (t) => {
+  for (const mode of ["matching", "changed-digest"]) await t.test(mode, async (t) => {
+    const f = publicationFixture(t, true);
+    const receiptName = "verification-123-1.json";
+    const digest = (file) => `sha256:${createHash("sha256").update(readFileSync(file)).digest("hex")}`;
+    const release = { tag_name: `v${f.version}`, draft: true,
+      body: `<!-- pi-npm-release: ${f.ref} ${f.candidate.integrity} -->`,
+      assets: [
+        { id: 1, name: receiptName, digest: mode === "changed-digest" ? "sha256:invalid" : digest(join(f.directory, "release.json")) },
+        { id: 2, name: f.candidate.filename, digest: digest(join(f.directory, f.candidate.filename)) },
+      ] };
+    const nativeSpawnSync = childProcess.spawnSync;
+    const mock = t.mock.method(childProcess, "spawnSync", (command, args, options) => {
+      if (command !== "gh") return nativeSpawnSync(command, args, options);
+      if (args[0] === "api") return { status: 0, stdout: JSON.stringify([[release]]), stderr: "" };
+      assert.equal(args[0], "release");
+      const name = args[args.indexOf("--pattern") + 1];
+      const destination = args[args.indexOf("--dir") + 1];
+      copyFileSync(join(f.directory, name === receiptName ? "release.json" : name), join(destination, name));
+      return { status: 0, stdout: "", stderr: "" };
+    });
+    syncBuiltinESMExports();
+    t.after(() => { mock.mock.restore(); syncBuiltinESMExports(); });
+    const selected = join(f.root, "selected");
+    const result = await invoke(t, f, "select", { args: ["--source-ref", f.ref, "--release-source", f.ref, "--output", selected],
+      environment: f.environment, data: f.metadata() });
+    if (mode === "matching") {
+      assert.equal(result.failed, false, result.errors);
+      assert.equal(result.outputs.recovered, "true");
+      assert.equal(result.outputs.sha256, f.candidate.sha256);
+      assert.equal(digest(join(selected, f.candidate.filename)), digest(join(f.directory, f.candidate.filename)));
+    } else {
+      refused(result, /receipt checksum differs from GitHub/);
+      assert.equal(existsSync(selected), false);
+    }
+  });
+});
+
+function publicationBoundary(t, f, { guard, bootstrap = false, recovery = false, qualificationJobs } = {}) {
   const calls = [];
   let published = recovery;
   const nativeSpawnSync = childProcess.spawnSync;
@@ -388,6 +450,10 @@ function publicationBoundary(t, f, { guard, bootstrap = false, recovery = false 
       const path = args[1]?.replace(`repos/${f.repository}/`, "");
       if (path === "environments/npm") value = { deployment_branch_policy: { custom_branch_policies: guard !== "environment" } };
       else if (path === "environments/npm/deployment-branch-policies") value = { branch_policies: [{ name: "main", type: "branch" }] };
+      else if (path?.startsWith("actions/runs/") && qualificationJobs) {
+        const attempt = Number(/\/attempts\/(\d+)\/jobs/.exec(path)?.[1]);
+        value = [{ jobs: qualificationJobs(attempt) }];
+      }
       else if (path === `compare/${f.ref}...main`) value = { status: guard === "main" ? "diverged" : "ahead" };
       else if (path === "releases?per_page=100") value = recovery || guard === "release"
         ? [[{ tag_name: `v${f.version}`, draft: true, assets: [],
@@ -405,6 +471,43 @@ function publicationBoundary(t, f, { guard, bootstrap = false, recovery = false 
   t.after(() => { mock.mock.restore(); syncBuiltinESMExports(); });
   return { calls, get published() { return published; } };
 }
+
+test("a failed-job rerun can publish only the same qualified candidate and reused successful job", async (t) => {
+  for (const mode of ["reused", "changed-candidate", "changed-job"]) await t.test(mode, async (t) => {
+    const f = publicationFixture(t, true);
+    const evidence = join(f.root, "qualification");
+    const qualified = await invoke(t, f, "qualify", { args: [...f.args, "--output", evidence], environment: f.environment });
+    assert.equal(qualified.failed, false, qualified.errors);
+    const receiptPath = join(evidence, "qualification.json");
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+    assert.equal(receipt.sha256, f.candidate.sha256);
+    assert.equal(receipt.head, f.ref);
+    assert.equal(receipt.run_id, "123");
+    assert.equal(receipt.run_attempt, "1");
+    if (mode === "changed-candidate") {
+      receipt.sha256 = "0".repeat(64);
+      writeJson(receiptPath, receipt);
+    }
+    const started = "2026-10-31T13:54:31Z";
+    const completed = "2026-10-31T13:56:26Z";
+    const boundary = publicationBoundary(t, f, { qualificationJobs: (attempt) => [{
+      name: "Release qualification", run_id: 123, run_attempt: attempt, head_sha: f.ref,
+      status: "completed", conclusion: "success",
+      started_at: mode === "changed-job" && attempt === 3 ? "2026-10-31T16:19:50Z" : started,
+      completed_at: completed,
+    }] });
+    const result = await invoke(t, f, "publish", { args: [...f.args, "--qualification", receiptPath],
+      environment: { ...f.environment, GITHUB_RUN_ATTEMPT: "3" }, data: () => boundary.published ? f.metadata() : f.metadata("4.0.0"),
+      published: f.published });
+    if (mode === "reused") {
+      assert.equal(result.failed, false, result.errors);
+      assert.equal(boundary.calls.filter(({ command, args }) => command === "npm" && args[0] === "publish").length, 1);
+    } else {
+      refused(result, mode === "changed-candidate" ? /different tarball/ : /did not reuse the qualified job/);
+      assert.equal(boundary.calls.some(({ command, args }) => command === "npm" && args[0] === "publish"), false);
+    }
+  });
+});
 
 test("bootstrap auth is admitted only after all guards and before any GitHub release writes", async (t) => {
   for (const guard of ["missing-token", "environment", "main", "release", "tag", "account"]) {
