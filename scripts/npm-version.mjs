@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { isolatedEnvironment, readJson, run } from "./common.mjs";
+import { isolatedEnvironment, readJson, run, stageSource } from "./common.mjs";
 import { identity, markedSource, newer, registry, sourceMarker, versionParts } from "./npm-release-core.mjs";
 
 const stable = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
@@ -59,6 +59,23 @@ function stageVersion(source, version, notes, date) {
   setVersion(source, version);
   const path = join(source, "CHANGELOG.md");
   writeFileSync(path, versionChangelog(readFileSync(path, "utf8"), version, notes, date));
+}
+
+function formatVersion(source) {
+  if (!readJson(join(source, "package.json")).scripts?.format) return;
+  const root = mkdtempSync("/tmp/npm-version-format-");
+  try {
+    const env = isolatedEnvironment(root);
+    const staged = join(root, "source");
+    stageSource(source, staged);
+    run("npm", ["ci", "--ignore-scripts"], { cwd: staged, env });
+    run("npm", ["run", "format"], { cwd: staged, env });
+    for (const file of ["package.json", "package-lock.json", "CHANGELOG.md"]) {
+      copyFileSync(join(staged, file), join(source, file));
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 1000 });
+  }
 }
 
 function retargetVersion(source, previous, version) {
@@ -369,6 +386,7 @@ async function reconcile(source, entry, repository, appSlug) {
       const subject = git(source, ["show", "-s", "--format=%s", selected]);
       const notes = `- ${subject} ([${selected.slice(0, 7)}](https://github.com/${repository}/commit/${selected}))\n\n${generated.body ?? ""}`;
       stageVersion(source, version, notes, new Date().toISOString().slice(0, 10));
+      formatVersion(source);
       scopedGit(["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
       scopedGit(["commit", "-m", `chore(release): ${version}`, "-m", sourceMarker(selected)]);
       scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
@@ -401,6 +419,7 @@ async function reconcile(source, entry, repository, appSlug) {
       const next = nextVersion(mainManifest.version, Object.keys(data.versions), tags);
       const current = readJson(join(source, "package.json")).version;
       if (newer(next, current)) retargetVersion(source, current, next);
+      formatVersion(source);
       scopedGit(["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
       scopedGit(["commit", "-m", "chore(release): update from main", "-m", sourceMarker(selected)]);
       scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
