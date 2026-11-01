@@ -119,6 +119,31 @@ function check(app, name, head, base, conclusion = "success") {
       summary: `**Reviewed pair:** base \`${base}\` → head \`${head}\`` } };
 }
 
+test("version creation and main updates use the project's formatter", (t) => {
+  const f = fixture(t);
+  const manifest = read(join(f.writer, "package.json"));
+  manifest.scripts = { format: "node format.cjs" };
+  write(join(f.writer, "package.json"), manifest);
+  writeFileSync(join(f.writer, "format.cjs"), `const fs = require("node:fs");
+const path = "CHANGELOG.md";
+fs.writeFileSync(path, fs.readFileSync(path, "utf8").replace(/^\\* /gm, "- "));
+`);
+  git(f.writer, "add", "."); git(f.writer, "commit", "--quiet", "-m", "Add project formatter");
+  git(f.writer, "push", "--quiet", "origin", "main");
+  success(f.reconcile());
+  const branch = `npm-version/${f.first}`;
+  let head = f.ref(branch);
+  let notes = git(f.root, "--git-dir", f.remote, "show", `${head}:CHANGELOG.md`);
+  assert.match(notes, /\n- Meaningful change/);
+  assert.doesNotMatch(notes, /\n\* Meaningful change/);
+  f.advance("A later main merge", "* Newly merged changelog note.");
+  success(f.reconcile());
+  head = f.ref(branch);
+  notes = git(f.root, "--git-dir", f.remote, "show", `${head}:CHANGELOG.md`);
+  assert.match(notes, /\n- Newly merged changelog note\./);
+  assert.doesNotMatch(notes, /\n\* Newly merged changelog note\./);
+});
+
 test("remediation refuses a PR that is not the App-owned version for the selected source", (t) => {
   const f = fixture(t); success(f.reconcile());
   const head = f.ref(`npm-version/${f.first}`);
