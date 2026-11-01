@@ -81,8 +81,9 @@ async function invoke(t, fixture, command, { data = metadata(), pulls, draft, re
       const page = Number(new URL(url).searchParams.get("page"));
       return Response.json(releasePages?.[page - 1] ?? (draft ? [{ ...draft, tag_name: `v${data["dist-tags"].latest}` }] : []), { status: releaseStatus });
     }
-    assert.equal(String(url), `https://api.github.com/repos/${repository}/commits/${fixture.ref}/pulls?per_page=100`);
-    return Response.json(pulls ?? [{ merged_at: "2026-10-04T12:00:00Z", base: { ref: "main" }, merge_commit_sha: fixture.ref,
+    const versionRef = fixture.bumpRef ?? fixture.ref;
+    assert.equal(String(url), `https://api.github.com/repos/${repository}/commits/${versionRef}/pulls?per_page=100`);
+    return Response.json(pulls ?? [{ merged_at: "2026-10-04T12:00:00Z", base: { ref: "main" }, merge_commit_sha: versionRef,
       head: { ref: `npm-version/${fixture.trigger}`, repo: { full_name: repository } }, user: { type: "Bot" } }]);
   });
   const logs = [];
@@ -136,6 +137,34 @@ test("a merged automatic version PR becomes a candidate with its original source
   assert.equal(result.requests.filter((url) => url.endsWith("/latest")).length, 1);
   assert.equal(result.requests.filter((url) => url === "https://api.github.com/repos/fitchmultz/pi/commits/main").length, 1);
   assert.equal(existsSync(join(f.source, "published")), false);
+});
+
+test("a later main commit cannot take over an unpublished automatic version", async (t) => {
+  const f = versionCommit(fixture(t));
+  f.bumpRef = f.ref;
+  writeFileSync(join(f.source, "later-change.txt"), "A later source change\n");
+  exec("git", ["add", "later-change.txt"], f.source);
+  exec("git", ["commit", "--quiet", "-m", "Later main change"], f.source);
+  f.ref = exec("git", ["rev-parse", "HEAD"], f.source);
+  const result = await invoke(t, f, "plan", { args: ["--source-ref", f.ref] });
+  assert.equal(result.failed, false, result.errors);
+  assert.deepEqual(result.outputs, { release: "false", source: f.ref, version: "4.0.1" });
+  writeFileSync(f.output, "");
+  const draft = { tag_name: "v4.0.1", draft: true, body: `<!-- pi-npm-release: ${f.ref} sha512-saved-candidate -->` };
+  const recovery = await invoke(t, f, "plan", { releasePages: [[draft]], args: ["--source-ref", f.ref] });
+  assert.equal(recovery.failed, false, recovery.errors);
+  assert.deepEqual(recovery.outputs, { release: "false", source: f.ref, version: "4.0.1" });
+});
+
+test("an automatic version's exact reviewed commit can resume its saved draft", async (t) => {
+  const f = versionCommit(fixture(t));
+  const data = metadata("4.0.1");
+  data.versions["4.0.1"].dist = { integrity: "sha512-saved-candidate" };
+  const draft = { tag_name: "v4.0.1", draft: true, body: `<!-- pi-npm-release: ${f.ref} sha512-saved-candidate -->` };
+  const result = await invoke(t, f, "plan", { data, releasePages: [[draft]], args: ["--source-ref", f.ref] });
+  assert.equal(result.failed, false, result.errors);
+  assert.deepEqual(result.outputs, { release: "true", source: f.ref, version: "4.0.1", "release-source": f.trigger,
+    "official-version": "9.8.7", "fork-ref": forkRef });
 });
 
 test("a legacy caller can still release a manually versioned merged PR without a release-source input", async (t) => {

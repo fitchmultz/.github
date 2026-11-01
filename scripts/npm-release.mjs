@@ -151,7 +151,8 @@ async function plan() {
   const automatic = existsSync(join(source, ".github/workflows/npm-version.yml"));
   const bump = automatic ? await versionCommit(history(source), repository, (sha) => github(`commits/${sha}/pulls?per_page=100`)) : null;
   const bumpVersion = bump && JSON.parse(run("git", ["show", `${bump.sha}:package.json`], { cwd: source, quiet: true })).version;
-  const release = matchingDraft || (!existing && !draft && (!automatic || Boolean(bump && bumpVersion === manifest.version)));
+  const reviewedSource = !automatic || Boolean(bump && bump.sha === ref && bumpVersion === manifest.version);
+  const release = reviewedSource && (matchingDraft || (!existing && !draft));
   let hosts;
   if (release) {
     if (!existing && data) assert.ok(newer(manifest.version, data["dist-tags"].latest), "Refusing to move latest backwards");
