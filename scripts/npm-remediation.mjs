@@ -117,7 +117,8 @@ async function task(repository, number, source) {
   }
   assert.equal(receipt.status, "done", `Pi Durable operation ${operation} is ${receipt.status}: ${receipt.reason ?? ""}; it will not be replayed`);
   let result;
-  try { result = JSON.parse(receipt.text); } catch { throw new Error(`Pi Durable operation ${operation} did not return the required JSON disposition`); }
+  const ending = receipt.text.trim().match(/(?:^|\n)(\{[^\n]*\})$/);
+  try { result = JSON.parse(ending?.[1] ?? receipt.text); } catch { throw new Error(`Pi Durable operation ${operation} did not return the required JSON disposition`); }
   assert.ok(["no_findings", "addressed", "blocked"].includes(result.status) && typeof result.reason === "string" && result.reason.trim(),
     `Pi Durable operation ${operation} returned an invalid disposition`);
   assert.notEqual(result.status, "blocked", `Pi Durable could not resolve ${source.url}: ${result.reason}`);

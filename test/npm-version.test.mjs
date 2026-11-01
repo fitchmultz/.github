@@ -434,6 +434,7 @@ test("all completed Cursor reports reach a durable disposition and are not resub
     s.checks = [earlier, current, check("pi-durable", "Pi Durable Review", head, f.first),
       check("github-actions", "compatibility / compatibility", head, f.first)];
     s.cursorReports = { [firstAgent]: "Earlier review: no concrete findings.", [nextAgent]: "Current review: no concrete findings." };
+    s.durableOutcome = { status: "done", text: 'Verification complete.\n\n{"status":"no_findings","reason":"No concrete findings remain","evidenceUrl":""}' };
   });
   success(f.remediate(head));
   assert.match(readFileSync(f.output, "utf8"), /cursor=202\nready=true/);
