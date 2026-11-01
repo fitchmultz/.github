@@ -83,7 +83,7 @@ runs:
       run: npm ci --ignore-scripts --no-audit --no-fund
     - name: Install native consumer managers
       shell: bash
-      run: npm install --global --no-audit --no-fund pnpm@latest bun@latest
+      run: npm install --global --no-audit --no-fund --allow-scripts=bun,pnpm pnpm@latest bun@latest
     - name: Recreate the selected official Pi host
       shell: bash
       env:
