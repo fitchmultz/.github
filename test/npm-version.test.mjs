@@ -546,6 +546,13 @@ test("a qualified caller versions and remediates its package, but cannot bypass 
   success(f.remediate(head, remediation, ["--package-qualified"]));
   assert.match(readFileSync(f.output, "utf8"), /ready=true/);
   assert.equal(f.state().submissions.length, 1);
+  assert.deepEqual(f.state().modelSelections.map(({ chat, ...selection }) => selection), [{
+    provider: "zai", modelId: "glm-5.3-flash", thinkingLevel: "high",
+    connectionId: "deployment:zai", expectedVersion: "fixture-configuration-version",
+  }]);
+  success(f.remediate(head, remediation, ["--package-qualified"]));
+  assert.equal(f.state().modelSelections.length, 1);
+  assert.equal(f.state().submissions.length, 1);
   const env = { ...process.env, GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main" };
   const exactDiff = spawnSync(process.execPath, [script, "reconcile", "--package-qualified"], {
     encoding: "utf8", env: { ...env, GITHUB_REPOSITORY: "fitchmultz/pi-cursor-sdk" },
@@ -639,12 +646,6 @@ test("qualified Cursor remediation preserves the mandatory review rule", (t) => 
   assert.notEqual(held.status, 0);
   assert.match(held.stderr, /not enabled for automatic version remediation/);
   f.setState((state) => { state.chatConfiguration = { provider: "openrouter" }; });
-  const forbidden = f.remediate(head, remediation, ["--package-qualified", "--version-reviewed"]);
-  assert.notEqual(forbidden.status, 0);
-  assert.match(forbidden.stderr, /provider other than OpenRouter/);
-  assert.equal(f.state().uploads?.length ?? 0, 0);
-  assert.equal(f.state().submissions?.length ?? 0, 0);
-  f.setState((state) => { state.chatConfiguration = { provider: "cloudflare-ai-gateway" }; });
   success(f.remediate(head, remediation, ["--package-qualified", "--version-reviewed"]));
   assert.match(readFileSync(f.output, "utf8"), /ready=true/);
   const prompt = f.state().submissions[0].prompt;

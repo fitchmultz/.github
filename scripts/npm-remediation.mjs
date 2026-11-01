@@ -95,10 +95,16 @@ async function task(repository, number, source) {
   const text = await savedPrompt(repository, number, source, reviewKey);
   let receipt = await durable(path, { missing: true });
   if (!receipt) {
-    const state = await durable(`/api/chats/${chat}`);
+    let state = await durable(`/api/chats/${chat}`);
+    if (state.configuration?.provider !== "zai" || state.configuration.modelId !== "glm-5.3-flash") {
+      state = await durable(`/api/chats/${chat}/model`, { method: "POST", body: {
+        provider: "zai", modelId: "glm-5.3-flash", thinkingLevel: "high",
+        connectionId: "deployment:zai", expectedVersion: state.configurationVersion,
+      } });
+    }
     assert.equal(state.connectionReady, true, "Pi Durable chat connection is not ready");
-    assert.ok(state.configuration?.provider && state.configuration.provider !== "openrouter",
-      "Pi Durable must have a selected provider other than OpenRouter");
+    assert.equal(state.configuration?.provider, "zai", "Pi Durable must use direct Z.ai for automated remediation");
+    assert.equal(state.configuration.modelId, "glm-5.3-flash", "Pi Durable must use GLM-5.3-Flash for automated remediation");
     if (reviewKey && text.includes(reviewKey.path)) await uploadReviewKey(chat, reviewKey);
     await durable(`/api/chats/${chat}`, { method: "POST", body: { prompt: text, operationId: operation, whenBusy: "followUp" } });
     receipt = await durable(path);

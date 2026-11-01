@@ -51,6 +51,18 @@ globalThis.fetch = async (input, options = {}) => {
       writeFileSync(process.env.FAKE_GITHUB_STATE, JSON.stringify(data));
       return json(data.chatMetadata[metadata[1]]);
     }
+    const model = /^\/api\/chats\/([^/]+)\/model$/.exec(path);
+    if (model && options.method === "POST") {
+      const body = JSON.parse(options.body);
+      if (body.expectedVersion !== "fixture-configuration-version") return json({ error: "Stale configuration" }, 409);
+      data.modelSelections ??= [];
+      data.modelSelections.push({ chat: model[1], ...body });
+      const { expectedVersion, ...configuration } = body;
+      data.chatConfigurations ??= {};
+      data.chatConfigurations[model[1]] = configuration;
+      writeFileSync(process.env.FAKE_GITHUB_STATE, JSON.stringify(data));
+      return json({ connectionReady: true, configuration, configurationVersion: "fixture-configuration-version" });
+    }
     const upload = /^\/api\/chats\/([^/]+)\/files\/upload$/.exec(path);
     if (upload) {
       const uploadId = url.searchParams.get("uploadId"), name = url.searchParams.get("name");
@@ -69,7 +81,9 @@ globalThis.fetch = async (input, options = {}) => {
     const match = /^\/api\/chats\/([^/]+)(?:\/operations\/([^/]+))?$/.exec(path);
     if (!match) throw new Error(`Unexpected Pi Durable path: ${url}`);
     if (match[2]) return data.operations?.[match[2]] ? json(data.operations[match[2]]) : json({ error: "Not found" }, 404);
-    if (options.method !== "POST") return json({ connectionReady: true, configuration: data.chatConfiguration ?? { provider: "cloudflare-ai-gateway" } });
+    if (options.method !== "POST") return json({ connectionReady: true,
+      configuration: data.chatConfigurations?.[match[1]] ?? data.chatConfiguration ?? { provider: "cloudflare-ai-gateway" },
+      configurationVersion: "fixture-configuration-version" });
     const body = JSON.parse(options.body);
     data.operations ??= {};
     data.submissions ??= [];
