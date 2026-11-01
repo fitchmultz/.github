@@ -1,0 +1,141 @@
+name: Review a prospective npm release
+description: Prepare and review the exact version PR before merging
+inputs:
+  head:
+    description: Exact version PR head
+    required: true
+  release-source:
+    description: Original main commit covered by the version
+    required: true
+  pull:
+    description: Open version PR number
+    required: true
+  review-skill:
+    description: Path to the complete thermo-nuclear review skill
+    required: true
+  github-token:
+    description: Read-only GitHub token for release context and host selection
+    required: true
+  catalog-key:
+    description: Cursor catalog credential
+    required: true
+  zai-key:
+    description: Direct Z.ai credential for the reviewer
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: hosts
+      name: Resolve the prospective review hosts
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        OFFICIAL_VERSION="$(node -p "require('$RUNNER_TEMP/npm-version-pi/node_modules/@earendil-works/pi-coding-agent/package.json').version")"
+        export OFFICIAL_VERSION
+        node --input-type=module <<'NODE'
+        import { appendFileSync } from 'node:fs';
+        import { resolveHostTargets } from './automation/scripts/hosts.mjs';
+        const hosts = await resolveHostTargets({ officialVersion: process.env.OFFICIAL_VERSION });
+        appendFileSync(process.env.GITHUB_OUTPUT, `official-version=${hosts.officialVersion}\nfork-ref=${hosts.forkRef}\n`);
+        NODE
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: fitchmultz/pi
+        ref: ${{ steps.hosts.outputs.fork-ref }}
+        path: premerge-fork
+        persist-credentials: false
+    - name: Install offline host prerequisites
+      shell: bash
+      run: |
+        sudo rm -f /etc/apt/sources.list.d/google-chrome.sources
+        sudo apt-get update
+        sudo apt-get install -y fd-find ripgrep zstd attr
+        sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+    - name: Build the selected fork host
+      shell: bash
+      working-directory: premerge-fork
+      env:
+        FORK_REF: ${{ steps.hosts.outputs.fork-ref }}
+        PI_OFFLINE: '1'
+        PI_TELEMETRY: '0'
+      run: |
+        npm ci --ignore-scripts --no-audit
+        npm run hydrate:model-data
+        npm run build:offline
+        git diff --exit-code
+        node ../automation/scripts/pack-fork.mjs . "$RUNNER_TEMP/npm-premerge-fork" "$FORK_REF"
+    - name: Prepare the prospective version candidate
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        HEAD: ${{ inputs.head }}
+        RELEASE_SOURCE: ${{ inputs.release-source }}
+        OFFICIAL_VERSION: ${{ steps.hosts.outputs.official-version }}
+        FORK_REF: ${{ steps.hosts.outputs.fork-ref }}
+      run: |
+        node automation/scripts/npm-release.mjs prepare --source extension --source-ref "$HEAD" \
+          --release-source "$RELEASE_SOURCE" --official-version "$OFFICIAL_VERSION" --fork-ref "$FORK_REF" \
+          --fork "$RUNNER_TEMP/npm-premerge-fork" --output "$RUNNER_TEMP/npm-premerge-candidate"
+    - name: Install the review inputs
+      shell: bash
+      working-directory: extension
+      run: npm ci --ignore-scripts --no-audit --no-fund
+    - name: Install native consumer managers
+      shell: bash
+      run: npm install --global --no-audit --no-fund pnpm@latest bun@latest
+    - name: Recreate the selected official Pi host
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        OFFICIAL_VERSION: ${{ steps.hosts.outputs.official-version }}
+      run: |
+        node --input-type=module <<'NODE'
+        import assert from 'node:assert/strict';
+        import { readFileSync } from 'node:fs';
+        import { join } from 'node:path';
+        import { isolatedEnvironment } from './automation/scripts/common.mjs';
+        import { prepareHost } from './automation/scripts/hosts.mjs';
+        const root = join(process.env.RUNNER_TEMP, 'npm-premerge-official');
+        const selected = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'npm-premerge-candidate', 'release.json'))).hosts.official;
+        const host = await prepareHost(root, 'official', process.env.OFFICIAL_VERSION, isolatedEnvironment(join(process.env.RUNNER_TEMP, 'npm-premerge-host-env')));
+        for (const field of ['version', 'indexSha256', 'cliSha256', 'runtimeLockSha256', 'runtimeGraphSha256']) {
+          assert.equal(host[field], selected[field], `Selected official host changed: ${field}`);
+        }
+        NODE
+    - name: Check the prospective Cursor catalog
+      shell: bash
+      working-directory: extension
+      env:
+        CURSOR_API_KEY: ${{ inputs.catalog-key }}
+      run: node scripts/release-review.mjs catalog --receipt "$RUNNER_TEMP/npm-premerge-review/catalog.json"
+    - name: Capture the prospective release and PR context
+      shell: bash
+      working-directory: extension
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PULL: ${{ inputs.pull }}
+        HEAD: ${{ inputs.head }}
+        RELEASE_SOURCE: ${{ inputs.release-source }}
+      run: |
+        node scripts/release-review.mjs release-prepare --source "$HEAD" --release-source "$RELEASE_SOURCE" \
+          --artifact "$RUNNER_TEMP/npm-premerge-candidate" --catalog-receipt "$RUNNER_TEMP/npm-premerge-review/catalog.json" \
+          --pull "$PULL" --evidence "$RUNNER_TEMP/npm-premerge-review/scope"
+    - name: Qualify affected Zod consumers of the prospective candidate
+      shell: bash
+      working-directory: extension
+      run: |
+        node scripts/qualify-zod-installers.mjs --scope "$RUNNER_TEMP/npm-premerge-review/scope/scope.json" \
+          --receipt "$RUNNER_TEMP/npm-premerge-review/installers/review.json" \
+          --pi "$RUNNER_TEMP/npm-premerge-official/node_modules/.bin/pi"
+    - name: Deep-review the final version PR
+      shell: bash
+      working-directory: extension
+      env:
+        ZAI_API_KEY: ${{ inputs.zai-key }}
+        PI_RELEASE_REVIEW_SKILL: ${{ inputs.review-skill }}
+        HEAD: ${{ inputs.head }}
+        RELEASE_SOURCE: ${{ inputs.release-source }}
+      run: |
+        node scripts/release-review.mjs release --source "$HEAD" --release-source "$RELEASE_SOURCE" \
+          --evidence "$RUNNER_TEMP/npm-premerge-review/scope" --receipt "$RUNNER_TEMP/npm-premerge-review/review.json"

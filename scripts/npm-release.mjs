@@ -515,7 +515,7 @@ async function publish() {
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
       `## Released\n\n[${candidate.name}@${candidate.version}](https://www.npmjs.com/package/${candidate.name}/v/${candidate.version}) — [GitHub release](https://github.com/${repository}/releases/tag/${tag})\n\nExact registry integrity matches the tested tarball.\n`);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 1000 });
   }
 }
 
