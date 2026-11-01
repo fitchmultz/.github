@@ -21,7 +21,7 @@ const git = (cwd, ...args) => command("git", args, cwd);
 const read = (path) => JSON.parse(readFileSync(path, "utf8"));
 const write = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 
-function fixture(t, { unreleased = true, repo = repository, packageName = "pi-copy-message" } = {}) {
+function fixture(t, { unreleased = true, repo = repository, packageName = "pi-copy-message", versionReview = false } = {}) {
   const root = mkdtempSync("/tmp/npm-version-test-");
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const source = join(root, "source");
@@ -39,6 +39,30 @@ function fixture(t, { unreleased = true, repo = repository, packageName = "pi-co
   write(join(source, "package-lock.json"), { name: manifest.name, version: manifest.version, lockfileVersion: 3, requires: true,
     packages: { "": { name: manifest.name, version: manifest.version } } });
   writeFileSync(join(source, "CHANGELOG.md"), `# Changes\n\n${unreleased ? "## Unreleased\n\n### Changed\n\nA real pending change.\nA second pending change.\n\n" : ""}## 4.0.0\n\nPrevious release.\n`);
+  if (versionReview) {
+    mkdirSync(join(source, "scripts"), { recursive: true });
+    writeFileSync(join(source, "scripts", "release-review.mjs"), `
+import { spawnSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+const root = ${JSON.stringify(root)}, remote = ${JSON.stringify(remote)}, phase = process.argv[2];
+const git = (...args) => {
+  const result = spawnSync("git", args, { encoding: "utf8" });
+  if (result.status !== 0) throw new Error(result.stderr);
+  return result.stdout.trim();
+};
+const receipt = process.argv[process.argv.indexOf("--receipt") + 1];
+const baseIndex = process.argv.indexOf("--base");
+appendFileSync(join(root, "review.log"), JSON.stringify({ phase, head: git("rev-parse", "HEAD"),
+  staged: git("diff", "--cached", "--name-only"), base: baseIndex < 0 ? null : process.argv[baseIndex + 1],
+  remote: git("--git-dir", remote, "for-each-ref", "--format=%(objectname)", "refs/heads/npm-version/"),
+  leaked: ["GH_TOKEN", "RELEASE_GH_TOKEN", "CURSOR_API_KEY", "PI_DURABLE_ACCESS_TOKEN"].filter((key) => process.env[key]),
+  zai: process.env.ZAI_API_KEY, automation: process.env.PI_RELEASE_REVIEW_AUTOMATION_VERSIONER }) + "\\n");
+if (existsSync(join(root, \`deny-\${phase}\`))) process.exit(7);
+mkdirSync(dirname(receipt), { recursive: true });
+writeFileSync(receipt, JSON.stringify({ status: "passed" }));
+`);
+  }
   git(source, "init", "--quiet", "--initial-branch=main");
   git(source, "config", "user.name", "Release test");
   git(source, "config", "user.email", "release-test@example.invalid");
@@ -62,6 +86,7 @@ function fixture(t, { unreleased = true, repo = repository, packageName = "pi-co
     GITHUB_REPOSITORY: repo, GH_TOKEN: "read-fixture", RELEASE_GH_TOKEN: "app-fixture", GITHUB_OUTPUT: output,
     PI_DURABLE_ORIGIN: "https://durable.example.invalid", PI_DURABLE_ACCESS_TOKEN: "durable-fixture", CURSOR_API_KEY: "cursor-fixture",
     FAKE_GITHUB_STATE: statePath, FAKE_GITHUB_REMOTE: remote, FAKE_GITHUB_LOG: log, FAKE_FAST_POLL: "1" };
+  if (versionReview) Object.assign(env, { RUNNER_TEMP: root, ZAI_API_KEY: "zai-fixture", PI_RELEASE_REVIEW_SKILL: join(root, "skill.md") });
   const state = () => read(statePath);
   const setState = (edit) => { const value = state(); edit(value); write(statePath, value); };
   const invoke = (args, event = "push") => {
@@ -527,4 +552,111 @@ test("a qualified caller versions and remediates its package, but cannot bypass 
   });
   assert.notEqual(exactDiff.status, 0);
   assert.match(exactDiff.stderr, /exact-diff pre-commit and pre-push review/);
+});
+
+test("Cursor version automation reviews the actual staged tree and outgoing commits before publishing each branch head", (t) => {
+  const f = fixture(t, { repo: "fitchmultz/pi-cursor-sdk", packageName: "pi-cursor-sdk", versionReview: true });
+  const args = ["--package-qualified", "--version-reviewed"];
+  const reviews = () => readFileSync(join(f.root, "review.log"), "utf8").trim().split("\n").map(JSON.parse);
+  success(f.reconcile(undefined, args));
+  const branch = `npm-version/${f.first}`;
+  const firstHead = f.ref(branch);
+  let records = reviews();
+  assert.deepEqual(records.map(({ phase }) => phase), ["pre-commit", "pre-push"]);
+  assert.equal(records[0].head, f.first);
+  assert.match(records[0].staged, /CHANGELOG\.md/);
+  assert.match(records[0].staged, /package-lock\.json/);
+  assert.equal(records[0].remote, "");
+  assert.equal(records[1].head, firstHead);
+  assert.equal(records[1].base, f.first);
+  assert.equal(records[1].staged, "");
+  assert.equal(records[1].remote, "");
+  for (const record of records) {
+    assert.deepEqual(record.leaked, []);
+    assert.equal(record.zai, "zai-fixture");
+    assert.equal(realpathSync(record.automation), realpathSync(script));
+  }
+
+  const advanced = f.advance("New main change");
+  success(f.reconcile(undefined, args));
+  records = reviews();
+  assert.deepEqual(records.map(({ phase }) => phase), ["pre-commit", "pre-push", "pre-commit", "pre-push"]);
+  assert.equal(records[2].head, firstHead);
+  assert.equal(records[2].remote, firstHead);
+  assert.equal(records[3].base, firstHead);
+  assert.equal(records[3].remote, firstHead);
+  assert.equal(records[3].head, f.ref(branch));
+  assert.notEqual(records[3].head, firstHead);
+
+  const updated = f.ref(branch);
+  f.setState((state) => {
+    state.checks = [check("pi-durable", "Pi Durable Review", updated, advanced, "failure")];
+    state.threads = [{ isResolved: true, comments: { nodes: [{ author: { login: "pi-durable" },
+      originalCommit: { oid: updated }, body: "<!-- pi-durable-review:findings -->" }] } }];
+  });
+  success(f.reconcile(undefined, args));
+  records = reviews();
+  assert.deepEqual(records.map(({ phase }) => phase),
+    ["pre-commit", "pre-push", "pre-commit", "pre-push", "pre-commit", "pre-push"]);
+  assert.equal(records[4].head, updated);
+  assert.equal(records[4].staged, "");
+  assert.equal(records[5].base, updated);
+  assert.equal(records[5].remote, updated);
+  assert.equal(records[5].head, f.ref(branch));
+  assert.notEqual(records[5].head, updated);
+  assert.equal(git(f.root, "--git-dir", f.remote, "rev-parse", `${updated}^{tree}`),
+    git(f.root, "--git-dir", f.remote, "rev-parse", `${records[5].head}^{tree}`));
+});
+
+test("a failed Cursor version review stops before the corresponding commit or push", async (t) => {
+  for (const phase of ["pre-commit", "pre-push"]) await t.test(phase, (t) => {
+    const f = fixture(t, { repo: "fitchmultz/pi-cursor-sdk", packageName: "pi-cursor-sdk", versionReview: true });
+    writeFileSync(join(f.root, `deny-${phase}`), "");
+    const result = f.reconcile(undefined, ["--package-qualified", "--version-reviewed"]);
+    assert.notEqual(result.status, 0);
+    const remote = git(f.root, "--git-dir", f.remote, "for-each-ref", "--format=%(objectname)", "refs/heads/npm-version/");
+    assert.equal(remote, "");
+    const head = git(f.source, "rev-parse", "HEAD");
+    if (phase === "pre-commit") assert.equal(head, f.first);
+    else assert.notEqual(head, f.first);
+    assert.equal(f.state().open.length, 0);
+  });
+});
+
+test("qualified Cursor remediation preserves the mandatory review rule", (t) => {
+  const f = fixture(t, { repo: "fitchmultz/pi-cursor-sdk", packageName: "pi-cursor-sdk", versionReview: true });
+  success(f.reconcile(undefined, ["--package-qualified", "--version-reviewed"]));
+  const head = f.ref(`npm-version/${f.first}`);
+  const agent = "bc-88888888-8888-4888-8888-888888888888";
+  f.setState((state) => {
+    const cursor = check("cursor", "Cursor Automation: PR Bug Review - Maintained Repos", head, f.first);
+    cursor.details_url = `https://cursor.com/agents/${agent}`;
+    state.checks = [cursor, check("pi-durable", "Pi Durable Review", head, f.first),
+      check("github-actions", "compatibility / compatibility", head, f.first)];
+    state.cursorReports = { [agent]: "No concrete findings." };
+  });
+  const held = f.remediate(head, remediation, ["--package-qualified"]);
+  assert.notEqual(held.status, 0);
+  assert.match(held.stderr, /not enabled for automatic version remediation/);
+  f.setState((state) => { state.chatConfiguration = { provider: "openrouter" }; });
+  const forbidden = f.remediate(head, remediation, ["--package-qualified", "--version-reviewed"]);
+  assert.notEqual(forbidden.status, 0);
+  assert.match(forbidden.stderr, /provider other than OpenRouter/);
+  assert.equal(f.state().uploads?.length ?? 0, 0);
+  assert.equal(f.state().submissions?.length ?? 0, 0);
+  f.setState((state) => { state.chatConfiguration = { provider: "cloudflare-ai-gateway" }; });
+  success(f.remediate(head, remediation, ["--package-qualified", "--version-reviewed"]));
+  assert.match(readFileSync(f.output, "utf8"), /ready=true/);
+  const prompt = f.state().submissions[0].prompt;
+  assert.match(prompt, /Before every commit and push, complete the independent exact-diff review/);
+  assert.match(prompt, /If that review cannot be completed, do not commit or push; report blocked/);
+  assert.match(prompt, /Do not use OpenRouter/);
+  const [upload] = f.state().uploads ?? [];
+  assert.ok(upload, "The remediator needs the direct Z.ai credential in its workspace");
+  assert.equal(upload.bytes, Buffer.byteLength("zai-fixture"));
+  assert.ok(prompt.includes(upload.path));
+  assert.doesNotMatch(prompt, /zai-fixture/);
+  success(f.remediate(head, remediation, ["--package-qualified", "--version-reviewed"]));
+  assert.equal(f.state().uploads.length, 1, "An admitted upload must not be repeated");
+  assert.equal(f.state().submissions.length, 1, "An admitted remediation must not be repeated");
 });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { isolatedEnvironment, readJson, run } from "./common.mjs";
 import { identity, markedSource, newer, registry, sourceMarker, versionParts } from "./npm-release-core.mjs";
@@ -272,8 +272,34 @@ async function rerunRelease(sha, main, draft) {
   }
 }
 
-async function reconcile(source, entry, repository, appSlug) {
+function versionReviewer(source, entry, enabled) {
+  if (!entry.versionQualification) return null;
+  assert.ok(enabled, "This package requires its exact-diff pre-commit and pre-push review");
+  assert.ok(process.env.ZAI_API_KEY && process.env.PI_RELEASE_REVIEW_SKILL && process.env.RUNNER_TEMP,
+    "Version review needs Z.ai, the reviewed skill, and a runner evidence directory");
+  const directory = join(process.env.RUNNER_TEMP, "npm-version-review");
+  const home = join(process.env.RUNNER_TEMP, "npm-version-review-work", "home");
+  const temp = join(process.env.RUNNER_TEMP, "npm-version-review-work", "tmp");
+  mkdirSync(home, { recursive: true });
+  mkdirSync(temp, { recursive: true });
+  const env = { PATH: process.env.PATH, HOME: home, TMPDIR: temp, ZAI_API_KEY: process.env.ZAI_API_KEY,
+    PI_RELEASE_REVIEW_SKILL: process.env.PI_RELEASE_REVIEW_SKILL,
+    PI_RELEASE_REVIEW_AUTOMATION_VERSIONER: fileURLToPath(import.meta.url) };
+  let installed = false;
+  return (phase, base) => {
+    if (!installed) {
+      run("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+        { cwd: source, env: { PATH: env.PATH, HOME: home, TMPDIR: temp }, timeout: 0 });
+      installed = true;
+    }
+    run(process.execPath, [join(source, "scripts/release-review.mjs"), phase,
+      ...(base ? ["--base", base] : []), "--receipt", join(directory, `${phase}.json`)], { cwd: source, env, timeout: 0 });
+  };
+}
+
+async function reconcile(source, entry, repository, appSlug, versionReviewEnabled) {
   const appEnv = { ...process.env, GH_TOKEN: process.env.RELEASE_GH_TOKEN };
+  delete appEnv.ZAI_API_KEY;
   const pulls = (sha) => request(`commits/${sha}/pulls?per_page=100`, { paginate: true });
   const open = await request("pulls?state=open&base=main&per_page=100", { paginate: true });
   const ours = open.filter((pull) => pull.head?.repo?.full_name === repository && pull.head.ref.startsWith("npm-version/")
@@ -343,6 +369,7 @@ async function reconcile(source, entry, repository, appSlug) {
   const env = { ...appEnv, HOME: root, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" };
   const scopedGit = (args, options = {}) => git(source, args, { env, ...options });
   try {
+    const review = versionReviewer(source, entry, versionReviewEnabled);
     run("gh", ["auth", "setup-git"], { cwd: source, env, quiet: true });
     const bot = await request(`https://api.github.com/users/${encodeURIComponent(`${appSlug}[bot]`)}`);
     scopedGit(["config", "user.name", `${appSlug}[bot]`]);
@@ -370,7 +397,9 @@ async function reconcile(source, entry, repository, appSlug) {
       const notes = `- ${subject} ([${selected.slice(0, 7)}](https://github.com/${repository}/commit/${selected}))\n\n${generated.body ?? ""}`;
       stageVersion(source, version, notes, new Date().toISOString().slice(0, 10));
       scopedGit(["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
+      review?.("pre-commit");
       scopedGit(["commit", "-m", `chore(release): ${version}`, "-m", sourceMarker(selected)]);
+      review?.("pre-push", main);
       scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
     } else if (!isAncestor(source, main, "HEAD")) {
       const merged = spawnSync("git", ["merge", "--no-commit", "--no-ff", main], { cwd: source, env, encoding: "utf8" });
@@ -402,7 +431,9 @@ async function reconcile(source, entry, repository, appSlug) {
       const current = readJson(join(source, "package.json")).version;
       if (newer(next, current)) retargetVersion(source, current, next);
       scopedGit(["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
+      review?.("pre-commit");
       scopedGit(["commit", "-m", "chore(release): update from main", "-m", sourceMarker(selected)]);
+      review?.("pre-push", scopedGit(["rev-parse", `refs/remotes/origin/${branch}`]));
       scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
     }
 
@@ -422,7 +453,9 @@ async function reconcile(source, entry, repository, appSlug) {
         const count = reportedFindings(pi, pull.base.sha, pull.head.sha);
         const { resolvedPi, addressedPi, unresolved, unanswered } = await reviewThreads(number, pull.head.sha, true, pi);
         if (unresolved === 0 && unanswered.length === 0 && resolvedPi + addressedPi >= count) {
+          review?.("pre-commit");
           scopedGit(["commit", "--allow-empty", "-m", "chore(release): recheck reviewed disposition", "-m", sourceMarker(selected)]);
+          review?.("pre-push", scopedGit(["rev-parse", `refs/remotes/origin/${branch}`]));
           scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
         }
       }
@@ -615,17 +648,19 @@ async function main() {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: {
     source: { type: "string" }, "app-slug": { type: "string" }, pull: { type: "string" }, head: { type: "string" }, cursor: { type: "string" },
     "package-qualified": { type: "boolean", default: false },
+    "version-reviewed": { type: "boolean", default: false },
   } });
   assert.equal(process.env.GITHUB_ACTIONS, "true", "Version automation only runs in GitHub Actions");
   assert.equal(process.env.GITHUB_REF, "refs/heads/main", "Version automation only runs from main");
   const repository = process.env.GITHUB_REPOSITORY;
   const entry = readJson(new URL("../fleet.json", import.meta.url)).find((item) => `fitchmultz/${item.repo}` === repository);
   assert.ok(entry?.npmRelease === "automatic", "Repository has no automatic npm release channel");
-  assert.ok(!entry.versionQualification, `${repository} requires its exact-diff pre-commit and pre-push review before automatic versioning`);
+  assert.ok(!entry.versionQualification || values["version-reviewed"],
+    `${repository} requires its exact-diff pre-commit and pre-push review before automatic versioning`);
   assert.ok(!entry.releaseQualification || values["package-qualified"], `${repository} requires its package-specific release qualification before automatic versioning`);
   if (positionals[0] === "reconcile") {
     assert.ok(values.source && values["app-slug"], "reconcile requires --source and --app-slug");
-    await reconcile(resolve(values.source), entry, repository, values["app-slug"]);
+    await reconcile(resolve(values.source), entry, repository, values["app-slug"], values["version-reviewed"]);
   } else if (["wait", "merge"].includes(positionals[0])) {
     const number = Number(values.pull);
     assert.ok(Number.isSafeInteger(number) && number > 0 && /^[a-f0-9]{40}$/.test(values.head ?? ""), "wait/merge require --pull and --head");

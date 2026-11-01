@@ -16,6 +16,11 @@ on:
         required: false
         type: boolean
         default: false
+      version-reviewed:
+        description: Run the package's required exact-diff version reviews
+        required: false
+        type: boolean
+        default: false
     secrets:
       RELEASE_APP_PRIVATE_KEY:
         description: Private key stored in the main-only release environment
@@ -26,6 +31,9 @@ on:
       CURSOR_API_KEY:
         description: Cursor API key stored in the release environment
         required: true
+      ZAI_API_KEY:
+        description: Direct Z.ai credential for the package's version reviewer
+        required: false
 
 permissions:
   contents: read
@@ -61,6 +69,19 @@ jobs:
         run: |
           PM="$(node -p 'require("./automation/package.json").packageManager')"
           npm exec --yes --package="$PM" -- npm install --global "$PM"
+      - if: inputs.version-reviewed
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: fitchmultz/pi-agent-skills
+          ref: 0a1d941264a683c186adad7f18c78b9439e82028
+          path: review-skills
+          persist-credentials: false
+      - if: inputs.version-reviewed
+        name: Install the current official Pi reviewer
+        run: |
+          VERSION="$(npm view @earendil-works/pi-coding-agent@latest version)"
+          npm install --prefix "$RUNNER_TEMP/npm-version-pi" --no-save --ignore-scripts --no-audit --no-fund "@earendil-works/pi-coding-agent@$VERSION"
+          echo "$RUNNER_TEMP/npm-version-pi/node_modules/.bin" >> "$GITHUB_PATH"
       - id: app
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
@@ -76,7 +97,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_GH_TOKEN: ${{ steps.app.outputs.token }}
           APP_SLUG: ${{ steps.app.outputs.app-slug }}
-        run: node automation/scripts/npm-version.mjs reconcile --source extension --app-slug "$APP_SLUG" ${{ inputs.package-qualified && '--package-qualified' || '' }}
+          ZAI_API_KEY: ${{ inputs.version-reviewed && secrets.ZAI_API_KEY || '' }}
+          PI_RELEASE_REVIEW_SKILL: ${{ github.workspace }}/review-skills/skills/thermo-nuclear-code-quality-review/SKILL.md
+        run: node automation/scripts/npm-version.mjs reconcile --source extension --app-slug "$APP_SLUG" ${{ inputs.package-qualified && '--package-qualified' || '' }} ${{ inputs.version-reviewed && '--version-reviewed' || '' }}
       - id: remediation
         if: steps.reconcile.outputs.pull != ''
         name: Address complete reviewer reports and failing checks
@@ -85,11 +108,12 @@ jobs:
           PI_DURABLE_ORIGIN: ${{ vars.PI_DURABLE_ORIGIN }}
           PI_DURABLE_ACCESS_TOKEN: ${{ secrets.PI_DURABLE_ACCESS_TOKEN }}
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          ZAI_API_KEY: ${{ inputs.version-reviewed && secrets.ZAI_API_KEY || '' }}
           PULL: ${{ steps.reconcile.outputs.pull }}
           HEAD: ${{ steps.reconcile.outputs.head }}
           RELEASE_SOURCE: ${{ steps.reconcile.outputs.source }}
           APP_SLUG: ${{ steps.app.outputs.app-slug }}
-        run: node automation/scripts/npm-remediation.mjs --source extension --pull "$PULL" --head "$HEAD" --release-source "$RELEASE_SOURCE" --app-slug "$APP_SLUG" ${{ inputs.package-qualified && '--package-qualified' || '' }}
+        run: node automation/scripts/npm-remediation.mjs --source extension --pull "$PULL" --head "$HEAD" --release-source "$RELEASE_SOURCE" --app-slug "$APP_SLUG" ${{ inputs.package-qualified && '--package-qualified' || '' }} ${{ inputs.version-reviewed && '--version-reviewed' || '' }}
       - if: steps.remediation.outputs.refresh == 'true'
         name: Reconcile the remediated version PR head
         env:
@@ -103,7 +127,7 @@ jobs:
           PULL: ${{ steps.reconcile.outputs.pull }}
           HEAD: ${{ steps.reconcile.outputs.head }}
           CURSOR: ${{ steps.remediation.outputs.cursor }}
-        run: node automation/scripts/npm-version.mjs wait --pull "$PULL" --head "$HEAD" --cursor "$CURSOR" ${{ inputs.package-qualified && '--package-qualified' || '' }}
+        run: node automation/scripts/npm-version.mjs wait --pull "$PULL" --head "$HEAD" --cursor "$CURSOR" ${{ inputs.package-qualified && '--package-qualified' || '' }} ${{ inputs.version-reviewed && '--version-reviewed' || '' }}
       - if: steps.checks.outputs.refresh == 'true'
         name: Reconcile resolved findings with a fresh App token
         env:
@@ -127,4 +151,11 @@ jobs:
           PULL: ${{ steps.reconcile.outputs.pull }}
           HEAD: ${{ steps.reconcile.outputs.head }}
           CURSOR: ${{ steps.remediation.outputs.cursor }}
-        run: node automation/scripts/npm-version.mjs merge --source extension --pull "$PULL" --head "$HEAD" --cursor "$CURSOR" ${{ inputs.package-qualified && '--package-qualified' || '' }}
+        run: node automation/scripts/npm-version.mjs merge --source extension --pull "$PULL" --head "$HEAD" --cursor "$CURSOR" ${{ inputs.package-qualified && '--package-qualified' || '' }} ${{ inputs.version-reviewed && '--version-reviewed' || '' }}
+      - if: always() && inputs.version-reviewed
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-version-review
+          path: ${{ runner.temp }}/npm-version-review
+          if-no-files-found: ignore
+          retention-days: 7
