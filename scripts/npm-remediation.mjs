@@ -53,7 +53,9 @@ async function savedPrompt(repository, number, source, reviewKey) {
   let makePrompt = remediationPrompt;
   if (match[1] !== revision) {
     if (!promptVersions.has(match[1])) {
-      run("git", ["fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main"], { cwd: automation, quiet: true });
+      const shallow = run("git", ["rev-parse", "--is-shallow-repository"], { cwd: automation, quiet: true }).trim() === "true";
+      run("git", ["fetch", "--no-tags", ...(shallow ? ["--unshallow"] : []),
+        "origin", "+refs/heads/main:refs/remotes/origin/main"], { cwd: automation, quiet: true });
       run("git", ["merge-base", "--is-ancestor", match[1], "refs/remotes/origin/main"], { cwd: automation, quiet: true });
       const old = run("git", ["show", `${match[1]}:scripts/npm-remediation-prompt.mjs`], { cwd: automation, quiet: true });
       const module = await import(`data:text/javascript;base64,${Buffer.from(old).toString("base64")}`);
