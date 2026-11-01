@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
 const script = fileURLToPath(new URL("../scripts/npm-version.mjs", import.meta.url));
@@ -421,6 +421,7 @@ test("an automation upgrade reconstructs the original prompt before resuming a s
   git(automation, "config", "user.name", "Release test");
   git(automation, "config", "user.email", "release-test@example.invalid");
   git(automation, "add", "."); git(automation, "commit", "--quiet", "-m", "Original automation");
+  const original = git(automation, "rev-parse", "HEAD");
   git(f.root, "clone", "--quiet", "--bare", automation, remote);
   git(automation, "remote", "add", "origin", remote);
   const executable = realpathSync(join(automation, "scripts/npm-remediation.mjs"));
@@ -434,6 +435,13 @@ test("an automation upgrade reconstructs the original prompt before resuming a s
   result = f.remediate(head, executable);
   success(result);
   assert.equal(f.state().submissions.length, 1, "The admitted original operation must not be replayed");
+  const shallow = join(f.root, "shallow-automation");
+  git(f.root, "clone", "--quiet", "--depth=1", pathToFileURL(remote).href, shallow);
+  assert.equal(git(shallow, "rev-parse", "--is-shallow-repository"), "true");
+  assert.notEqual(spawnSync("git", ["cat-file", "-e", `${original}^{commit}`], { cwd: shallow }).status, 0);
+  result = f.remediate(head, realpathSync(join(shallow, "scripts/npm-remediation.mjs")));
+  success(result);
+  assert.equal(f.state().submissions.length, 1, "A shallow upgrade must resume without replaying the operation");
 });
 
 test("an unposted Cursor finding cannot pass on an unverified or unanswered agent receipt", async (t) => {
