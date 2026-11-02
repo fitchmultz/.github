@@ -7,7 +7,7 @@ import { parseArgs } from "node:util";
 import { readJson, run } from "./common.mjs";
 import { markedSource } from "./npm-release-core.mjs";
 import { remediationPrompt } from "./npm-remediation-prompt.mjs";
-import { checkRuns, findingCheck, request, reviewThreads } from "./npm-version.mjs";
+import { checkRuns, cursorRecheck, findingCheck, request, reviewThreads, unreportedCursor } from "./npm-version.mjs";
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const token = () => process.env.GH_TOKEN;
@@ -314,6 +314,14 @@ async function remediate(source, number, head, releaseSource, appSlug, packageQu
           if ((await pull(number)).head.sha !== head) { output("refresh"); return; }
         }
       }
+    }
+    if (unreportedCursor(cursor)) {
+      const url = cursor.html_url ?? cursor.details_url ?? "";
+      assert.notEqual(run("git", ["show", "-s", "--format=%s", head], { cwd: source, quiet: true }).trim(), cursorRecheck,
+        `The Cursor review on the recheck head also ended without a report: ${url}`);
+      console.log(`The Cursor review ended without a report; a new version PR head requests a fresh review: ${url}`);
+      output("refresh");
+      return;
     }
     const required = (entry.releaseChecks ?? ["compatibility / compatibility"]).map((name) =>
       checks.find((check) => check.app?.slug === "github-actions" && check.name === name && check.head_sha === head));
