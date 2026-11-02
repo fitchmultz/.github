@@ -23,26 +23,28 @@ function uuid(value) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-async function durable(path, { method = "GET", body, missing = false } = {}) {
+async function durable(path, { method = "GET", body, raw, missing = false } = {}) {
   const origin = new URL(process.env.PI_DURABLE_ORIGIN);
   assert.equal(origin.protocol, "https:", "Pi Durable requires an HTTPS installation origin");
   assert.ok(process.env.PI_DURABLE_ACCESS_TOKEN, "Pi Durable owner token is missing");
   const response = await fetch(new URL(path, origin), { method, headers: {
     Authorization: `Bearer ${process.env.PI_DURABLE_ACCESS_TOKEN}`,
-    ...(body ? { "Content-Type": "application/json" } : {}),
-  }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    ...(raw ? { "Content-Type": "application/octet-stream", "Content-Length": String(raw.length) }
+      : body ? { "Content-Type": "application/json" } : {}),
+  }, ...(raw ? { body: raw } : body ? { body: JSON.stringify(body) } : {}) });
   if (missing && response.status === 404) return null;
   assert.ok(response.ok, `Pi Durable ${method} ${path}: HTTP ${response.status}`);
   return response.json();
 }
 
-async function savedPrompt(repository, number, source) {
+async function savedPrompt(repository, number, source, reviewKey) {
   const revision = run("git", ["rev-parse", "HEAD"], { cwd: automation, quiet: true }).trim();
   const digest = (value) => createHash("sha256").update(value).digest("hex");
+  const review = (automationRef) => reviewKey ? { keyPath: reviewKey.path, automationRef } : undefined;
   const ledger = uuid(`npm-release-input:${repository}#${number}:${source.key}`);
   let metadata = await durable("/api/chats", { method: "POST", body: { id: ledger } });
   if (metadata.title === "New chat" && metadata.createdAt === metadata.updatedAt) {
-    const title = `npm-input:${revision}:${digest(remediationPrompt(repository, number, source))}`;
+    const title = `npm-input:${revision}:${digest(remediationPrompt(repository, number, source, review(revision)))}`;
     metadata = await durable(`/api/chats/${ledger}/metadata`, { method: "POST", body: { title, archived: true } });
     assert.equal(metadata.title, title, "Pi Durable did not retain the original prompt identity");
   }
@@ -51,7 +53,9 @@ async function savedPrompt(repository, number, source) {
   let makePrompt = remediationPrompt;
   if (match[1] !== revision) {
     if (!promptVersions.has(match[1])) {
-      run("git", ["fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main"], { cwd: automation, quiet: true });
+      const shallow = run("git", ["rev-parse", "--is-shallow-repository"], { cwd: automation, quiet: true }).trim() === "true";
+      run("git", ["fetch", "--no-tags", ...(shallow ? ["--unshallow"] : []),
+        "origin", "+refs/heads/main:refs/remotes/origin/main"], { cwd: automation, quiet: true });
       run("git", ["merge-base", "--is-ancestor", match[1], "refs/remotes/origin/main"], { cwd: automation, quiet: true });
       const old = run("git", ["show", `${match[1]}:scripts/npm-remediation-prompt.mjs`], { cwd: automation, quiet: true });
       const module = await import(`data:text/javascript;base64,${Buffer.from(old).toString("base64")}`);
@@ -60,22 +64,50 @@ async function savedPrompt(repository, number, source) {
     }
     makePrompt = promptVersions.get(match[1]);
   }
-  const text = makePrompt(repository, number, source);
+  const text = makePrompt(repository, number, source, review(match[1]));
   assert.equal(digest(text), match[2], "Remediation source differs from its original prompt");
   assert.ok(Buffer.byteLength(text) <= 128 * 1024, "Pi Durable prompt exceeds its 128 KiB protocol limit");
   return text;
+}
+
+async function uploadReviewKey(chat, upload) {
+  assert.ok(process.env.ZAI_API_KEY?.trim(), "Direct Z.ai credential for the remediator is missing");
+  const bytes = Buffer.from(process.env.ZAI_API_KEY);
+  const path = `/api/chats/${chat}/files/upload?uploadId=${upload.id}&name=${upload.name}`;
+  let receipt = await durable(path, { missing: true });
+  if (!receipt) {
+    try {
+      receipt = await durable(path, { method: "POST", raw: bytes });
+    } catch (error) {
+      receipt = await durable(path, { missing: true });
+      if (receipt?.status !== "completed") throw error;
+    }
+  }
+  assert.equal(receipt.status, "completed", `Pi Durable review credential upload is ${receipt.status}; inspect before retrying`);
+  assert.equal(receipt.path, upload.path, "Pi Durable returned a different review credential path");
 }
 
 async function task(repository, number, source) {
   const chat = uuid(`npm-release-chat:${repository}#${number}`);
   const operation = uuid(`npm-release-source:${repository}#${number}:${source.key}`);
   const path = `/api/chats/${chat}/operations/${operation}`;
+  const id = uuid(`npm-release-review-key:${repository}#${number}:${source.key}`);
+  const reviewKey = repository === "fitchmultz/pi-cursor-sdk" ? { id, name: "zai-review.key", path: `uploads/${id}/zai-review.key` } : undefined;
   await durable("/api/chats", { method: "POST", body: { id: chat } });
-  const text = await savedPrompt(repository, number, source);
+  const text = await savedPrompt(repository, number, source, reviewKey);
   let receipt = await durable(path, { missing: true });
   if (!receipt) {
-    const state = await durable(`/api/chats/${chat}`);
+    let state = await durable(`/api/chats/${chat}`);
+    if (state.configuration?.provider !== "zai" || state.configuration.modelId !== "glm-5.3-flash") {
+      state = await durable(`/api/chats/${chat}/model`, { method: "POST", body: {
+        provider: "zai", modelId: "glm-5.3-flash", thinkingLevel: "high",
+        connectionId: "deployment:zai", expectedVersion: state.configurationVersion,
+      } });
+    }
     assert.equal(state.connectionReady, true, "Pi Durable chat connection is not ready");
+    assert.equal(state.configuration?.provider, "zai", "Pi Durable must use direct Z.ai for automated remediation");
+    assert.equal(state.configuration.modelId, "glm-5.3-flash", "Pi Durable must use GLM-5.3-Flash for automated remediation");
+    if (reviewKey && text.includes(reviewKey.path)) await uploadReviewKey(chat, reviewKey);
     await durable(`/api/chats/${chat}`, { method: "POST", body: { prompt: text, operationId: operation, whenBusy: "followUp" } });
     receipt = await durable(path);
   }
@@ -85,7 +117,8 @@ async function task(repository, number, source) {
   }
   assert.equal(receipt.status, "done", `Pi Durable operation ${operation} is ${receipt.status}: ${receipt.reason ?? ""}; it will not be replayed`);
   let result;
-  try { result = JSON.parse(receipt.text); } catch { throw new Error(`Pi Durable operation ${operation} did not return the required JSON disposition`); }
+  const ending = receipt.text.trim().match(/(?:^|\n)(\{[^\n]*\})$/);
+  try { result = JSON.parse(ending?.[1] ?? receipt.text); } catch { throw new Error(`Pi Durable operation ${operation} did not return the required JSON disposition`); }
   assert.ok(["no_findings", "addressed", "blocked"].includes(result.status) && typeof result.reason === "string" && result.reason.trim(),
     `Pi Durable operation ${operation} returned an invalid disposition`);
   assert.notEqual(result.status, "blocked", `Pi Durable could not resolve ${source.url}: ${result.reason}`);
@@ -210,10 +243,11 @@ function outputCursor(check) {
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `cursor=${check.id}\n`);
 }
 
-async function remediate(source, number, head, releaseSource, appSlug, packageQualified) {
+async function remediate(source, number, head, releaseSource, appSlug, packageQualified, versionReviewed) {
   const repository = process.env.GITHUB_REPOSITORY;
   const entry = readJson(new URL("../fleet.json", import.meta.url)).find((item) => `fitchmultz/${item.repo}` === repository);
-  assert.ok(entry?.npmRelease === "automatic" && (!entry.releaseQualification || packageQualified) && !entry.versionQualification,
+  assert.ok(entry?.npmRelease === "automatic" && (!entry.releaseQualification || packageQualified)
+    && (!entry.versionQualification || versionReviewed),
     "Repository is not enabled for automatic version remediation");
   const reports = new Map();
   const commits = run("git", ["rev-list", "--reverse", "^refs/remotes/origin/main", head], { cwd: source, quiet: true })
@@ -300,6 +334,7 @@ async function main() {
     source: { type: "string" }, pull: { type: "string" }, head: { type: "string" },
     "release-source": { type: "string" }, "app-slug": { type: "string" },
     "package-qualified": { type: "boolean", default: false },
+    "version-reviewed": { type: "boolean", default: false },
   } });
   assert.equal(process.env.GITHUB_ACTIONS, "true", "Remediation only runs in GitHub Actions");
   assert.equal(process.env.GITHUB_REF, "refs/heads/main", "Remediation only runs from main");
@@ -307,7 +342,8 @@ async function main() {
   assert.ok(values.source && values["app-slug"] && Number.isSafeInteger(number) && number > 0
     && /^[a-f0-9]{40}$/.test(values.head ?? "") && /^[a-f0-9]{40}$/.test(values["release-source"] ?? ""),
   "source, pull, head, release-source and app-slug are required");
-  await remediate(resolve(values.source), number, values.head, values["release-source"], values["app-slug"], values["package-qualified"]);
+  await remediate(resolve(values.source), number, values.head, values["release-source"], values["app-slug"],
+    values["package-qualified"], values["version-reviewed"]);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
