@@ -464,19 +464,26 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
       number = Number(new URL(url).pathname.split("/").at(-1));
     }
     assert.ok(Number.isSafeInteger(number) && number > 0, "Could not identify the version PR");
-    // Pi retains a finding-bearing failure after its threads are resolved on the same head.
-    // A new, empty head lets both native reviewers reassess the disposition without changing the release.
+    // Pi retains a finding-bearing failure after its threads are resolved on the same head, and a Cursor review that
+    // ends without a report leaves nothing to address. A new, empty head lets both native reviewers reassess the
+    // version without changing the release.
     if (pull && pull.head.sha === scopedGit(["rev-parse", "HEAD"])) {
-      const pi = (await checkRuns(pull.head.sha)).find((check) => check.app?.slug === "pi-durable" && check.name === "Pi Durable Review");
+      const checks = await checkRuns(pull.head.sha);
+      const pi = checks.find((check) => check.app?.slug === "pi-durable" && check.name === "Pi Durable Review");
+      const cursor = checks.find((check) => check.app?.slug === "cursor" && check.name === "Cursor Automation: PR Bug Review - Maintained Repos");
+      let recheck;
       if (pi?.status === "completed" && pi.conclusion === "failure" && findingCheck(pi)) {
         const count = reportedFindings(pi, pull.base.sha, pull.head.sha);
         const { resolvedPi, addressedPi, unresolved, unanswered } = await reviewThreads(number, pull.head.sha, true, pi);
-        if (unresolved === 0 && unanswered.length === 0 && resolvedPi + addressedPi >= count) {
-          review?.("pre-commit");
-          scopedGit(["commit", "--allow-empty", "-m", "chore(release): recheck reviewed disposition", "-m", sourceMarker(selected)]);
-          review?.("pre-push", scopedGit(["rev-parse", `refs/remotes/origin/${branch}`]));
-          scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
-        }
+        if (unresolved === 0 && unanswered.length === 0 && resolvedPi + addressedPi >= count) recheck = "chore(release): recheck reviewed disposition";
+      }
+      // Each version head gets one fresh Cursor review; remediation stops if the recheck head's review has no report either.
+      if (unreportedCursor(cursor) && scopedGit(["show", "-s", "--format=%s", "HEAD"]) !== cursorRecheck) recheck = cursorRecheck;
+      if (recheck) {
+        review?.("pre-commit");
+        scopedGit(["commit", "--allow-empty", "-m", recheck, "-m", sourceMarker(selected)]);
+        review?.("pre-push", scopedGit(["rev-parse", `refs/remotes/origin/${branch}`]));
+        scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
       }
     }
     const current = await request(`pulls/${number}`);
@@ -515,6 +522,13 @@ function reportedFindings(check, base, head) {
 function failedCheck(check) {
   return check.status === "completed"
     && ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"].includes(check.conclusion);
+}
+
+export const cursorRecheck = "chore(release): recheck the unreported Cursor review";
+
+// Cursor reports an automation error as a completed "neutral" check: it neither passed nor failed, so no report exists.
+export function unreportedCursor(check) {
+  return check?.status === "completed" && check.conclusion !== "success" && !failedCheck(check);
 }
 
 async function reviewState(number, head, entry, cursorId, allowPiFindings = false) {

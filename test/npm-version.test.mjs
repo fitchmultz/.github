@@ -270,6 +270,65 @@ test("resolved Pi findings trigger one genuine fresh review without dismissing u
   assert.equal(f.ref(branch), refreshed);
 });
 
+test("a Cursor review without a report gets one fresh review on an empty head, then stops visibly", async (t) => {
+  // fitchmultz/pi-zai-mcp#55 waited on Cursor's "Automation encountered an error" neutral check until the job timed out.
+  const cursorName = "Cursor Automation: PR Bug Review - Maintained Repos";
+  const errored = (head, id) => {
+    const cursor = check("cursor", cursorName, head, null, "neutral");
+    cursor.id = id; cursor.details_url = `https://cursor.com/agents/bc-${String(id).repeat(8).slice(0, 8)}-0000-4000-8000-000000000000`;
+    cursor.output = { title: cursorName, summary: "Automation encountered an error" };
+    return cursor;
+  };
+  const setup = (t) => {
+    const f = fixture(t); success(f.reconcile());
+    const branch = `npm-version/${f.first}`;
+    const original = f.ref(branch);
+    f.setState((s) => {
+      s.checks = [errored(original, 201), check("pi-durable", "Pi Durable Review", original, f.first),
+        check("github-actions", "compatibility / compatibility", original, f.first)];
+    });
+    const result = f.remediate(original);
+    success(result);
+    assert.match(result.stdout, /Cursor review ended without a report/);
+    assert.match(readFileSync(f.output, "utf8"), /refresh=true/);
+    assert.equal(f.state().submissions, undefined);
+    success(f.reconcile());
+    const recheck = f.ref(branch);
+    assert.notEqual(recheck, original);
+    assert.equal(git(f.root, "--git-dir", f.remote, "rev-parse", `${recheck}^{tree}`), git(f.root, "--git-dir", f.remote, "rev-parse", `${original}^{tree}`));
+    const message = git(f.root, "--git-dir", f.remote, "show", "-s", "--format=%B", recheck);
+    assert.match(message, /^chore\(release\): recheck the unreported Cursor review/);
+    assert.ok(message.includes(marker(f.first)));
+    return { f, branch, recheck };
+  };
+  await t.test("a fresh review with a report proceeds", (t) => {
+    const { f, recheck } = setup(t);
+    const agent = "bc-12121212-1212-4212-8212-121212121212";
+    f.setState((s) => {
+      const cursor = check("cursor", cursorName, recheck, f.first);
+      cursor.id = 202; cursor.details_url = `https://cursor.com/agents/${agent}`;
+      s.checks.push(cursor, check("pi-durable", "Pi Durable Review", recheck, f.first),
+        check("github-actions", "compatibility / compatibility", recheck, f.first));
+      s.cursorReports = { [agent]: "No concrete findings." };
+    });
+    success(f.remediate(recheck));
+    assert.match(readFileSync(f.output, "utf8"), /cursor=202\nready=true/);
+  });
+  await t.test("a second review without a report fails instead of waiting", (t) => {
+    const { f, branch, recheck } = setup(t);
+    f.setState((s) => {
+      s.checks.push(errored(recheck, 203), check("pi-durable", "Pi Durable Review", recheck, f.first),
+        check("github-actions", "compatibility / compatibility", recheck, f.first));
+    });
+    const result = f.remediate(recheck);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /recheck head also ended without a report: https:\/\/cursor\.com\/agents\/bc-20320320/);
+    assert.doesNotMatch(readFileSync(f.output, "utf8"), /refresh=true|ready=true/);
+    success(f.reconcile());
+    assert.equal(f.ref(branch), recheck, "A repeated Cursor error must not push another recheck");
+  });
+});
+
 test("main may insert or revise unreleased notes without losing reviewed version notes", async (t) => {
   for (const [name, edit, expected] of [
     ["insert", (text) => text.replace("A real pending change.", () => "- Stop enumerating graphemes once a message preview is known to need truncation; preserve preview and copied text.\nA real pending change."), "- Stop enumerating graphemes once a message preview is known to need truncation; preserve preview and copied text."],
