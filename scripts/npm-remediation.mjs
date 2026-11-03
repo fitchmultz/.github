@@ -97,32 +97,68 @@ async function task(repository, number, source) {
   const text = await savedPrompt(repository, number, source, reviewKey);
   let receipt = await durable(path, { missing: true });
   if (!receipt) {
-    let state = await durable(`/api/chats/${chat}`);
-    if (state.configuration?.provider !== "zai" || state.configuration.modelId !== "glm-5.3-flash") {
-      state = await durable(`/api/chats/${chat}/model`, { method: "POST", body: {
-        provider: "zai", modelId: "glm-5.3-flash", thinkingLevel: "high",
-        connectionId: "deployment:zai", expectedVersion: state.configurationVersion,
-      } });
-    }
-    assert.equal(state.connectionReady, true, "Pi Durable chat connection is not ready");
-    assert.equal(state.configuration?.provider, "zai", "Pi Durable must use direct Z.ai for automated remediation");
-    assert.equal(state.configuration.modelId, "glm-5.3-flash", "Pi Durable must use GLM-5.3-Flash for automated remediation");
+    await selectModel(chat);
     if (reviewKey && text.includes(reviewKey.path)) await uploadReviewKey(chat, reviewKey);
     await durable(`/api/chats/${chat}`, { method: "POST", body: { prompt: text, operationId: operation, whenBusy: "followUp" } });
     receipt = await durable(path);
   }
+  const result = disposition(await settled(path, operation, receipt))
+    ?? await correctedDisposition(repository, number, source, chat, operation);
+  assert.notEqual(result.status, "blocked", `Pi Durable could not resolve ${source.url}: ${result.reason}`);
+  console.log(`Reviewed ${source.url}: ${result.status} — ${result.reason}`);
+  return result;
+}
+
+async function selectModel(chat) {
+  let state = await durable(`/api/chats/${chat}`);
+  if (state.configuration?.provider !== "zai" || state.configuration.modelId !== "glm-5.3-flash") {
+    state = await durable(`/api/chats/${chat}/model`, { method: "POST", body: {
+      provider: "zai", modelId: "glm-5.3-flash", thinkingLevel: "high",
+      connectionId: "deployment:zai", expectedVersion: state.configurationVersion,
+    } });
+  }
+  assert.equal(state.connectionReady, true, "Pi Durable chat connection is not ready");
+  assert.equal(state.configuration?.provider, "zai", "Pi Durable must use direct Z.ai for automated remediation");
+  assert.equal(state.configuration.modelId, "glm-5.3-flash", "Pi Durable must use GLM-5.3-Flash for automated remediation");
+}
+
+async function settled(path, operation, receipt) {
   while (["queued", "running", "reconciling"].includes(receipt.status)) {
     await pause(10_000);
     receipt = await durable(path);
   }
   assert.equal(receipt.status, "done", `Pi Durable operation ${operation} is ${receipt.status}: ${receipt.reason ?? ""}; it will not be replayed`);
-  let result;
+  return receipt;
+}
+
+function disposition(receipt) {
   const ending = receipt.text.trim().match(/(?:^|\n)(\{[^\n]*\})$/);
-  try { result = JSON.parse(ending?.[1] ?? receipt.text); } catch { throw new Error(`Pi Durable operation ${operation} did not return the required JSON disposition`); }
-  assert.ok(["no_findings", "addressed", "blocked"].includes(result.status) && typeof result.reason === "string" && result.reason.trim(),
-    `Pi Durable operation ${operation} returned an invalid disposition`);
-  assert.notEqual(result.status, "blocked", `Pi Durable could not resolve ${source.url}: ${result.reason}`);
-  console.log(`Reviewed ${source.url}: ${result.status} — ${result.reason}`);
+  let result;
+  try { result = JSON.parse(ending?.[1] ?? receipt.text); } catch { return undefined; }
+  const valid = ["no_findings", "addressed", "blocked"].includes(result?.status) && typeof result.reason === "string" && result.reason.trim();
+  return valid ? result : undefined;
+}
+
+const dispositionRequest = "Your previous reply did not end with a valid single-line JSON disposition. Do not repeat or change any work. "
+  + "Reply with only that JSON object on one line, without a Markdown fence, in the format your instructions specify, for the work you already completed.";
+
+// The same chat keeps the completed work in context, so the remediator can restate a malformed final line, such as one
+// with an invalid JSON escape. The deterministic operation ID keeps later reconciliations from asking again.
+async function correctedDisposition(repository, number, source, chat, operation) {
+  const retry = uuid(`npm-release-disposition:${repository}#${number}:${source.key}`);
+  const path = `/api/chats/${chat}/operations/${retry}`;
+  let receipt = await durable(path, { missing: true });
+  if (!receipt) {
+    await selectModel(chat);
+    await durable(`/api/chats/${chat}`, { method: "POST", body: { prompt: dispositionRequest, operationId: retry, whenBusy: "followUp" } });
+    receipt = await durable(path);
+  }
+  const result = disposition(await settled(path, retry, receipt));
+  if (!result) {
+    throw new Error(`Neither Pi Durable operation ${operation} nor its correction request ${retry} in chat ${chat} returned a valid `
+      + `JSON disposition for https://github.com/${repository}/pull/${number}; inspect them and their effects, then close the `
+      + "version PR so reconciliation opens a new one with new operations");
+  }
   return result;
 }
 
