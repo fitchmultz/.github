@@ -8,9 +8,21 @@
     "test": "node --test test/*.test.mjs",
     "test:native": "node --test test/*.native.mjs",
     "check:renovate": "renovate-config-validator --strict --no-global pi-extensions.json renovate.json",
+    "check:quality": "node scripts/check-quality.mjs",
     "qualify": "node scripts/qualify.mjs"
   },
-  "engines": { "node": "^22.22.2 || ^24.15.0 || >=26.0.0" },
-  "devDependencies": { "renovate": "44.181.5" },
-  "allowScripts": { "re2": true }
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "oxfmt": "0.76.0",
+    "oxlint": "1.90.0",
+    "oxlint-tsgolint": "7.0.2005",
+    "renovate": "44.181.5",
+    "typescript": "7.0.2"
+  },
+  "allowScripts": {
+    "re2": true
+  }
 }

@@ -163,6 +163,9 @@ jobs:
         run: |
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           "$(go env GOPATH)/bin/actionlint"
+      - name: Check the strict compiler, semantic lint and format scope
+        if: ${{ !cancelled() }}
+        run: npm run check:quality
 
   fleet:
     needs: [scope, hosts]

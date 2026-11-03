@@ -57,6 +57,6 @@ Use Node 24. Run the unit tests from a checkout:
 npm test
 ```
 
-Follow the [development guide](docs/development.md) for dependency setup, native CLI tests, Renovate validation, and local qualification.
+Follow the [development guide](docs/development.md) for dependency setup, native CLI tests, Renovate validation, the [strict quality check](docs/development.md#strict-quality-scope), and local qualification.
 
 This repository's CI runs the full fleet for shared runtime/workflow changes and manual dispatches. Docs, policy and proven validator-only changes keep the local checks without requalifying every package; see [CI scope](docs/development.md#ci-scope).
