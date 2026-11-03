@@ -165,7 +165,7 @@ test("remediation refuses a PR that is not the App-owned version for the selecte
   assert.equal(f.state().submissions, undefined);
 });
 
-test("version PR follows advancing main and drains source commits only after the previous release completes", (t) => {
+test("version PR follows advancing main, and the next one starts after the commits its release published", (t) => {
   const f = fixture(t);
   const second = f.advance("Another main merge");
   success(f.reconcile());
@@ -229,10 +229,32 @@ test("version PR follows advancing main and drains source commits only after the
   });
   success(f.reconcile("workflow_run"));
   const next = f.state().open[0];
-  assert.equal(next.branch, `npm-version/${second}`);
+  // `second` merged into the 4.0.1 version PR and shipped with it (fitchmultz/pi-oracle#82 reopened such a source).
+  assert.equal(next.branch, `npm-version/${later}`);
   const nextHead = f.ref(next.branch);
   assert.equal(git(f.root, "--git-dir", f.remote, "merge-base", later, nextHead), later);
   assert.equal(JSON.parse(git(f.root, "--git-dir", f.remote, "show", `${nextHead}:package.json`)).version, "4.0.2");
+});
+
+test("nothing is released when main and the version PR match the published release apart from version metadata", (t) => {
+  // fitchmultz/pi-cursor-sdk#406 would have published 0.5.10 after #405 reverted #404.
+  const f = fixture(t); success(f.reconcile());
+  const branch = `npm-version/${f.first}`;
+  git(f.writer, "pull", "--quiet", "--ff-only", "origin", "main");
+  git(f.writer, "revert", "--no-edit", f.first);
+  git(f.writer, "push", "--quiet", "origin", "main");
+  const versionHead = git(f.root, "--git-dir", f.remote, "rev-parse", `refs/heads/${branch}`);
+  const closed = f.reconcile();
+  success(closed);
+  assert.match(closed.stdout, /Closed version PR #\d+; nothing changed since v4\.0\.0/);
+  // The workflow reviews and merges whatever head reconcile pushes, so the PR closes without an update from main.
+  assert.equal(git(f.root, "--git-dir", f.remote, "rev-parse", `refs/heads/${branch}`), versionHead);
+  assert.equal(f.state().open.length, 0);
+  assert.match(readFileSync(f.log, "utf8"), new RegExp(`DELETE /repos/fitchmultz/pi-copy-message/git/refs/heads/${branch}`));
+  const idle = f.reconcile();
+  success(idle);
+  assert.match(idle.stdout, /Main has nothing to release since v4\.0\.0/);
+  assert.equal(f.state().open.length, 0);
 });
 
 test("resolved Pi findings trigger one genuine fresh review without dismissing unresolved or standalone findings", (t) => {

@@ -111,6 +111,12 @@ globalThis.fetch = async (input, options = {}) => {
   if (!url.pathname.startsWith(prefix)) throw new Error(`Unexpected GitHub path: ${url}`);
   const path = url.pathname.slice(prefix.length);
   if (path === "pulls") return json(data.open.map(pull));
+  if (/^pulls\/\d+$/.test(path) && options.method === "PATCH") {
+    data.open = data.open.filter((value) => value.number !== Number(path.split("/")[1]));
+    writeFileSync(process.env.FAKE_GITHUB_STATE, JSON.stringify(data));
+    return json({ state: "closed" });
+  }
+  if (/^git\/refs\/heads\/npm-version\/[a-f0-9]{40}$/.test(path) && options.method === "DELETE") return new Response(null, { status: 204 });
   if (/^pulls\/\d+$/.test(path)) {
     const item = data.open.find((value) => value.number === Number(path.split("/")[1]));
     return item ? json(pull(item)) : json({ message: "Not Found" }, 404);

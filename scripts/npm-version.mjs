@@ -121,6 +121,24 @@ function isAncestor(source, ancestor, descendant) {
   return result.status === 0;
 }
 
+// True when two commits differ only in the version metadata a version PR writes, so a release would change nothing.
+function versionOnly(source, from, to) {
+  return git(source, ["diff", "--name-only", from, to]).split("\n").filter(Boolean).every((file) => {
+    if (file === "CHANGELOG.md") return true;
+    if (file !== "package.json" && file !== "package-lock.json") return false;
+    const unversioned = (commit) => {
+      const exists = spawnSync("git", ["cat-file", "-e", `${commit}:${file}`], { cwd: source, stdio: "ignore" });
+      if (exists.status !== 0) return null;
+      const manifest = JSON.parse(git(source, ["show", `${commit}:${file}`]));
+      delete manifest.version;
+      if (manifest.packages?.[""]) delete manifest.packages[""].version;
+      return JSON.stringify(manifest);
+    };
+    const before = unversioned(from);
+    return before !== null && before === unversioned(to);
+  });
+}
+
 function changelogSection(text, heading) {
   const matches = [...text.matchAll(heading)];
   assert.ok(matches.length <= 1, "Expected at most one matching changelog section");
@@ -330,6 +348,10 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
   const data = await npmMetadata(entry, repository);
   const releases = await request("releases?per_page=100", { paginate: true });
 
+  // The commit the latest release published. A version PR merges main before it merges, so this commit's tree holds
+  // every source commit that preceded it on main.
+  let released;
+  let releasedVersion;
   if (latestBump) {
     const bumpManifest = JSON.parse(git(source, ["show", `${latestBump.sha}:package.json`]));
     identity(entry, repository, bumpManifest);
@@ -344,23 +366,39 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
       await rerunRelease(match?.[1] ?? latestBump.sha, main, Boolean(release?.draft));
       return;
     }
+    released = match[1];
+    releasedVersion = bumpManifest.version;
+  } else {
+    releasedVersion = data["dist-tags"].latest;
+    const tag = `v${releasedVersion}`;
+    assert.ok(releases.some((release) => release.tag_name === tag && !release.draft && !release.prerelease),
+      `Latest npm version ${releasedVersion} has no published GitHub release`);
+    released = git(source, ["rev-parse", `refs/tags/${tag}^{commit}`]);
+    const tagged = JSON.parse(git(source, ["show", `${released}:package.json`]));
+    identity(entry, repository, tagged);
+    assert.equal(tagged.version, releasedVersion, "Latest npm version and GitHub tag manifest differ");
+  }
+
+  if (ours[0]) {
+    const head = `refs/remotes/origin/${ours[0].head.ref}`;
+    git(source, ["fetch", "origin", `+refs/heads/${ours[0].head.ref}:${head}`]);
+    // A PR behind main is judged by its own changes since it last merged main: updating it first would let this run
+    // review and merge the update before another reconcile could close it.
+    if (versionOnly(source, released, main) && versionOnly(source, git(source, ["merge-base", main, head]), head)) {
+      await request(`issues/${ours[0].number}/comments`, { method: "POST", body: { body: "Closing without a release: main and "
+        + `this PR match the published v${releasedVersion} apart from version metadata, so nothing would change.` } });
+      await request(`pulls/${ours[0].number}`, { method: "PATCH", body: { state: "closed" } });
+      await request(`git/refs/heads/${ours[0].head.ref}`, { method: "DELETE" });
+      console.log(`Closed version PR #${ours[0].number}; nothing changed since v${releasedVersion}`);
+      return;
+    }
   }
 
   let selected = ours[0] && /^npm-version\/([a-f0-9]{40})$/.exec(ours[0].head.ref)?.[1];
   if (!selected) {
-    let releasedSource = latestBump?.source;
-    if (!releasedSource) {
-      const latest = data["dist-tags"].latest;
-      const tag = `v${latest}`;
-      assert.ok(releases.some((release) => release.tag_name === tag && !release.draft && !release.prerelease),
-        `Latest npm version ${latest} has no published GitHub release`);
-      releasedSource = git(source, ["rev-parse", `refs/tags/${tag}^{commit}`]);
-      const tagged = JSON.parse(git(source, ["show", `${releasedSource}:package.json`]));
-      identity(entry, repository, tagged);
-      assert.equal(tagged.version, latest, "Latest npm version and GitHub tag manifest differ");
-    }
-    const cursor = commits.findIndex((commit) => commit.sha === releasedSource);
-    assert.ok(cursor >= 0, "Last released source is not on main's first-parent history");
+    if (versionOnly(source, released, main)) { console.log(`Main has nothing to release since v${releasedVersion}`); return; }
+    const cursor = commits.findIndex((commit) => commit.sha === released);
+    assert.ok(cursor >= 0, "The latest release is not on main's first-parent history");
     if (!latestBump && cursor > 0) {
       const installed = git(source, ["log", "--first-parent", "--diff-filter=A", "-1", "--format=%H", main,
         "--", ".github/workflows/npm-version.yml"]);
