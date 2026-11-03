@@ -44,7 +44,7 @@ function fixture(t) {
     rmSync(output, { force: true });
     rmSync(summary, { force: true });
     const result = spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: "utf8",
-      env: { ...env, ...Object.fromEntries(Object.keys(gate).map((name) => [name, ""])),
+      env: { ...env, ...Object.fromEntries([...Object.keys(gate), "EVENT"].map((name) => [name, ""])),
         ...environment, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary } });
     return { ...result, output: existsSync(output) ? readFileSync(output, "utf8") : "",
       summary: existsSync(summary) ? readFileSync(summary, "utf8") : "" };
