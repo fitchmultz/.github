@@ -102,8 +102,8 @@ async function task(repository, number, source) {
     await durable(`/api/chats/${chat}`, { method: "POST", body: { prompt: text, operationId: operation, whenBusy: "followUp" } });
     receipt = await durable(path);
   }
-  const result = disposition(await settled(path, operation, receipt))
-    ?? await correctedDisposition(repository, number, source, chat, operation);
+  const completed = await settled(path, operation, receipt);
+  const result = disposition(completed) ?? await correctedDisposition(repository, number, source, chat, operation, completed.text);
   assert.notEqual(result.status, "blocked", `Pi Durable could not resolve ${source.url}: ${result.reason}`);
   console.log(`Reviewed ${source.url}: ${result.status} — ${result.reason}`);
   return result;
@@ -139,18 +139,21 @@ function disposition(receipt) {
   return valid ? result : undefined;
 }
 
-const dispositionRequest = "Your previous reply did not end with a valid single-line JSON disposition. Do not repeat or change any work. "
-  + "Reply with only that JSON object on one line, without a Markdown fence, in the format your instructions specify, for the work you already completed.";
-
 // The same chat keeps the completed work in context, so the remediator can restate a malformed final line, such as one
-// with an invalid JSON escape. The deterministic operation ID keeps later reconciliations from asking again.
-async function correctedDisposition(repository, number, source, chat, operation) {
+// with an invalid JSON escape. Every source of the PR shares that chat, and a later run can finish another source's
+// request before this one is corrected, so the request names its source and quotes the line instead of referring to the
+// previous reply. The deterministic operation ID keeps later reconciliations from asking again.
+async function correctedDisposition(repository, number, source, chat, operation, text) {
   const retry = uuid(`npm-release-disposition:${repository}#${number}:${source.key}`);
   const path = `/api/chats/${chat}/operations/${retry}`;
   let receipt = await durable(path, { missing: true });
   if (!receipt) {
+    const prompt = `Your reply to the request for the source with key ${JSON.stringify(source.key)} (${source.url}) did not end with `
+      + `a valid single-line JSON disposition. It ended with this line:\n\n${text.trim().split("\n").at(-1)}\n\n`
+      + "Do not repeat or change any work. Reply with only the corrected JSON object for that source on one line, without a "
+      + "Markdown fence, in the format its request specifies.";
     await selectModel(chat);
-    await durable(`/api/chats/${chat}`, { method: "POST", body: { prompt: dispositionRequest, operationId: retry, whenBusy: "followUp" } });
+    await durable(`/api/chats/${chat}`, { method: "POST", body: { prompt, operationId: retry, whenBusy: "followUp" } });
     receipt = await durable(path);
   }
   const result = disposition(await settled(path, retry, receipt));

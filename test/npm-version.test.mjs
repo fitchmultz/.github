@@ -601,14 +601,14 @@ test("an unposted Cursor finding cannot pass on an unverified or unanswered agen
   });
 });
 
-test("a malformed remediation disposition gets one correction request in the same chat, then stops visibly", async (t) => {
+test("a malformed remediation disposition gets one correction request for its source in the same chat, then stops visibly", async (t) => {
   // fitchmultz/pi-zai-mcp#55 stalled on a final line that escaped "]" in packages[\"\"\], which JSON.parse rejects.
   const malformed = { status: "done",
     text: 'Verified the version metadata.\n\n{"status":"no_findings","reason":"Versions align in packages[\\"\\"\\]","evidenceUrl":""}' };
+  const agent = "bc-55555555-5555-4555-8555-555555555555";
   const setup = (t, correction) => {
     const f = fixture(t); success(f.reconcile());
     const head = f.ref(`npm-version/${f.first}`);
-    const agent = "bc-55555555-5555-4555-8555-555555555555";
     f.setState((s) => {
       const cursor = check("cursor", "Cursor Automation: PR Bug Review - Maintained Repos", head, f.first);
       cursor.details_url = `https://cursor.com/agents/${agent}`;
@@ -623,7 +623,12 @@ test("a malformed remediation disposition gets one correction request in the sam
     const [original, correction] = f.state().submissions;
     assert.equal(correction.chat, original.chat);
     assert.notEqual(correction.operationId, original.operationId);
-    assert.match(correction.prompt, /did not end with a valid single-line JSON disposition/);
+    // Every source of the PR shares the chat, and a later run can finish another source's request first
+    // (fitchmultz/pi-workflows#39 review), so the request names its source and quotes the line it corrects.
+    const key = JSON.stringify(`cursor:${agent}:run-${agent.slice(3)}`);
+    assert.ok(original.prompt.includes(`"key":${key}`));
+    assert.ok(correction.prompt.includes(`source with key ${key} (https://cursor.com/agents/${agent}) did not end with a valid`));
+    assert.ok(correction.prompt.includes(`\n\n${malformed.text.split("\n").at(-1)}\n\n`));
   };
   await t.test("a corrected line completes the source", (t) => {
     const { f, head } = setup(t, { status: "done", text: '{"status":"no_findings","reason":"Versions align in packages[\\"\\"]","evidenceUrl":""}' });
