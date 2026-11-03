@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "lib": ["ES2024"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedSideEffectImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "noCheck": false,
+    "skipLibCheck": false,
+    "types": ["node"]
+  },
+  "files": [
+    "scripts/select-development-host.mjs",
+    "scripts/check-quality.mjs",
+    "scripts/hosts.mjs",
+    "scripts/official-release.mjs",
+    "scripts/common.mjs"
+  ]
+}
