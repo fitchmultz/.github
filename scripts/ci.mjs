@@ -10,7 +10,8 @@ scope compares immutable Git commits (the merge base for a PR), prints JSON,
 and writes fleet-required=true|false to GITHUB_OUTPUT when set.
 Manual dispatch always requires the full fleet and needs no base/head.
 check requires SCOPE, HOSTS, TESTS, WINDOWS_RELEASE and CONFIGURATION=success, plus an explicit
-FLEET_REQUIRED=true|false and FLEET=success (or skipped only when not required).
+FLEET_REQUIRED=true|false and FLEET=success (or skipped only when not required, or intentionally
+skipped on a main push with EVENT=push).
 Both commands write their decision to GITHUB_STEP_SUMMARY when set.
 
 Examples:
@@ -88,10 +89,14 @@ function check() {
   const required = process.env.FLEET_REQUIRED;
   if (!["true", "false"].includes(required)) throw new Error("FLEET_REQUIRED must be explicitly true or false");
   const fleet = process.env.FLEET;
-  if (fleet !== "success" && !(required === "false" && fleet === "skipped")) {
-    throw new Error(`Fleet must succeed${required === "false" ? " or be intentionally skipped" : ""} (received ${JSON.stringify(fleet)})`);
+  // A push to main is smoke-only: its pull request already qualified the same content, and the daily canary re-qualifies.
+  const pushSkip = required === "true" && process.env.EVENT === "push" && fleet === "skipped";
+  if (fleet !== "success" && !(required === "false" && fleet === "skipped") && !pushSkip) {
+    throw new Error(`Fleet must succeed${required === "false" || pushSkip ? " or be intentionally skipped" : ""} (received ${JSON.stringify(fleet)})`);
   }
-  return fleet === "skipped" ? "Automation passed. Fleet intentionally skipped; this is not fleet qualification."
+  return pushSkip
+    ? "Automation passed. Fleet intentionally skipped on the main push; the pull request run qualified this content and the daily canary re-qualifies."
+    : fleet === "skipped" ? "Automation passed. Fleet intentionally skipped; this is not fleet qualification."
     : "Automation passed, including full fleet qualification.";
 }
 

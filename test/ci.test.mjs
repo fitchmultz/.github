@@ -228,3 +228,14 @@ test("automation requires every cheap check and only permits an explicit intenti
   }
   assert.equal(f.invoke(["check"]).status, 1, "Missing environment must fail");
 });
+
+test("a main push intentionally skips the fleet its pull request already qualified", (t) => {
+  const f = fixture(t);
+  const result = f.invoke(["check"], { ...gate, FLEET: "skipped", EVENT: "push" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.summary, /main push/);
+  assert.match(result.summary, /daily canary/);
+  for (const event of ["pull_request", "workflow_dispatch", "schedule", ""]) {
+    assert.equal(f.invoke(["check"], { ...gate, FLEET: "skipped", EVENT: event }).status, 1, `event=${event || "(none)"}`);
+  }
+});
