@@ -243,11 +243,12 @@ test("nothing is released when main and the version PR match the published relea
   git(f.writer, "pull", "--quiet", "--ff-only", "origin", "main");
   git(f.writer, "revert", "--no-edit", f.first);
   git(f.writer, "push", "--quiet", "origin", "main");
-  success(f.reconcile());
-  assert.equal(f.state().open[0].branch, branch, "A PR behind main is updated before it is judged");
+  const versionHead = git(f.root, "--git-dir", f.remote, "rev-parse", `refs/heads/${branch}`);
   const closed = f.reconcile();
   success(closed);
   assert.match(closed.stdout, /Closed version PR #\d+; nothing changed since v4\.0\.0/);
+  // The workflow reviews and merges whatever head reconcile pushes, so the PR closes without an update from main.
+  assert.equal(git(f.root, "--git-dir", f.remote, "rev-parse", `refs/heads/${branch}`), versionHead);
   assert.equal(f.state().open.length, 0);
   assert.match(readFileSync(f.log, "utf8"), new RegExp(`DELETE /repos/fitchmultz/pi-copy-message/git/refs/heads/${branch}`));
   const idle = f.reconcile();

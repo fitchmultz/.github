@@ -382,7 +382,9 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
   if (ours[0]) {
     const head = `refs/remotes/origin/${ours[0].head.ref}`;
     git(source, ["fetch", "origin", `+refs/heads/${ours[0].head.ref}:${head}`]);
-    if (versionOnly(source, released, main) && versionOnly(source, main, head)) {
+    // A PR behind main is judged by its own changes since it last merged main: updating it first would let this run
+    // review and merge the update before another reconcile could close it.
+    if (versionOnly(source, released, main) && versionOnly(source, git(source, ["merge-base", main, head]), head)) {
       await request(`issues/${ours[0].number}/comments`, { method: "POST", body: { body: "Closing without a release: main and "
         + `this PR match the published v${releasedVersion} apart from version metadata, so nothing would change.` } });
       await request(`pulls/${ours[0].number}`, { method: "PATCH", body: { state: "closed" } });
