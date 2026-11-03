@@ -44,7 +44,7 @@ function fixture(t) {
     rmSync(output, { force: true });
     rmSync(summary, { force: true });
     const result = spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: "utf8",
-      env: { ...env, ...Object.fromEntries(Object.keys(gate).map((name) => [name, ""])),
+      env: { ...env, ...Object.fromEntries([...Object.keys(gate), "EVENT"].map((name) => [name, ""])),
         ...environment, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary } });
     return { ...result, output: existsSync(output) ? readFileSync(output, "utf8") : "",
       summary: existsSync(summary) ? readFileSync(summary, "utf8") : "" };
@@ -227,4 +227,15 @@ test("automation requires every cheap check and only permits an explicit intenti
     assert.equal(f.invoke(["check"], { ...gate, FLEET_REQUIRED: required }).status, 1, `Unknown scope flag ${required} must fail even with a successful fleet`);
   }
   assert.equal(f.invoke(["check"]).status, 1, "Missing environment must fail");
+});
+
+test("a main push intentionally skips the fleet its pull request already qualified", (t) => {
+  const f = fixture(t);
+  const result = f.invoke(["check"], { ...gate, FLEET: "skipped", EVENT: "push" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.summary, /main push/);
+  assert.match(result.summary, /daily canary/);
+  for (const event of ["pull_request", "workflow_dispatch", "schedule", ""]) {
+    assert.equal(f.invoke(["check"], { ...gate, FLEET: "skipped", EVENT: event }).status, 1, `event=${event || "(none)"}`);
+  }
 });

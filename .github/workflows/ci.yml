@@ -166,7 +166,7 @@ jobs:
 
   fleet:
     needs: [scope, hosts]
-    if: needs.scope.outputs.fleet-required == 'true'
+    if: needs.scope.outputs.fleet-required == 'true' && github.event_name != 'push'
     uses: ./.github/workflows/pi-compatibility.yml
     with:
       automation-ref: ${{ github.sha }}
@@ -200,4 +200,5 @@ jobs:
           CONFIGURATION: ${{ needs.configuration.result }}
           FLEET_REQUIRED: ${{ needs.scope.outputs.fleet-required }}
           FLEET: ${{ needs.fleet.result }}
+          EVENT: ${{ github.event_name }}
         run: node scripts/ci.mjs check
