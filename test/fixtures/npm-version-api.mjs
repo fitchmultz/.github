@@ -87,8 +87,9 @@ globalThis.fetch = async (input, options = {}) => {
     const body = JSON.parse(options.body);
     data.operations ??= {};
     data.submissions ??= [];
-    data.submissions.push({ operationId: body.operationId, prompt: body.prompt });
-    data.operations[body.operationId] = data.durableOutcome ?? { status: "done", text: JSON.stringify({ status: "no_findings", reason: "No finding in this report" }) };
+    data.submissions.push({ chat: match[1], operationId: body.operationId, prompt: body.prompt });
+    data.operations[body.operationId] = data.durableOutcomes?.shift() ?? data.durableOutcome
+      ?? { status: "done", text: JSON.stringify({ status: "no_findings", reason: "No finding in this report" }) };
     writeFileSync(process.env.FAKE_GITHUB_STATE, JSON.stringify(data));
     return json({ operationId: body.operationId, accepted: true }, 202);
   }

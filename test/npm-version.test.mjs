@@ -579,6 +579,51 @@ test("an unposted Cursor finding cannot pass on an unverified or unanswered agen
   });
 });
 
+test("a malformed remediation disposition gets one correction request in the same chat, then stops visibly", async (t) => {
+  // fitchmultz/pi-zai-mcp#55 stalled on a final line that escaped "]" in packages[\"\"\], which JSON.parse rejects.
+  const malformed = { status: "done",
+    text: 'Verified the version metadata.\n\n{"status":"no_findings","reason":"Versions align in packages[\\"\\"\\]","evidenceUrl":""}' };
+  const setup = (t, correction) => {
+    const f = fixture(t); success(f.reconcile());
+    const head = f.ref(`npm-version/${f.first}`);
+    const agent = "bc-55555555-5555-4555-8555-555555555555";
+    f.setState((s) => {
+      const cursor = check("cursor", "Cursor Automation: PR Bug Review - Maintained Repos", head, f.first);
+      cursor.details_url = `https://cursor.com/agents/${agent}`;
+      s.checks = [cursor, check("pi-durable", "Pi Durable Review", head, f.first),
+        check("github-actions", "compatibility / compatibility", head, f.first)];
+      s.cursorReports = { [agent]: "No concrete findings." };
+      s.durableOutcomes = [malformed, correction];
+    });
+    return { f, head };
+  };
+  const requested = (f) => {
+    const [original, correction] = f.state().submissions;
+    assert.equal(correction.chat, original.chat);
+    assert.notEqual(correction.operationId, original.operationId);
+    assert.match(correction.prompt, /did not end with a valid single-line JSON disposition/);
+  };
+  await t.test("a corrected line completes the source", (t) => {
+    const { f, head } = setup(t, { status: "done", text: '{"status":"no_findings","reason":"Versions align in packages[\\"\\"]","evidenceUrl":""}' });
+    success(f.remediate(head));
+    assert.match(readFileSync(f.output, "utf8"), /cursor=200\nready=true/);
+    requested(f);
+    success(f.remediate(head));
+    assert.equal(f.state().submissions.length, 2, "Neither request may be repeated");
+  });
+  await t.test("a second malformed line fails without another request", (t) => {
+    const { f, head } = setup(t, { status: "done", text: "The disposition is no_findings." });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = f.remediate(head);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /returned a valid JSON disposition for https:\/\/github\.com\/fitchmultz\/pi-copy-message\/pull\/1;/);
+      assert.equal(f.state().submissions.length, 2);
+    }
+    requested(f);
+    assert.doesNotMatch(readFileSync(f.output, "utf8"), /ready=true/);
+  });
+});
+
 test("an incomplete Pi review uses native recovery only after uncertain comments are ruled out", async (t) => {
   for (const [name, posts, succeeds] of [
     ["settled", {}, true],
