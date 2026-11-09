@@ -4,6 +4,7 @@ import fs, { cpSync, existsSync, mkdirSync, realpathSync, writeFileSync } from "
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readJson, writeJson } from "./common.mjs";
+import { probeModel } from "./probe-model.mjs";
 
 export function checkResources(packageDir) {
   const manifest = readJson(join(packageDir, "package.json"));
@@ -20,10 +21,12 @@ export function checkResources(packageDir) {
 export function probeCli(host, packageDir, directory, env) {
   mkdirSync(directory, { recursive: true });
   const observer = join(directory, "observe.ts");
-  cpSync(fileURLToPath(new URL("observe.ts", import.meta.url)), observer);
+  for (const file of ["observe.ts", "probe-model.mjs"]) {
+    cpSync(fileURLToPath(new URL(file, import.meta.url)), join(directory, file));
+  }
   const observation = join(directory, "observation.json");
   const args = [host.cli, "--offline", "--mode", "rpc", "-ne", "-ns", "-np", "-nc", "--no-themes", "--no-approve",
-    "--no-session", "-e", packageDir, "-e", observer];
+    "--no-session", "--model", `${probeModel.provider}/${probeModel.id}`, "-e", packageDir, "-e", observer];
   const result = spawnSync(process.execPath, args, {
     cwd: directory,
     env: { ...env, PI_COMPAT_OBSERVATION: observation, PI_COMPAT_PACKAGE_DIR: packageDir },
@@ -42,6 +45,7 @@ export function probeCli(host, packageDir, directory, env) {
   assert.ok(events.some((event) => event.id === "qualification" && event.type === "response" && event.success === true), "Probe command did not complete");
   assert.ok(!events.some((event) => event.type === "agent_start"), "Fixture unexpectedly started a model turn");
   const observed = readJson(observation);
+  assert.deepEqual(observed.selectedModel, probeModel, "Consumer probe selected a different model");
   assert.equal(realpathSync(observed.packageDir), realpathSync(host.packageDir));
   assert.equal(observed.version, host.version);
   assert.equal(observed.indexSha256, host.indexSha256);

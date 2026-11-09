@@ -33,9 +33,55 @@ Automated package checks use offline proof unless the changed behavior needs rea
 
 ## Recovery
 
-A scheduled reconciliation and a manual dispatch on `main` retry incomplete work. Pending source commits are not assigned new versions while the latest automatic release is incomplete. An existing npm version is never republished with different bytes. For a recognized unfinished draft, preparation recovers the original tarball and receipt, verifies their GitHub digests, and requalifies those same bytes against the selected hosts and package gates before the publisher finishes that version. A conflicting tag, release, identity or integrity fails closed.
+A scheduled reconciliation and a manual dispatch on `main` retry incomplete work. Without an explicit supersession request, pending source commits are not assigned new versions while the latest automatic release is incomplete. An existing npm version is never republished with different bytes. For a recognized unfinished draft, preparation recovers the original tarball and receipt, verifies their GitHub digests, and requalifies those same bytes against the selected hosts and package gates before the publisher finishes that version. A conflicting tag, release, identity or integrity fails closed.
 
 For an incomplete release, reconciliation reruns its original `npm-release.yml` run so the GitHub Actions SHA and npm provenance remain aligned. A failed-job rerun can reuse a previously successful qualification from that run when the candidate and host receipt match and GitHub reports the same job execution times. GitHub limits [workflow reruns](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs) to 30 days and 50 attempts. If the original run is unavailable and `main` has advanced past the reviewed version commit, a later main dispatch cannot substitute for it, whether or not a draft exists; investigate rather than moving a tag or overwriting an npm version. Successful npm publication may take time to become visible; the publisher verifies the exact version and `latest` before finalizing the GitHub Release.
+
+### Replace a failed unpublished version with fixed source
+
+When an automatic release fails because its source needs a fix, merge the fix through the repository's normal PR process. Adopt a reviewed automation revision that supports the paired `supersede-version` and `supersede-source` inputs. Add these optional string inputs to the caller's existing `workflow_dispatch` and forward them to `.github/workflows/npm-release-bump.yml`:
+
+```yaml
+on:
+  workflow_dispatch:
+    inputs:
+      supersede-version:
+        description: Failed unpublished automatic version
+        required: false
+        type: string
+        default: ''
+      supersede-source:
+        description: Failed automatic version merge SHA
+        required: false
+        type: string
+        default: ''
+```
+
+Add the forwarding entries to the existing reusable version job's `with` block. Keep its other inputs, secrets, events, and immutable pins unchanged.
+
+```yaml
+with:
+  supersede-version: ${{ inputs.supersede-version || '' }}
+  supersede-source: ${{ inputs.supersede-source || '' }}
+```
+
+Dispatch the repository's `npm-version.yml` on `main`, supplying both values:
+
+```sh
+gh workflow run npm-version.yml --repo fitchmultz/REPO --ref main \
+  -f supersede-version=FAILED_VERSION \
+  -f supersede-source=FAILED_VERSION_MERGE_SHA
+```
+
+`supersede-source` is the full merge SHA of the failed automatic version PR, not its earlier `pi-npm-source` queue marker. The versioner verifies that pair against the latest genuine Bot-authored automatic version. The exact version must be absent from npm, any GitHub release for it must still be a draft, and its latest original main `npm-release.yml` run must have completed with failure. Only an operator dispatch of the trusted main `npm-version.yml` caller can request a replacement. An ordinary later commit cannot become the old version's publication source.
+
+The existing release App opens a normal version PR from current fixed `main`. The native version selector chooses a new stable patch above the manifest, every npm version, and all version tags. Generated notes span the previous published tag through fixed main. The new section copies the unpublished version's curated notes outside its mutable pending block, before generated notes, leaving the old version's full section unchanged. A `<!-- npm-release:carried:start -->` / `<!-- npm-release:carried:end -->` block holds these cumulative curated notes. If a replacement also fails unpublished, the next recovery copies its carried block plus its own pending notes, not its generated notes. Original automatic versions have no carried block. Maintainers can edit curated text inside the blocks while retaining their markers. Only current `Unreleased` notes enter the pending block. Every main update uses the same changelog note merge, whether Git reports a clean merge or a conflict, so appended and prepended main notes stay in that recoverable block before review. The new section and PR identify the superseded version and merge SHA.
+
+The PR's `pi-npm-supersedes` marker lets ordinary check, schedule, and reconciliation events resume that same replacement PR without repeating dispatch inputs. The versioner rechecks that the old version remains unpublished and its original release run remains failed. Pre-commit and pre-push reviews, remediation, current-head CI and Pi/Cursor reviews, resolved threads, prospective candidate review, and package-specific gates remain in place. Post-merge release planning still admits only the new genuine version merge. No supersession input reaches the publisher.
+
+Supersession does not rerun, delete, relabel, or overwrite the old commit, branch, tag, draft, assets, candidate, or failed run. Those records keep their original version and source identity. Only the new version can publish the fixed bytes. Once that replacement publishes on npm and GitHub, the ordinary version queue resumes after its merge.
+
+### Resume review remediation
 
 An incomplete Pi review with settled, non-uncertain comment effects is recovered through Pi Durable's native single-PR reconciliation. The version workflow observes the resulting check rather than treating admission as success. For each feedback source it records the prompt's reviewed automation revision and digest in archived Pi Durable metadata before submitting; retries reconstruct that exact prompt and reject changed source data. An unanswered or uncertain remediation stays visible and is not automatically replayed; inspect the original operation and external effects. If a completed remediation does not end with a valid single-line JSON disposition, the workflow asks once, in the same Pi Durable chat, for only that line. Every source of the PR shares that chat, so the request names its source and quotes the malformed line. If the answer is not valid either, the workflow fails and names both operations; inspect them and their effects, then close the version PR so reconciliation opens a new one with new operations. A version-branch update wakes reconciliation, and the schedule resumes work after a run ends. After a repeated Cursor error, push a new commit to the version branch once Cursor reviews normally again; the new head gets a fresh review. Canceled, missing, skipped, stale-head or stale-base checks do not pass.
 
@@ -61,4 +107,4 @@ For a genuine first publication of an enabled owned scoped package, npm currentl
 
 Set `NPM_RELEASE_ENABLED=false` in a package repository to stop new release runs, and cancel already-running runs if a stop is needed. Never delete an existing npm version, move a conflicting tag, or replace a release asset to conceal an uncertain outcome. Prereleases and other dist-tags remain outside this stable automatic channel.
 
-The read-only planner and candidate verifier can also run locally; `node scripts/npm-release.mjs --help` describes their inputs.
+The read-only planner and candidate verifier can also run locally; `node scripts/npm-release.mjs --help` describes their inputs. `node scripts/npm-version.mjs --help` describes the Actions-only version commands and supersession inputs.

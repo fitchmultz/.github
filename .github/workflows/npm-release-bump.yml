@@ -21,6 +21,16 @@ on:
         required: false
         type: boolean
         default: false
+      supersede-version:
+        description: Exact failed unpublished automatic version to replace on operator dispatch
+        required: false
+        type: string
+        default: ''
+      supersede-source:
+        description: Exact failed automatic version merge SHA, paired with supersede-version
+        required: false
+        type: string
+        default: ''
     secrets:
       RELEASE_APP_PRIVATE_KEY:
         description: Private key stored in the main-only release environment
@@ -100,9 +110,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_GH_TOKEN: ${{ steps.app.outputs.token }}
           APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          SUPERSEDE_VERSION: ${{ inputs.supersede-version }}
+          SUPERSEDE_SOURCE: ${{ inputs.supersede-source }}
           ZAI_API_KEY: ${{ inputs.version-reviewed && secrets.ZAI_API_KEY || '' }}
           PI_RELEASE_REVIEW_SKILL: ${{ github.workspace }}/review-skills/skills/thermo-nuclear-code-quality-review/SKILL.md
-        run: node automation/scripts/npm-version.mjs reconcile --source extension --app-slug "$APP_SLUG" ${{ inputs.package-qualified && '--package-qualified' || '' }} ${{ inputs.version-reviewed && '--version-reviewed' || '' }}
+        run: |
+          recovery=()
+          if [[ -n "$SUPERSEDE_VERSION" || -n "$SUPERSEDE_SOURCE" ]]; then
+            recovery=(--supersede-version "$SUPERSEDE_VERSION" --supersede-source "$SUPERSEDE_SOURCE")
+          fi
+          node automation/scripts/npm-version.mjs reconcile --source extension --app-slug "$APP_SLUG" "${recovery[@]}" ${{ inputs.package-qualified && '--package-qualified' || '' }} ${{ inputs.version-reviewed && '--version-reviewed' || '' }}
       - id: remediation
         if: steps.reconcile.outputs.pull != ''
         name: Address complete reviewer reports and failing checks

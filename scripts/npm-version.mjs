@@ -11,6 +11,16 @@ const stable = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
 const branchFor = (source) => `npm-version/${source}`;
 const pendingStart = "<!-- npm-release:unreleased:start -->";
 const pendingEnd = "<!-- npm-release:unreleased:end -->";
+const carriedStart = "<!-- npm-release:carried:start -->";
+const carriedEnd = "<!-- npm-release:carried:end -->";
+const supersessionMarker = ({ version, source }) => `<!-- pi-npm-supersedes: ${version} ${source} -->`;
+
+function supersession(text) {
+  const match = /^<!-- pi-npm-supersedes: (\S+) ([a-f0-9]{40}) -->$/m.exec(text ?? "");
+  if (!match) return null;
+  versionParts(match[1]);
+  return { version: match[1], source: match[2] };
+}
 
 function nextVersion(manifestVersion, publishedVersions, tags) {
   const versions = [manifestVersion, ...publishedVersions, ...tags.map((tag) => tag.replace(/^v/, ""))].filter((version) => stable.test(version));
@@ -21,23 +31,32 @@ function nextVersion(manifestVersion, publishedVersions, tags) {
   return `${major}.${minor}.${patch + 1}`;
 }
 
-function versionChangelog(changelog, version, generated, date) {
+function versionChangelog(changelog, version, generated, date, supersededVersion) {
   versionParts(version);
   const notes = generated.trim().replace(/^##[ \t]+/gm, "### ");
   assert.ok(notes, "Generated release notes are empty");
+  let carried = "";
+  if (supersededVersion) {
+    const section = changelogSection(changelog, versionHeadingPattern(supersededVersion));
+    assert.ok(section, "The superseded version changelog section is missing");
+    const previous = section.body.includes(carriedStart) || section.body.includes(carriedEnd)
+      ? noteBlock(section.body, carriedStart, carriedEnd).body : "";
+    carried = [previous, noteBlock(section.body).body].filter(Boolean).join("\n\n");
+  }
+  const releaseNotes = [carried ? `${carriedStart}\n${carried}\n${carriedEnd}` : "", notes].filter(Boolean).join("\n\n");
   const unreleased = /^##[ \t]+\[?Unreleased\]?(?:[ \t].*)?\r?$/im.exec(changelog);
   if (unreleased) {
     const start = unreleased.index + unreleased[0].length;
     const next = /^##[ \t]+/m.exec(changelog.slice(start));
     const end = next ? start + next.index : changelog.length;
     const pending = changelog.slice(start, end).trim();
-    const body = `${pendingStart}\n${pending ? `${pending}\n` : ""}${pendingEnd}\n\n${notes}`;
+    const body = `${pendingStart}\n${pending ? `${pending}\n` : ""}${pendingEnd}\n\n${releaseNotes}`;
     return `${changelog.slice(0, start)}\n\n## ${version} - ${date}\n\n${body}\n\n${changelog.slice(end)}`;
   }
   const heading = /^##[ \t]+/m.exec(changelog);
   const position = heading?.index ?? changelog.length;
   const prefix = changelog.slice(0, position).trimEnd();
-  return `${prefix}\n\n## ${version} - ${date}\n\n${pendingStart}\n${pendingEnd}\n\n${notes}\n\n${changelog.slice(position)}`;
+  return `${prefix}\n\n## ${version} - ${date}\n\n${pendingStart}\n${pendingEnd}\n\n${releaseNotes}\n\n${changelog.slice(position)}`;
 }
 
 function setVersion(source, version) {
@@ -55,10 +74,10 @@ function setVersion(source, version) {
   }
 }
 
-function stageVersion(source, version, notes, date) {
+function stageVersion(source, version, notes, date, supersededVersion) {
   setVersion(source, version);
   const path = join(source, "CHANGELOG.md");
-  writeFileSync(path, versionChangelog(readFileSync(path, "utf8"), version, notes, date));
+  writeFileSync(path, versionChangelog(readFileSync(path, "utf8"), version, notes, date, supersededVersion));
 }
 
 function formatVersion(source) {
@@ -150,6 +169,18 @@ function changelogSection(text, heading) {
   return { start, end, heading: matches[0][0], body: text.slice(headerEnd, end).trim() };
 }
 
+function versionHeadingPattern(version) {
+  return new RegExp(`^##[ \\t]+\\[?v?${version.replaceAll(".", "\\.")}\\]?(?:[ \\t].*)?\\r?$`, "gm");
+}
+
+function noteBlock(release, startMarker = pendingStart, endMarker = pendingEnd) {
+  const start = release.indexOf(startMarker);
+  const end = release.indexOf(endMarker);
+  assert.ok(start >= 0 && end > start && release.indexOf(startMarker, start + startMarker.length) < 0
+    && release.indexOf(endMarker, end + endMarker.length) < 0, "The reviewed version's note markers are missing or ambiguous");
+  return { start, end, body: release.slice(start + startMarker.length, end).trim() };
+}
+
 function mergeLines(source, env, root, name, base, ours, theirs) {
   const separator = "<!-- npm-release:merge-line -->";
   assert.ok([base, ours, theirs].every((value) => !value.includes(separator)), `${name} contains the merge separator`);
@@ -179,20 +210,15 @@ function mergeLines(source, env, root, name, base, ours, theirs) {
   return decoded.join("\n");
 }
 
-function resolveChangelog(source, version, scopedGit, env, root) {
+function resolveChangelog(source, version, scopedGit, env, root, [base, ours, theirs]) {
   const unreleased = /^##[ \t]+\[?Unreleased\]?(?:[ \t].*)?\r?$/gim;
-  const versionHeading = new RegExp(`^##[ \\t]+\\[?v?${version.replaceAll(".", "\\.")}\\]?(?:[ \\t].*)?\\r?$`, "gm");
-  const [base, ours, theirs] = [1, 2, 3].map((stage) => scopedGit(["show", `:${stage}:CHANGELOG.md`]));
+  const versionHeading = versionHeadingPattern(version);
   const sections = [base, ours, theirs].map((text) => changelogSection(text, unreleased));
   const versionSection = changelogSection(ours, versionHeading);
   assert.ok(versionSection, "The reviewed version changelog section is missing");
   assert.ok(!versionHeading.test(base) && !versionHeading.test(theirs), "Concurrent version headings require review");
   const release = ours.slice(versionSection.start, versionSection.end).trimEnd();
-  const start = release.indexOf(pendingStart);
-  const end = release.indexOf(pendingEnd);
-  assert.ok(start >= 0 && end > start && release.indexOf(pendingStart, start + pendingStart.length) < 0
-    && release.indexOf(pendingEnd, end + pendingEnd.length) < 0, "The reviewed version's Unreleased markers are missing or ambiguous");
-  const reviewedPending = release.slice(start + pendingStart.length, end).trim();
+  const { start, end, body: reviewedPending } = noteBlock(release);
   const incoming = mergeLines(source, env, root, "Unreleased", sections[0]?.body ?? "", reviewedPending, sections[2]?.body ?? "");
   const pending = [incoming, sections[1]?.body].filter(Boolean).join("\n\n");
   const reviewedRelease = `${release.slice(0, start + pendingStart.length)}\n${pending ? `${pending}\n` : ""}${release.slice(end)}`;
@@ -332,7 +358,7 @@ function versionReviewer(source, entry, enabled) {
   };
 }
 
-async function reconcile(source, entry, repository, appSlug, versionReviewEnabled) {
+async function reconcile(source, entry, repository, appSlug, versionReviewEnabled, requestedSupersession) {
   const appEnv = { ...process.env, GH_TOKEN: process.env.RELEASE_GH_TOKEN };
   delete appEnv.ZAI_API_KEY;
   const pulls = (sha) => request(`commits/${sha}/pulls?per_page=100`, { paginate: true });
@@ -347,12 +373,33 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
   const latestBump = await versionCommit(commits, repository, pulls);
   const data = await npmMetadata(entry, repository);
   const releases = await request("releases?per_page=100", { paginate: true });
+  const pendingSupersession = supersession(ours[0]?.body);
+  if (requestedSupersession && ours[0]) {
+    assert.deepEqual(pendingSupersession, requestedSupersession, "Open version PR is not this supersession");
+  }
+  const recovery = requestedSupersession ?? pendingSupersession;
+  if (recovery) {
+    assert.equal(latestBump?.sha, recovery.source, "Supersession source does not match the latest automatic version");
+    const manifest = JSON.parse(git(source, ["show", `${latestBump.sha}:package.json`]));
+    identity(entry, repository, manifest);
+    assert.equal(manifest.version, recovery.version, "Supersession version does not match the latest automatic version");
+    assert.ok(!data.versions[recovery.version], "Supersession version is already published on npm; reconcile its original release");
+    assert.ok(!releases.some((release) => release.tag_name === `v${recovery.version}` && !release.draft),
+      "Supersession version is already published on GitHub");
+    const runs = await request(`actions/workflows/npm-release.yml/runs?head_sha=${recovery.source}&per_page=1`, { token: process.env.GH_TOKEN });
+    const run = runs.workflow_runs[0];
+    assert.ok(run?.head_sha === recovery.source && run.head_branch === "main"
+      && ["push", "schedule", "workflow_dispatch"].includes(run.event) && run.status === "completed" && run.conclusion === "failure",
+    "Supersession requires a failed original main release run");
+    assert.notEqual(main, recovery.source, "Supersession requires fixed main after the failed automatic version");
+    console.log(`Superseding unpublished ${entry.npmPackage}@${recovery.version} from ${recovery.source}; preserving its release records`);
+  }
 
   // The commit the latest release published. A version PR merges main before it merges, so this commit's tree holds
   // every source commit that preceded it on main.
   let released;
   let releasedVersion;
-  if (latestBump) {
+  if (latestBump && !recovery) {
     const bumpManifest = JSON.parse(git(source, ["show", `${latestBump.sha}:package.json`]));
     identity(entry, repository, bumpManifest);
     const release = releases.find((item) => item.tag_name === `v${bumpManifest.version}`);
@@ -399,7 +446,8 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
     if (versionOnly(source, released, main)) { console.log(`Main has nothing to release since v${releasedVersion}`); return; }
     const cursor = commits.findIndex((commit) => commit.sha === released);
     assert.ok(cursor >= 0, "The latest release is not on main's first-parent history");
-    if (!latestBump && cursor > 0) {
+    if (recovery) selected = main;
+    else if (!latestBump && cursor > 0) {
       const installed = git(source, ["log", "--first-parent", "--diff-filter=A", "-1", "--format=%H", main,
         "--", ".github/workflows/npm-version.yml"]);
       const installation = commits.findIndex((commit) => commit.sha === installed);
@@ -449,8 +497,9 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
       const generated = await request("releases/generate-notes", { method: "POST", body: { tag_name: `v${version}`,
         target_commitish: main, ...(previous ? { previous_tag_name: previous } : {}) } });
       const subject = git(source, ["show", "-s", "--format=%s", selected]);
-      const notes = `- ${subject} ([${selected.slice(0, 7)}](https://github.com/${repository}/commit/${selected}))\n\n${generated.body ?? ""}`;
-      stageVersion(source, version, notes, new Date().toISOString().slice(0, 10));
+      const replacement = recovery ? `- Supersedes unpublished ${recovery.version} from ${recovery.source}. Includes all changes since v${releasedVersion}; the original release records remain unchanged.\n\n` : "";
+      const notes = `${replacement}- ${subject} ([${selected.slice(0, 7)}](https://github.com/${repository}/commit/${selected}))\n\n${generated.body ?? ""}`;
+      stageVersion(source, version, notes, new Date().toISOString().slice(0, 10), recovery?.version);
       formatVersion(source);
       scopedGit(["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
       review?.("pre-commit");
@@ -458,18 +507,20 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
       review?.("pre-push", main);
       scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
     } else if (!isAncestor(source, main, "HEAD")) {
+      const changelogs = [scopedGit(["merge-base", "HEAD", main]), "HEAD", main]
+        .map((ref) => scopedGit(["show", `${ref}:CHANGELOG.md`]));
       const merged = spawnSync("git", ["merge", "--no-commit", "--no-ff", main], { cwd: source, env, encoding: "utf8" });
       if (merged.error) throw merged.error;
       let conflicts = scopedGit(["diff", "--name-only", "--diff-filter=U"]).split("\n").filter(Boolean);
       let resolved = false;
-      if (conflicts.length && conflicts.every((file) => ["CHANGELOG.md", "package.json", "package-lock.json"].includes(file))) {
+      if ((merged.status === 0 || conflicts.length) && conflicts.every((file) => ["CHANGELOG.md", "package.json", "package-lock.json"].includes(file))) {
         try {
           if (conflicts.some((file) => file === "package.json" || file === "package-lock.json")) {
             resolveVersionFiles(source, main, conflicts, scopedGit, env, root);
           }
-          if (conflicts.includes("CHANGELOG.md")) resolveChangelog(source, readJson(join(source, "package.json")).version, scopedGit, env, root);
+          resolveChangelog(source, readJson(join(source, "package.json")).version, scopedGit, env, root, changelogs);
+          resolved = conflicts.length > 0;
           conflicts = scopedGit(["diff", "--name-only", "--diff-filter=U"]).split("\n").filter(Boolean);
-          resolved = true;
         } catch (error) {
           scopedGit(["merge", "--abort"]);
           throw error;
@@ -498,7 +549,7 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
     if (!number) {
       const url = run("gh", ["pr", "create", "--repo", repository, "--base", "main", "--head", branch,
         "--title", `chore(release): ${readJson(join(source, "package.json")).version}`,
-        "--body", `Automatic version, lockfile and changelog update for ${selected}.\n\n${sourceMarker(selected)}`], { cwd: source, env, quiet: true }).trim();
+        "--body", `Automatic version, lockfile and changelog update for ${selected}.\n\n${sourceMarker(selected)}${recovery ? `\n\n${supersessionMarker(recovery)}` : ""}`], { cwd: source, env, quiet: true }).trim();
       number = Number(new URL(url).pathname.split("/").at(-1));
     }
     assert.ok(Number.isSafeInteger(number) && number > 0, "Could not identify the version PR");
@@ -710,8 +761,10 @@ async function mergeVersion(source, number, head, entry, cursorId) {
   assert.equal(git(source, ["rev-parse", "HEAD"]), head, "Checked-out version PR head changed");
   const version = readJson(join(source, "package.json")).version;
   versionParts(version);
+  const recovery = supersession(pull.body);
   run("gh", ["pr", "merge", String(number), "--repo", process.env.GITHUB_REPOSITORY, "--squash",
-    "--match-head-commit", head, "--subject", `chore(release): ${version}`, "--body", sourceMarker(original)],
+    "--match-head-commit", head, "--subject", `chore(release): ${version}`,
+    "--body", `${sourceMarker(original)}${recovery ? `\n\n${supersessionMarker(recovery)}` : ""}`],
   { cwd: source, env: { ...process.env, GH_TOKEN: process.env.RELEASE_GH_TOKEN } });
 }
 
@@ -720,10 +773,36 @@ async function main() {
     source: { type: "string" }, "app-slug": { type: "string" }, pull: { type: "string" }, head: { type: "string" }, cursor: { type: "string" },
     "package-qualified": { type: "boolean", default: false },
     "version-reviewed": { type: "boolean", default: false },
+    "supersede-version": { type: "string" }, "supersede-source": { type: "string" },
+    help: { type: "boolean", short: "h" },
   } });
+  if (values.help) {
+    console.log(`Usage:
+  npm-version.mjs reconcile --source PATH --app-slug APP [--package-qualified] [--version-reviewed]
+    [--supersede-version X.Y.Z --supersede-source FAILED_VERSION_MERGE_SHA]
+  npm-version.mjs wait --pull NUMBER --head SHA --cursor CHECK_ID [--package-qualified] [--version-reviewed]
+  npm-version.mjs merge --source PATH --pull NUMBER --head SHA --cursor CHECK_ID [--package-qualified] [--version-reviewed]
+
+Version automation runs only in GitHub Actions on main. Supersession requires an operator
+workflow_dispatch of the trusted npm-version.yml caller. It opens a new normal version PR
+from fixed main for the latest failed, npm-unpublished automatic version. Existing release
+records are preserved. Omit the recovery inputs to reconcile normally.`);
+    return;
+  }
   assert.equal(process.env.GITHUB_ACTIONS, "true", "Version automation only runs in GitHub Actions");
   assert.equal(process.env.GITHUB_REF, "refs/heads/main", "Version automation only runs from main");
   const repository = process.env.GITHUB_REPOSITORY;
+  let recovery;
+  if (values["supersede-version"] !== undefined || values["supersede-source"] !== undefined) {
+    assert.ok(values["supersede-version"] && values["supersede-source"], "Supersession requires both --supersede-version and --supersede-source");
+    versionParts(values["supersede-version"]);
+    assert.match(values["supersede-source"], /^[a-f0-9]{40}$/, "Supersession requires an exact failed version merge SHA");
+    assert.equal(positionals[0], "reconcile", "Supersession inputs apply only to reconcile");
+    assert.equal(process.env.GITHUB_EVENT_NAME, "workflow_dispatch", "Supersession requires an operator workflow_dispatch");
+    assert.equal(process.env.GITHUB_WORKFLOW_REF, `${repository}/.github/workflows/npm-version.yml@refs/heads/main`,
+      "Supersession requires the trusted npm-version.yml caller on main");
+    recovery = { version: values["supersede-version"], source: values["supersede-source"] };
+  }
   const entry = readJson(new URL("../fleet.json", import.meta.url)).find((item) => `fitchmultz/${item.repo}` === repository);
   assert.ok(entry?.npmRelease === "automatic", "Repository has no automatic npm release channel");
   assert.ok(!entry.versionQualification || values["version-reviewed"],
@@ -731,7 +810,7 @@ async function main() {
   assert.ok(!entry.releaseQualification || values["package-qualified"], `${repository} requires its package-specific release qualification before automatic versioning`);
   if (positionals[0] === "reconcile") {
     assert.ok(values.source && values["app-slug"], "reconcile requires --source and --app-slug");
-    await reconcile(resolve(values.source), entry, repository, values["app-slug"], values["version-reviewed"]);
+    await reconcile(resolve(values.source), entry, repository, values["app-slug"], values["version-reviewed"], recovery);
   } else if (["wait", "merge"].includes(positionals[0])) {
     const number = Number(values.pull);
     assert.ok(Number.isSafeInteger(number) && number > 0 && /^[a-f0-9]{40}$/.test(values.head ?? ""), "wait/merge require --pull and --head");

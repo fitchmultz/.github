@@ -3,8 +3,24 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DefaultResourceLoader, getPackageDir, SettingsManager, VERSION, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { probeModel } from "./probe-model.mjs";
 
 export default function (pi: ExtensionAPI) {
+  pi.registerProvider(probeModel.provider, {
+    baseUrl: "https://unused.invalid",
+    apiKey: "offline-probe-only",
+    api: "openai-completions",
+    models: [{
+      id: probeModel.id,
+      name: "Compatibility observer",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128000,
+      maxTokens: 8192,
+    }],
+    streamSimple() { throw new Error("Compatibility observer must not start a model request"); },
+  });
   pi.registerCommand("compatibility-probe-internal", {
     description: "Record compatibility fixture provenance and shut down the fixture",
     handler: async (_args, ctx) => {
