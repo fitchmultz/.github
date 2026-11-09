@@ -7,6 +7,7 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { probeCli } from "../scripts/cli-probe.mjs";
+import { probeModel } from "../scripts/probe-model.mjs";
 import { codingAgent, isolatedEnvironment, readJson, run, sha256, writeJson } from "../scripts/common.mjs";
 import { hostIdentity, selectDevelopmentHost } from "../scripts/hosts.mjs";
 
@@ -134,15 +135,36 @@ function fixture(t, code, pi = { extensions: ["index.ts"] }) {
 }
 
 test("real bundled CLI reports its exact host and the loaded extension's active tool", (t) => {
-  const { probe } = fixture(t, `import { Type } from "typebox";
+  const { extension, probe } = fixture(t, `import { Type } from "typebox";
 export default function(pi) {
-  pi.registerTool({name:"compatibility_fixture_echo",label:"Echo",description:"Fixture",parameters:Type.Object({}),
-    execute:async()=>({content:[{type:"text",text:"ok"}],details:{}})});
+  pi.registerProvider("fixture-defaults", {
+    baseUrl:"https://unused.invalid", apiKey:"offline-test-only", api:"openai-completions",
+    models:["a","b"].map(id=>({id,name:id,reasoning:false,input:["text"],
+      cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:128000,maxTokens:8192})),
+    streamSimple(){throw new Error("No model requests in this fixture");}
+  });
+  const tool={label:"Echo",description:"Fixture",parameters:Type.Object({}),
+    execute:async()=>({content:[{type:"text",text:"ok"}],details:{}})};
+  pi.registerTool({...tool,name:"compatibility_fixture_echo"});
+  pi.on("session_start",(_event,ctx)=>{
+    if(ctx.model?.id==="a") pi.registerTool({...tool,name:"compatibility_fixture_model_a"});
+  });
 }`);
-  const result = probe();
-  assert.ok(result.tools.some((tool) => tool.name === "compatibility_fixture_echo"));
-  assert.ok(result.activeTools.includes("compatibility_fixture_echo"));
-  assert.equal(result.indexSha256, host.indexSha256);
+  const agentDir = join(extension, "..", "home", ".pi", "agent");
+  mkdirSync(agentDir, { recursive: true });
+  const observations = ["a", "b"].map((id) => {
+    writeJson(join(agentDir, "settings.json"), { defaultProvider: "fixture-defaults", defaultModel: id });
+    return probe();
+  });
+  const names = (observation, key) => observation[key].map((tool) => typeof tool === "string" ? tool : tool.name).sort();
+  assert.deepEqual(names(observations[0], "tools"), names(observations[1], "tools"));
+  assert.deepEqual(names(observations[0], "activeTools"), names(observations[1], "activeTools"));
+  for (const result of observations) {
+    assert.deepEqual(result.selectedModel, probeModel);
+    assert.ok(result.tools.some((tool) => tool.name === "compatibility_fixture_echo"));
+    assert.ok(result.activeTools.includes("compatibility_fixture_echo"));
+    assert.equal(result.indexSha256, host.indexSha256);
+  }
 });
 
 test("a factory load failure cannot receive a green qualification", (t) => {
