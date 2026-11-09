@@ -139,7 +139,7 @@ test("a merged automatic version PR becomes a candidate with its original source
   assert.equal(existsSync(join(f.source, "published")), false);
 });
 
-test("a later main commit cannot take over an unpublished automatic version", async (t) => {
+test("a later main commit cannot take over an unpublished automatic version, but a new Bot version merge can replace it", async (t) => {
   const f = versionCommit(fixture(t));
   f.bumpRef = f.ref;
   writeFileSync(join(f.source, "later-change.txt"), "A later source change\n");
@@ -154,6 +154,30 @@ test("a later main commit cannot take over an unpublished automatic version", as
   const recovery = await invoke(t, f, "plan", { releasePages: [[draft]], args: ["--source-ref", f.ref] });
   assert.equal(recovery.failed, false, recovery.errors);
   assert.deepEqual(recovery.outputs, { release: "false", source: f.ref, version: "4.0.1" });
+  const failed = f.bumpRef;
+  exec("git", ["tag", "-a", "v4.0.1", failed, "-m", "Original candidate"], f.source);
+  const originalTag = exec("git", ["rev-parse", "refs/tags/v4.0.1"], f.source);
+  const fixed = f.ref;
+  const manifest = JSON.parse(readFileSync(join(f.source, "package.json"), "utf8"));
+  manifest.version = "4.0.2";
+  writeJson(join(f.source, "package.json"), manifest);
+  const changelog = join(f.source, "CHANGELOG.md");
+  writeFileSync(changelog, `## 4.0.2\n\nSupersedes unpublished 4.0.1 and includes the corrective source.\n\n${readFileSync(changelog, "utf8")}`);
+  exec("git", ["add", "."], f.source);
+  exec("git", ["commit", "--quiet", "-m", "chore(release): 4.0.2", "-m", `<!-- pi-npm-source: ${fixed} -->`,
+    "-m", `<!-- pi-npm-supersedes: 4.0.1 ${failed} -->`], f.source);
+  f.ref = exec("git", ["rev-parse", "HEAD"], f.source);
+  f.bumpRef = f.ref; f.trigger = fixed; f.version = "4.0.2";
+  writeFileSync(f.output, "");
+  const originalDraft = { tag_name: "v4.0.1", draft: true,
+    body: `<!-- pi-npm-release: ${failed} sha512-saved-candidate -->`,
+    assets: [{ id: 27, name: "original.tgz", digest: "sha256:original" }] };
+  const replacement = await invoke(t, f, "plan", { releasePages: [[originalDraft]], args: ["--source-ref", f.ref] });
+  assert.equal(replacement.failed, false, replacement.errors);
+  assert.deepEqual(replacement.outputs, { release: "true", source: f.ref, version: "4.0.2",
+    "release-source": fixed, "official-version": "9.8.7", "fork-ref": forkRef });
+  assert.equal(exec("git", ["rev-parse", "refs/tags/v4.0.1"], f.source), originalTag);
+  assert.equal(exec("git", ["merge-base", failed, f.ref], f.source), failed);
 });
 
 test("an automatic version's exact reviewed commit can resume its saved draft", async (t) => {

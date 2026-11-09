@@ -133,7 +133,10 @@ globalThis.fetch = async (input, options = {}) => {
   }
   if (/^issues\/\d+\/comments$/.test(path)) return json(data.comments);
   if (/^pulls\/\d+\/reviews$/.test(path)) return json([]);
-  if (path === "releases/generate-notes") return json({ body: "## What's Changed\n\n* Meaningful change" });
+  if (path === "releases/generate-notes") {
+    appendFileSync(process.env.FAKE_GITHUB_LOG, `generate-notes previous=${JSON.parse(options.body).previous_tag_name}\n`);
+    return json({ body: "## What's Changed\n\n* Meaningful change" });
+  }
   if (path === "releases") return json(data.releases);
   if (path === "actions/workflows/npm-release.yml/runs") return json({ workflow_runs: data.runs });
   if (/^actions\/runs\/\d+\/artifacts$/.test(path)) return json({ artifacts: data.artifacts ?? [] });
