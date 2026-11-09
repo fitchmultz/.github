@@ -1,237 +1,15 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
+import { fixture, git, read, write, success, check, failedRelease } from "./fixtures/npm-version-harness.mjs";
 
 const script = fileURLToPath(new URL("../scripts/npm-version.mjs", import.meta.url));
 const remediation = fileURLToPath(new URL("../scripts/npm-remediation.mjs", import.meta.url));
-const api = fileURLToPath(new URL("./fixtures/npm-version-api.mjs", import.meta.url));
-const gh = fileURLToPath(new URL("./fixtures/npm-version-gh.mjs", import.meta.url));
 const repository = "fitchmultz/pi-copy-message";
 const marker = (sha) => `<!-- pi-npm-source: ${sha} -->`;
-
-function command(executable, args, cwd, options = {}) {
-  const result = spawnSync(executable, args, { cwd, encoding: "utf8", ...options });
-  assert.equal(result.status, 0, `${executable} ${args.join(" ")}: ${result.stderr}`);
-  return result.stdout.trim();
-}
-const git = (cwd, ...args) => command("git", args, cwd);
-const read = (path) => JSON.parse(readFileSync(path, "utf8"));
-const write = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
-
-function fixture(t, { unreleased = true, repo = repository, packageName = "pi-copy-message", versionReview = false } = {}) {
-  const root = mkdtempSync("/tmp/npm-version-test-");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const source = join(root, "source");
-  const remote = join(root, "remote.git");
-  const writer = join(root, "writer");
-  const bin = join(root, "bin");
-  const statePath = join(root, "github.json");
-  const log = join(root, "github.log");
-  const output = join(root, "output");
-  mkdirSync(source); mkdirSync(bin);
-  const manifest = { name: packageName, version: "4.0.0", description: "Original description",
-    license: "MIT", author: "Original author", contributors: ["Original contributor"],
-    repository: { type: "git", url: `git+https://github.com/${repo}.git` } };
-  write(join(source, "package.json"), manifest);
-  write(join(source, "package-lock.json"), { name: manifest.name, version: manifest.version, lockfileVersion: 3, requires: true,
-    packages: { "": { name: manifest.name, version: manifest.version } } });
-  writeFileSync(join(source, "CHANGELOG.md"), `# Changes\n\n${unreleased ? "## Unreleased\n\n### Changed\n\nA real pending change.\nA second pending change.\n\n" : ""}## 4.0.0\n\nPrevious release.\n`);
-  if (versionReview) {
-    mkdirSync(join(source, "scripts"), { recursive: true });
-    writeFileSync(join(source, "scripts", "release-review.mjs"), `
-import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-const root = ${JSON.stringify(root)}, remote = ${JSON.stringify(remote)}, phase = process.argv[2];
-const git = (...args) => {
-  const result = spawnSync("git", args, { encoding: "utf8" });
-  if (result.status !== 0) throw new Error(result.stderr);
-  return result.stdout.trim();
-};
-const receipt = process.argv[process.argv.indexOf("--receipt") + 1];
-const baseIndex = process.argv.indexOf("--base");
-appendFileSync(join(root, "review.log"), JSON.stringify({ phase, head: git("rev-parse", "HEAD"),
-  staged: git("diff", "--cached", "--name-only"), base: baseIndex < 0 ? null : process.argv[baseIndex + 1],
-  remote: git("--git-dir", remote, "for-each-ref", "--format=%(objectname)", "refs/heads/npm-version/"),
-  leaked: ["GH_TOKEN", "RELEASE_GH_TOKEN", "CURSOR_API_KEY", "PI_DURABLE_ACCESS_TOKEN"].filter((key) => process.env[key]),
-  zai: process.env.ZAI_API_KEY, automation: process.env.PI_RELEASE_REVIEW_AUTOMATION_VERSIONER }) + "\\n");
-if (existsSync(join(root, \`deny-\${phase}\`))) process.exit(7);
-mkdirSync(dirname(receipt), { recursive: true });
-writeFileSync(receipt, JSON.stringify({ status: "passed" }));
-`);
-  }
-  git(source, "init", "--quiet", "--initial-branch=main");
-  git(source, "config", "user.name", "Release test");
-  git(source, "config", "user.email", "release-test@example.invalid");
-  git(source, "add", "."); git(source, "commit", "--quiet", "-m", "Previously released source");
-  git(source, "tag", "v4.0.0");
-  mkdirSync(join(source, ".github", "workflows"), { recursive: true });
-  writeFileSync(join(source, ".github", "workflows", "npm-version.yml"), "name: npm version\n");
-  writeFileSync(join(source, "integration.txt"), "Release integration\n");
-  git(source, "add", "."); git(source, "commit", "--quiet", "-m", "Initial source");
-  const first = git(source, "rev-parse", "HEAD");
-  git(root, "clone", "--quiet", "--bare", source, remote);
-  git(source, "remote", "add", "origin", remote);
-  git(root, "clone", "--quiet", remote, writer);
-  git(writer, "config", "user.name", "Release test");
-  git(writer, "config", "user.email", "release-test@example.invalid");
-  copyFileSync(gh, join(bin, "gh")); chmodSync(join(bin, "gh"), 0o755);
-  write(statePath, { nextPull: 1, open: [], merged: [], checks: [], threads: [], comments: [], releases: [{ tag_name: "v4.0.0", draft: false }], runs: [],
-    registry: { name: manifest.name, maintainers: [{ name: "fitchmultz" }], "dist-tags": { latest: manifest.version }, versions: { [manifest.version]: manifest } } });
-  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, NODE_OPTIONS: `--import=${api}`,
-    GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main",
-    GITHUB_REPOSITORY: repo, GITHUB_WORKFLOW_REF: `${repo}/.github/workflows/npm-version.yml@refs/heads/main`,
-    GH_TOKEN: "read-fixture", RELEASE_GH_TOKEN: "app-fixture", GITHUB_OUTPUT: output,
-    PI_DURABLE_ORIGIN: "https://durable.example.invalid", PI_DURABLE_ACCESS_TOKEN: "durable-fixture", CURSOR_API_KEY: "cursor-fixture",
-    FAKE_GITHUB_STATE: statePath, FAKE_GITHUB_REMOTE: remote, FAKE_GITHUB_LOG: log, FAKE_FAST_POLL: "1" };
-  if (versionReview) Object.assign(env, { RUNNER_TEMP: root, ZAI_API_KEY: "zai-fixture", PI_RELEASE_REVIEW_SKILL: join(root, "skill.md") });
-  const state = () => read(statePath);
-  const setState = (edit) => { const value = state(); edit(value); write(statePath, value); };
-  const invoke = (args, event = "push", environment = {}) => {
-    writeFileSync(output, "");
-    return spawnSync(process.execPath, [script, ...args], { cwd: root, encoding: "utf8", env: { ...env, GITHUB_EVENT_NAME: event, ...environment } });
-  };
-  const reconcile = (event, extra = []) => invoke(["reconcile", "--source", source, "--app-slug", "pi-durable", ...extra], event);
-  const remediate = (head, executable = remediation, extra = []) => {
-    writeFileSync(output, "");
-    return spawnSync(process.execPath, [executable, "--source", source, "--pull", "1", "--head", head,
-      "--release-source", first, "--app-slug", "pi-durable", ...extra], { cwd: root, encoding: "utf8", env });
-  };
-  const ref = (branch) => git(root, "--git-dir", remote, "rev-parse", `refs/heads/${branch}`);
-  const advance = (text, note) => {
-    writeFileSync(join(writer, "change.txt"), text);
-    if (note) {
-      const path = join(writer, "CHANGELOG.md");
-      writeFileSync(path, readFileSync(path, "utf8").replace("## Unreleased\n", `## Unreleased\n\n${note}\n`));
-    }
-    git(writer, "add", "."); git(writer, "commit", "--quiet", "-m", text); git(writer, "push", "--quiet", "origin", "main");
-    return git(writer, "rev-parse", "HEAD");
-  };
-  return { root, source, remote, writer, state, setState, invoke, reconcile, remediate, ref, advance, output, log, first };
-}
-
-function success(result) { assert.equal(result.status, 0, result.stderr); }
-function check(app, name, head, base, conclusion = "success") {
-  return { id: app === "cursor" ? 200 : app === "pi-durable" ? 100 : 300, app: { slug: app }, name, head_sha: head, status: "completed", conclusion,
-    output: { title: conclusion === "failure" ? "Review completed — 1 finding reported" : "Review completed — no new findings",
-      summary: `**Reviewed pair:** base \`${base}\` → head \`${head}\`` } };
-}
-
-function failedRelease(f, args = [], event = "push") {
-  success(f.reconcile(undefined, args));
-  const branch = `npm-version/${f.first}`;
-  git(f.writer, "fetch", "--quiet", "origin", branch);
-  git(f.writer, "merge", "--squash", "FETCH_HEAD");
-  git(f.writer, "commit", "--quiet", "-m", "chore(release): 4.0.1", "-m", marker(f.first));
-  git(f.writer, "push", "--quiet", "origin", "main");
-  const bump = f.ref("main");
-  git(f.writer, "tag", "-a", "v4.0.1", bump, "-m", "Original candidate");
-  git(f.writer, "push", "--quiet", "origin", "v4.0.1");
-  f.setState((s) => {
-    s.open = []; s.merged.push({ sha: bump, branch });
-    s.runs = [{ id: 99, head_sha: bump, head_branch: "main", event, status: "completed", conclusion: "failure" }];
-    s.artifacts = [{ name: `npm-candidate-${bump}`, expired: false }];
-    s.releases.push({ id: 27, tag_name: "v4.0.1", draft: true,
-      body: `<!-- pi-npm-release: ${bump} sha512-original -->\n${marker(f.first)}`,
-      assets: [{ id: 28, name: "original.tgz", digest: "sha256:original" }] });
-  });
-  return bump;
-}
-
-for (const [event, correctiveNote] of [["push", "- Correct the unpublished release finding."], ["schedule", null]]) test(`an explicit failed unpublished release replacement follows fixed main through the normal version pipeline (${event})`, (t) => {
-  // SDK 0.5.27 failed its post-merge review; the corrective main merge was not an admitted release source.
-  const f = fixture(t, { repo: "fitchmultz/pi-cursor-sdk", packageName: "pi-cursor-sdk", versionReview: true });
-  const args = ["--package-qualified", "--version-reviewed"];
-  const bump = failedRelease(f, args, event);
-  const old = f.state();
-  const oldBranchHead = f.ref(`npm-version/${f.first}`);
-  const oldTag = git(f.root, "--git-dir", f.remote, "rev-parse", "refs/tags/v4.0.1");
-  const oldChangelog = git(f.root, "--git-dir", f.remote, "show", `${bump}:CHANGELOG.md`);
-  const oldSection = oldChangelog.slice(oldChangelog.indexOf("## 4.0.1"), oldChangelog.indexOf("## 4.0.0"));
-  const fixed = f.advance("Remove the helper reported by post-merge review", correctiveNote);
-  success(f.reconcile("push", args));
-  assert.equal(f.state().open.length, 0, "Ordinary main events must still wait for the failed version");
-  // Reserve numbers independently in npm and tags. Recovery must use the same native nextVersion as normal releases.
-  f.setState((s) => { s.registry.versions["4.0.3"] = { ...s.registry.versions["4.0.0"], version: "4.0.3" }; });
-  git(f.writer, "tag", "v4.0.5", fixed); git(f.writer, "push", "--quiet", "origin", "v4.0.5");
-  const recovery = ["--supersede-version", "4.0.1", "--supersede-source", bump];
-  const logOffset = readFileSync(f.log, "utf8").length;
-  success(f.reconcile("workflow_dispatch", [...args, ...recovery]));
-  const pull = f.state().open[0];
-  assert.equal(pull.branch, `npm-version/${fixed}`);
-  assert.match(pull.body, new RegExp(`<!-- pi-npm-supersedes: 4\\.0\\.1 ${bump} -->`));
-  let head = f.ref(pull.branch);
-  assert.equal(JSON.parse(git(f.root, "--git-dir", f.remote, "show", `${head}:package.json`)).version, "4.0.6");
-  assert.equal(git(f.root, "--git-dir", f.remote, "merge-base", fixed, head), fixed);
-  const assertNotes = (laterNote = null) => {
-    const notes = git(f.root, "--git-dir", f.remote, "show", `${head}:CHANGELOG.md`);
-    const oldStart = notes.indexOf("## 4.0.1");
-    const replacement = notes.slice(notes.indexOf("## 4.0.6"), oldStart);
-    const pending = /<!-- npm-release:unreleased:start -->\n([\s\S]*?)<!-- npm-release:unreleased:end -->/.exec(replacement)?.[1].trim();
-    assert.equal(pending, [laterNote, correctiveNote].filter(Boolean).join("\n\n"),
-      "Only current Unreleased notes belong in the mutable pending block");
-    const carried = "### Changed\n\nA real pending change.\nA second pending change.";
-    assert.equal(replacement.split(carried).length, 2, "The replacement must carry the curated block exactly once");
-    assert.ok(replacement.includes(`<!-- npm-release:unreleased:end -->\n\n${carried}\n\n- Supersedes unpublished 4.0.1`),
-      "Curated notes must remain outside the pending block and before generated notes");
-    assert.match(replacement, /Supersedes unpublished 4\.0\.1/);
-    assert.ok(replacement.includes(bump));
-    assert.equal(notes.slice(oldStart, notes.indexOf("## 4.0.0")), oldSection);
-  };
-  assertNotes();
-  // Native source notes span the last published tag, not the failed automatic bump.
-  const generated = readFileSync(f.log, "utf8").slice(logOffset);
-  assert.deepEqual(generated.split("\n").filter((line) => line.startsWith("generate-notes ")), ["generate-notes previous=v4.0.0"]);
-  assert.doesNotMatch(generated, /\/rerun|\/dispatches|DELETE|PATCH/);
-  const later = f.advance("Later fixed-main source", "- Newly merged changelog note.");
-  success(f.reconcile("check_run", args));
-  head = f.ref(pull.branch);
-  assert.equal(f.state().open.length, 1);
-  assert.equal(git(f.root, "--git-dir", f.remote, "merge-base", later, head), later);
-  assertNotes("- Newly merged changelog note.");
-  assert.match(readFileSync(f.output, "utf8"), new RegExp(`pull=${pull.number}\\nhead=${head}\\nsource=${fixed}`));
-  const reviews = readFileSync(join(f.root, "review.log"), "utf8").trim().split("\n").map(JSON.parse);
-  assert.deepEqual(reviews.map(({ phase }) => phase), ["pre-commit", "pre-push", "pre-commit", "pre-push", "pre-commit", "pre-push"]);
-  assert.ok(reviews.every(({ leaked }) => leaked.length === 0));
-  const merge = () => f.invoke(["merge", "--source", f.source, "--pull", String(pull.number), "--head", head, "--cursor", "200", ...args]);
-  let result = merge();
-  assert.notEqual(result.status, 0); assert.match(result.stderr, /checks are not complete|Cursor review changed/);
-  f.setState((s) => {
-    s.checks = [check("pi-durable", "Pi Durable Review", head, later),
-      check("cursor", "Cursor Automation: PR Bug Review - Maintained Repos", head, later),
-      check("github-actions", "compatibility / compatibility", head, later)];
-  });
-  success(merge());
-  assert.match(readFileSync(f.log, "utf8"), new RegExp(`merge [\\s\\S]*pi-npm-supersedes: 4\\.0\\.1 ${bump}`));
-  assert.deepEqual(f.state().releases, old.releases);
-  assert.deepEqual(f.state().runs, old.runs);
-  assert.deepEqual(f.state().artifacts, old.artifacts);
-  assert.equal(git(f.root, "--git-dir", f.remote, "rev-parse", "refs/tags/v4.0.1"), oldTag);
-  assert.equal(f.ref(`npm-version/${f.first}`), oldBranchHead);
-  // Complete the replacement's real Git history; the gh boundary above only records the admitted merge command.
-  git(f.writer, "fetch", "--quiet", "origin", pull.branch);
-  git(f.writer, "merge", "--squash", "FETCH_HEAD");
-  git(f.writer, "commit", "--quiet", "-m", "chore(release): 4.0.6", "-m", marker(fixed),
-    "-m", `<!-- pi-npm-supersedes: 4.0.1 ${bump} -->`);
-  git(f.writer, "push", "--quiet", "origin", "main");
-  const replacement = f.ref("main");
-  git(f.writer, "tag", "v4.0.6", replacement); git(f.writer, "push", "--quiet", "origin", "v4.0.6");
-  f.setState((s) => {
-    s.open = []; s.merged.push({ sha: replacement, branch: pull.branch });
-    s.registry.versions["4.0.6"] = { ...s.registry.versions["4.0.0"], version: "4.0.6", dist: { integrity: "sha512-fixed" } };
-    s.registry["dist-tags"].latest = "4.0.6";
-    s.releases.push({ tag_name: "v4.0.6", draft: false,
-      body: `<!-- pi-npm-release: ${replacement} sha512-fixed -->\n${marker(fixed)}` });
-  });
-  const queued = f.advance("Next ordinary queued source");
-  success(f.reconcile("push", args));
-  assert.equal(f.state().open[0].branch, `npm-version/${queued}`);
-  assert.equal(JSON.parse(git(f.root, "--git-dir", f.remote, "show", `${f.ref(`npm-version/${queued}`)}:package.json`)).version, "4.0.7");
-  assert.deepEqual(f.state().releases.slice(0, old.releases.length), old.releases);
-});
 
 test("supersession rejects the wrong target, published bytes, and a release run that did not fail on main", async (t) => {
   const f = fixture(t);
@@ -339,11 +117,14 @@ test("version PR follows advancing main, and the next one starts after the commi
   git(f.writer, "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
   git(f.writer, "switch", "--quiet", "main");
   success(f.reconcile());
+  writeFileSync(changelog, readFileSync(changelog, "utf8").replace("A second pending change.", "A second pending change.\n\n- Appended ordinary note."));
   const third = f.advance("Third main merge", "- Newly merged changelog note.");
   success(f.reconcile());
   head = f.ref(branch);
   assert.equal(git(f.root, "--git-dir", f.remote, "merge-base", third, head), third);
   const mergedNotes = git(f.root, "--git-dir", f.remote, "show", `${head}:CHANGELOG.md`);
+  assert.equal(/<!-- npm-release:unreleased:start -->\n([\s\S]*?)\n<!-- npm-release:unreleased:end -->/.exec(mergedNotes)?.[1],
+    "- Newly merged changelog note.\n\n### Changed\n\nA real pending change.\nA second pending change.\n\n- Appended ordinary note.");
   assert.match(mergedNotes, /## Unreleased\s+## 4\.0\.1[\s\S]*Newly merged changelog note\.[\s\S]*reviewed correction/);
   assert.match(git(f.root, "--git-dir", f.remote, "show", "-s", "--format=%B", head), new RegExp(marker(f.first)));
 

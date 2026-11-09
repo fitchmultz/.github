@@ -11,6 +11,8 @@ const stable = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
 const branchFor = (source) => `npm-version/${source}`;
 const pendingStart = "<!-- npm-release:unreleased:start -->";
 const pendingEnd = "<!-- npm-release:unreleased:end -->";
+const carriedStart = "<!-- npm-release:carried:start -->";
+const carriedEnd = "<!-- npm-release:carried:end -->";
 const supersessionMarker = ({ version, source }) => `<!-- pi-npm-supersedes: ${version} ${source} -->`;
 
 function supersession(text) {
@@ -37,9 +39,11 @@ function versionChangelog(changelog, version, generated, date, supersededVersion
   if (supersededVersion) {
     const section = changelogSection(changelog, versionHeadingPattern(supersededVersion));
     assert.ok(section, "The superseded version changelog section is missing");
-    carried = pendingNotes(section.body).body;
+    const previous = section.body.includes(carriedStart) || section.body.includes(carriedEnd)
+      ? noteBlock(section.body, carriedStart, carriedEnd).body : "";
+    carried = [previous, noteBlock(section.body).body].filter(Boolean).join("\n\n");
   }
-  const releaseNotes = [carried, notes].filter(Boolean).join("\n\n");
+  const releaseNotes = [carried ? `${carriedStart}\n${carried}\n${carriedEnd}` : "", notes].filter(Boolean).join("\n\n");
   const unreleased = /^##[ \t]+\[?Unreleased\]?(?:[ \t].*)?\r?$/im.exec(changelog);
   if (unreleased) {
     const start = unreleased.index + unreleased[0].length;
@@ -169,12 +173,12 @@ function versionHeadingPattern(version) {
   return new RegExp(`^##[ \\t]+\\[?v?${version.replaceAll(".", "\\.")}\\]?(?:[ \\t].*)?\\r?$`, "gm");
 }
 
-function pendingNotes(release) {
-  const start = release.indexOf(pendingStart);
-  const end = release.indexOf(pendingEnd);
-  assert.ok(start >= 0 && end > start && release.indexOf(pendingStart, start + pendingStart.length) < 0
-    && release.indexOf(pendingEnd, end + pendingEnd.length) < 0, "The reviewed version's Unreleased markers are missing or ambiguous");
-  return { start, end, body: release.slice(start + pendingStart.length, end).trim() };
+function noteBlock(release, startMarker = pendingStart, endMarker = pendingEnd) {
+  const start = release.indexOf(startMarker);
+  const end = release.indexOf(endMarker);
+  assert.ok(start >= 0 && end > start && release.indexOf(startMarker, start + startMarker.length) < 0
+    && release.indexOf(endMarker, end + endMarker.length) < 0, "The reviewed version's note markers are missing or ambiguous");
+  return { start, end, body: release.slice(start + startMarker.length, end).trim() };
 }
 
 function mergeLines(source, env, root, name, base, ours, theirs) {
@@ -206,16 +210,15 @@ function mergeLines(source, env, root, name, base, ours, theirs) {
   return decoded.join("\n");
 }
 
-function resolveChangelog(source, version, scopedGit, env, root) {
+function resolveChangelog(source, version, scopedGit, env, root, [base, ours, theirs]) {
   const unreleased = /^##[ \t]+\[?Unreleased\]?(?:[ \t].*)?\r?$/gim;
   const versionHeading = versionHeadingPattern(version);
-  const [base, ours, theirs] = [1, 2, 3].map((stage) => scopedGit(["show", `:${stage}:CHANGELOG.md`]));
   const sections = [base, ours, theirs].map((text) => changelogSection(text, unreleased));
   const versionSection = changelogSection(ours, versionHeading);
   assert.ok(versionSection, "The reviewed version changelog section is missing");
   assert.ok(!versionHeading.test(base) && !versionHeading.test(theirs), "Concurrent version headings require review");
   const release = ours.slice(versionSection.start, versionSection.end).trimEnd();
-  const { start, end, body: reviewedPending } = pendingNotes(release);
+  const { start, end, body: reviewedPending } = noteBlock(release);
   const incoming = mergeLines(source, env, root, "Unreleased", sections[0]?.body ?? "", reviewedPending, sections[2]?.body ?? "");
   const pending = [incoming, sections[1]?.body].filter(Boolean).join("\n\n");
   const reviewedRelease = `${release.slice(0, start + pendingStart.length)}\n${pending ? `${pending}\n` : ""}${release.slice(end)}`;
@@ -504,18 +507,20 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
       review?.("pre-push", main);
       scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
     } else if (!isAncestor(source, main, "HEAD")) {
+      const changelogs = [scopedGit(["merge-base", "HEAD", main]), "HEAD", main]
+        .map((ref) => scopedGit(["show", `${ref}:CHANGELOG.md`]));
       const merged = spawnSync("git", ["merge", "--no-commit", "--no-ff", main], { cwd: source, env, encoding: "utf8" });
       if (merged.error) throw merged.error;
       let conflicts = scopedGit(["diff", "--name-only", "--diff-filter=U"]).split("\n").filter(Boolean);
       let resolved = false;
-      if (conflicts.length && conflicts.every((file) => ["CHANGELOG.md", "package.json", "package-lock.json"].includes(file))) {
+      if ((merged.status === 0 || conflicts.length) && conflicts.every((file) => ["CHANGELOG.md", "package.json", "package-lock.json"].includes(file))) {
         try {
           if (conflicts.some((file) => file === "package.json" || file === "package-lock.json")) {
             resolveVersionFiles(source, main, conflicts, scopedGit, env, root);
           }
-          if (conflicts.includes("CHANGELOG.md")) resolveChangelog(source, readJson(join(source, "package.json")).version, scopedGit, env, root);
+          resolveChangelog(source, readJson(join(source, "package.json")).version, scopedGit, env, root, changelogs);
+          resolved = conflicts.length > 0;
           conflicts = scopedGit(["diff", "--name-only", "--diff-filter=U"]).split("\n").filter(Boolean);
-          resolved = true;
         } catch (error) {
           scopedGit(["merge", "--abort"]);
           throw error;
