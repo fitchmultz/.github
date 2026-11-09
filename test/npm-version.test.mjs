@@ -166,13 +166,17 @@ for (const [event, correctiveNote] of [["push", "- Correct the unpublished relea
   let head = f.ref(pull.branch);
   assert.equal(JSON.parse(git(f.root, "--git-dir", f.remote, "show", `${head}:package.json`)).version, "4.0.6");
   assert.equal(git(f.root, "--git-dir", f.remote, "merge-base", fixed, head), fixed);
-  const assertNotes = () => {
+  const assertNotes = (laterNote = null) => {
     const notes = git(f.root, "--git-dir", f.remote, "show", `${head}:CHANGELOG.md`);
     const oldStart = notes.indexOf("## 4.0.1");
     const replacement = notes.slice(notes.indexOf("## 4.0.6"), oldStart);
-    const pending = /<!-- npm-release:unreleased:start -->\n([\s\S]*?)\n<!-- npm-release:unreleased:end -->/.exec(replacement)?.[1];
-    assert.equal(pending, ["### Changed\n\nA real pending change.\nA second pending change.", correctiveNote].filter(Boolean).join("\n\n"),
-      "Replacement pending block must carry the unpublished curated notes and current Unreleased notes");
+    const pending = /<!-- npm-release:unreleased:start -->\n([\s\S]*?)<!-- npm-release:unreleased:end -->/.exec(replacement)?.[1].trim();
+    assert.equal(pending, [laterNote, correctiveNote].filter(Boolean).join("\n\n"),
+      "Only current Unreleased notes belong in the mutable pending block");
+    const carried = "### Changed\n\nA real pending change.\nA second pending change.";
+    assert.equal(replacement.split(carried).length, 2, "The replacement must carry the curated block exactly once");
+    assert.ok(replacement.includes(`<!-- npm-release:unreleased:end -->\n\n${carried}\n\n- Supersedes unpublished 4.0.1`),
+      "Curated notes must remain outside the pending block and before generated notes");
     assert.match(replacement, /Supersedes unpublished 4\.0\.1/);
     assert.ok(replacement.includes(bump));
     assert.equal(notes.slice(oldStart, notes.indexOf("## 4.0.0")), oldSection);
@@ -182,12 +186,12 @@ for (const [event, correctiveNote] of [["push", "- Correct the unpublished relea
   const generated = readFileSync(f.log, "utf8").slice(logOffset);
   assert.deepEqual(generated.split("\n").filter((line) => line.startsWith("generate-notes ")), ["generate-notes previous=v4.0.0"]);
   assert.doesNotMatch(generated, /\/rerun|\/dispatches|DELETE|PATCH/);
-  const later = f.advance("Later fixed-main source");
+  const later = f.advance("Later fixed-main source", "- Newly merged changelog note.");
   success(f.reconcile("check_run", args));
   head = f.ref(pull.branch);
   assert.equal(f.state().open.length, 1);
   assert.equal(git(f.root, "--git-dir", f.remote, "merge-base", later, head), later);
-  assertNotes();
+  assertNotes("- Newly merged changelog note.");
   assert.match(readFileSync(f.output, "utf8"), new RegExp(`pull=${pull.number}\\nhead=${head}\\nsource=${fixed}`));
   const reviews = readFileSync(join(f.root, "review.log"), "utf8").trim().split("\n").map(JSON.parse);
   assert.deepEqual(reviews.map(({ phase }) => phase), ["pre-commit", "pre-push", "pre-commit", "pre-push", "pre-commit", "pre-push"]);

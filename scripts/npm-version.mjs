@@ -39,19 +39,20 @@ function versionChangelog(changelog, version, generated, date, supersededVersion
     assert.ok(section, "The superseded version changelog section is missing");
     carried = pendingNotes(section.body).body;
   }
+  const releaseNotes = [carried, notes].filter(Boolean).join("\n\n");
   const unreleased = /^##[ \t]+\[?Unreleased\]?(?:[ \t].*)?\r?$/im.exec(changelog);
   if (unreleased) {
     const start = unreleased.index + unreleased[0].length;
     const next = /^##[ \t]+/m.exec(changelog.slice(start));
     const end = next ? start + next.index : changelog.length;
-    const pending = [carried, changelog.slice(start, end).trim()].filter(Boolean).join("\n\n");
-    const body = `${pendingStart}\n${pending ? `${pending}\n` : ""}${pendingEnd}\n\n${notes}`;
+    const pending = changelog.slice(start, end).trim();
+    const body = `${pendingStart}\n${pending ? `${pending}\n` : ""}${pendingEnd}\n\n${releaseNotes}`;
     return `${changelog.slice(0, start)}\n\n## ${version} - ${date}\n\n${body}\n\n${changelog.slice(end)}`;
   }
   const heading = /^##[ \t]+/m.exec(changelog);
   const position = heading?.index ?? changelog.length;
   const prefix = changelog.slice(0, position).trimEnd();
-  return `${prefix}\n\n## ${version} - ${date}\n\n${pendingStart}\n${carried ? `${carried}\n` : ""}${pendingEnd}\n\n${notes}\n\n${changelog.slice(position)}`;
+  return `${prefix}\n\n## ${version} - ${date}\n\n${pendingStart}\n${pendingEnd}\n\n${releaseNotes}\n\n${changelog.slice(position)}`;
 }
 
 function setVersion(source, version) {
