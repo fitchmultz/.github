@@ -94,10 +94,10 @@ writeFileSync(receipt, JSON.stringify({ status: "passed" }));
     return spawnSync(process.execPath, [script, ...args], { cwd: root, encoding: "utf8", env: { ...env, GITHUB_EVENT_NAME: event, ...environment } });
   };
   const reconcile = (event, extra = []) => invoke(["reconcile", "--source", source, "--app-slug", "pi-durable", ...extra], event);
-  const remediate = (head, executable = remediation, extra = []) => {
+  const remediate = (head, executable = remediation, extra = [], environment = {}) => {
     writeFileSync(output, "");
     return spawnSync(process.execPath, [executable, "--source", source, "--pull", "1", "--head", head,
-      "--release-source", first, "--app-slug", "pi-durable", ...extra], { cwd: root, encoding: "utf8", env });
+      "--release-source", first, "--app-slug", "pi-durable", ...extra], { cwd: root, encoding: "utf8", env: { ...env, ...environment } });
   };
   const ref = (branch) => git(root, "--git-dir", remote, "rev-parse", `refs/heads/${branch}`);
   const advance = (text, note) => {

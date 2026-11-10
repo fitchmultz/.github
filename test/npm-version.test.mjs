@@ -11,6 +11,13 @@ const remediation = fileURLToPath(new URL("../scripts/npm-remediation.mjs", impo
 const repository = "fitchmultz/pi-copy-message";
 const marker = (sha) => `<!-- pi-npm-source: ${sha} -->`;
 
+function rawChangelog(f, head) {
+  const result = spawnSync("git", ["--git-dir", f.remote, "show", `${head}:CHANGELOG.md`], { encoding: "utf8" });
+  success(result);
+  assert.ok(result.stdout.endsWith("\n"), "Reconciled changelog must retain its final LF");
+  return result.stdout;
+}
+
 test("supersession rejects the wrong target, published bytes, and a release run that did not fail on main", async (t) => {
   const f = fixture(t);
   const bump = failedRelease(f);
@@ -105,6 +112,7 @@ test("version PR follows advancing main, and the next one starts after the commi
   const branch = `npm-version/${f.first}`;
   assert.equal(f.state().open[0].branch, branch);
   let head = f.ref(branch);
+  rawChangelog(f, head);
   assert.equal(git(f.root, "--git-dir", f.remote, "merge-base", second, head), second);
   assert.equal(JSON.parse(git(f.root, "--git-dir", f.remote, "show", `${head}:package.json`)).version, "4.0.1");
   assert.equal(JSON.parse(git(f.root, "--git-dir", f.remote, "show", `${head}:package-lock.json`)).packages[""].version, "4.0.1");
@@ -122,7 +130,7 @@ test("version PR follows advancing main, and the next one starts after the commi
   success(f.reconcile());
   head = f.ref(branch);
   assert.equal(git(f.root, "--git-dir", f.remote, "merge-base", third, head), third);
-  const mergedNotes = git(f.root, "--git-dir", f.remote, "show", `${head}:CHANGELOG.md`);
+  const mergedNotes = rawChangelog(f, head);
   assert.equal(/<!-- npm-release:unreleased:start -->\n([\s\S]*?)\n<!-- npm-release:unreleased:end -->/.exec(mergedNotes)?.[1],
     "- Newly merged changelog note.\n\n### Changed\n\nA real pending change.\nA second pending change.\n\n- Appended ordinary note.");
   assert.match(mergedNotes, /## Unreleased\s+## 4\.0\.1[\s\S]*Newly merged changelog note\.[\s\S]*reviewed correction/);
@@ -309,7 +317,7 @@ test("main may insert or revise unreleased notes without losing reviewed version
     git(f.writer, "add", "CHANGELOG.md"); git(f.writer, "commit", "--quiet", "-m", "Update unreleased notes");
     git(f.writer, "push", "--quiet", "origin", "main");
     success(f.reconcile());
-    const notes = git(f.root, "--git-dir", f.remote, "show", `${f.ref(branch)}:CHANGELOG.md`);
+    const notes = rawChangelog(f, f.ref(branch));
     assert.match(notes, /## Unreleased\s+## 4\.0\.1/);
     const released = notes.slice(notes.indexOf("## 4.0.1"));
     assert.ok(released.includes(expected), "Incoming note must be preserved verbatim");
@@ -695,6 +703,7 @@ test("Cursor version automation reviews the actual staged tree and outgoing comm
   assert.equal(records[3].remote, firstHead);
   assert.equal(records[3].head, f.ref(branch));
   assert.notEqual(records[3].head, firstHead);
+  rawChangelog(f, records[3].head);
 
   const updated = f.ref(branch);
   f.setState((state) => {
