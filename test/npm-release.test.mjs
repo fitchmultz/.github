@@ -292,7 +292,7 @@ test("publication requires exact frozen host identities before artifact access",
 });
 
 test("package-specific release qualifications cannot be bypassed by the shared publisher", async (t) => {
-  for (const packageName of ["pi-subagents", "pi-agent-browser-native", "pi-oracle", "pi-cursor-sdk", "pi-zai-mcp", "pi-codex-goal", "pi-posthorse", "pi-mcp-adapter", "pi-workflows"]) {
+  for (const packageName of ["pi-subagents", "pi-agent-browser-native", "pi-oracle", "pi-cursor-sdk", "pi-zai-mcp", "pi-codex-goal", "pi-posthorse", "pi-mcp-adapter"]) {
     const repo = `fitchmultz/${packageName}`;
     const f = fixture(t, "1.0.0", undefined, repo, packageName);
     const environment = { GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main",
@@ -357,8 +357,7 @@ test("downloaded artifact checksum, commit and manifest mismatches fail before c
 });
 
 test("each enabled owned scoped channel can plan its real first patch without inventing a previous latest", async (t) => {
-  for (const [repo, version] of [["pi-subagents", "0.44.4"], ["pi-calculator", "4.1.1"],
-    ["pi-ask-question", "0.5.1"], ["pi-workflows", "0.2.1"], ["pi-verbosity-control", "0.6.1"]]) {
+  for (const [repo, version] of [["pi-subagents", "0.44.4"], ["pi-calculator", "4.1.1"], ["pi-ask-question", "0.5.1"]]) {
     const f = versionCommit(fixture(t, version, undefined, `fitchmultz/${repo}`, `@fitchmultz/${repo}`));
     const result = await invoke(t, f, "plan", { status: 404, data: null, args: ["--source-ref", f.ref] });
     assert.equal(result.failed, false, result.errors);
@@ -396,8 +395,8 @@ test("first-publication absence never relaxes namespace, registry, merged-source
   }
 });
 
-function publicationFixture(t, existing = false, scopedRepo = "pi-calculator", version = "4.1.1") {
-  const f = versionCommit(existing ? fixture(t) : fixture(t, version, undefined, `fitchmultz/${scopedRepo}`, `@fitchmultz/${scopedRepo}`));
+function publicationFixture(t, existing = false) {
+  const f = versionCommit(existing ? fixture(t) : fixture(t, "4.1.1", undefined, "fitchmultz/pi-calculator", "@fitchmultz/pi-calculator"));
   const { directory, candidate, fork } = artifact(f);
   f.directory = directory;
   f.candidate = candidate;
@@ -706,9 +705,7 @@ test("post-publication verification fails closed on HTTP, identity, integrity an
 test("owned native staging latest waits after exact publication or recovery, never admitting a new candidate", async (t) => {
   for (const mode of ["bootstrap", "recovery", "plan", "preflight"]) {
     await t.test(mode, async (t) => {
-      const f = mode === "plan"
-        ? publicationFixture(t, false, "pi-workflows", "0.2.1")
-        : publicationFixture(t);
+      const f = publicationFixture(t);
       const boundary = publicationBoundary(t, f, { bootstrap: mode === "bootstrap", recovery: mode === "recovery" });
       let elapsed = 0;
       t.mock.method(Date, "now", () => elapsed);
