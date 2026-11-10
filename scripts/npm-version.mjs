@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { isolatedEnvironment, readJson, run, stageSource } from "./common.mjs";
 import { identity, markedSource, newer, registry, sourceMarker, versionParts } from "./npm-release-core.mjs";
+import { releaseFetch } from "./release-fetch.mjs";
 
 const stable = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
 const branchFor = (source) => `npm-version/${source}`;
@@ -243,7 +244,8 @@ function resolveChangelog(source, version, scopedGit, env, root, [base, ours, th
   assert.equal(merged.stdout.split(anchor).length, 2, "Merged changelog lost its release position");
   const heading = sections[2]?.heading ?? sections[1]?.heading;
   const insertion = [heading, reviewedRelease].filter(Boolean).join("\n\n");
-  writeFileSync(join(source, "CHANGELOG.md"), merged.stdout.replace(anchor, () => insertion));
+  const changelog = merged.stdout.replace(anchor, () => insertion);
+  writeFileSync(join(source, "CHANGELOG.md"), changelog.endsWith("\n") ? changelog : `${changelog}\n`);
   scopedGit(["add", "CHANGELOG.md"]);
 }
 
@@ -285,10 +287,10 @@ export async function request(path, { method = "GET", body, token = process.env.
   let url = path.startsWith("https://") ? path : `https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/${path}`;
   const pages = [];
   do {
-    const response = await fetch(url, { method, headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`,
+    const response = await releaseFetch("GitHub", url, { method, headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`,
       "X-GitHub-Api-Version": "2022-11-28", ...(body ? { "Content-Type": "application/json" } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}) });
-    assert.ok(response.ok, `GitHub ${method} ${path}: HTTP ${response.status}`);
+    assert.ok(response.ok, `GitHub ${method} ${new URL(url).origin}${new URL(url).pathname}: HTTP ${response.status}`);
     const text = await response.text();
     if (text) pages.push(JSON.parse(text));
     url = paginate ? /<([^>]+)>;\s*rel="next"/.exec(response.headers.get("link") ?? "")?.[1] : undefined;
@@ -297,7 +299,7 @@ export async function request(path, { method = "GET", body, token = process.env.
 }
 
 async function npmMetadata(entry, repository) {
-  const response = await fetch(`${registry}${encodeURIComponent(entry.npmPackage)}`);
+  const response = await releaseFetch("npm", `${registry}${encodeURIComponent(entry.npmPackage)}`);
   assert.ok(response.ok, `Owned npm package metadata: HTTP ${response.status}`);
   const data = await response.json();
   assert.equal(data.name, entry.npmPackage);
@@ -822,5 +824,5 @@ records are preserved. Omit the recovery inputs to reconcile normally.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  main().catch((error) => { console.error(error.stack ?? String(error)); process.exitCode = 1; });
+  main().catch((error) => { console.error(error); process.exitCode = 1; });
 }
