@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
@@ -31,7 +32,10 @@ for (const [event, correctiveNote] of [["push", "- Correct the unpublished relea
   assert.equal(JSON.parse(git(f.root, "--git-dir", f.remote, "show", `${head}:package.json`)).version, "4.0.6");
   assert.equal(git(f.root, "--git-dir", f.remote, "merge-base", fixed, head), fixed);
   const assertNotes = (laterNote = null) => {
-    const notes = git(f.root, "--git-dir", f.remote, "show", `${head}:CHANGELOG.md`);
+    const blob = spawnSync("git", ["--git-dir", f.remote, "show", `${head}:CHANGELOG.md`], { encoding: "utf8" });
+    success(blob);
+    const notes = blob.stdout;
+    assert.ok(notes.endsWith("\n"), "Recovery changelog must retain its final LF");
     const oldStart = notes.indexOf("## 4.0.1");
     const replacement = notes.slice(notes.indexOf("## 4.0.6"), oldStart);
     const pending = /<!-- npm-release:unreleased:start -->\n([\s\S]*?)<!-- npm-release:unreleased:end -->/.exec(replacement)?.[1].trim();

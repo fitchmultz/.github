@@ -8,6 +8,7 @@ import { readJson, run } from "./common.mjs";
 import { markedSource } from "./npm-release-core.mjs";
 import { remediationPrompt } from "./npm-remediation-prompt.mjs";
 import { checkRuns, cursorRecheck, findingCheck, request, reviewThreads, unreportedCursor } from "./npm-version.mjs";
+import { releaseFetch } from "./release-fetch.mjs";
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const token = () => process.env.GH_TOKEN;
@@ -24,16 +25,18 @@ function uuid(value) {
 }
 
 async function durable(path, { method = "GET", body, raw, missing = false } = {}) {
+  assert.ok(URL.canParse(process.env.PI_DURABLE_ORIGIN), "Pi Durable installation origin is invalid");
   const origin = new URL(process.env.PI_DURABLE_ORIGIN);
   assert.equal(origin.protocol, "https:", "Pi Durable requires an HTTPS installation origin");
   assert.ok(process.env.PI_DURABLE_ACCESS_TOKEN, "Pi Durable owner token is missing");
-  const response = await fetch(new URL(path, origin), { method, headers: {
+  const url = new URL(path, origin);
+  const response = await releaseFetch("Pi Durable", url, { method, headers: {
     Authorization: `Bearer ${process.env.PI_DURABLE_ACCESS_TOKEN}`,
     ...(raw ? { "Content-Type": "application/octet-stream", "Content-Length": String(raw.length) }
       : body ? { "Content-Type": "application/json" } : {}),
   }, ...(raw ? { body: raw } : body ? { body: JSON.stringify(body) } : {}) });
   if (missing && response.status === 404) return null;
-  assert.ok(response.ok, `Pi Durable ${method} ${path}: HTTP ${response.status}`);
+  assert.ok(response.ok, `Pi Durable ${method} ${url.origin}${url.pathname}: HTTP ${response.status}`);
   return response.json();
 }
 
@@ -171,8 +174,9 @@ async function cursorReports(check, cache) {
   const match = /^\/agents\/(bc-[a-f0-9-]+)$/.exec(url.pathname);
   assert.ok(url.origin === "https://cursor.com" && match, "Cursor check does not identify its agent");
   const get = async (path) => {
-    const response = await fetch(`https://api.cursor.com/v1${path}`, { headers: { Authorization: `Bearer ${process.env.CURSOR_API_KEY}` } });
-    assert.ok(response.ok, `Cursor ${path}: HTTP ${response.status}`);
+    const url = new URL(`https://api.cursor.com/v1${path}`);
+    const response = await releaseFetch("Cursor", url, { headers: { Authorization: `Bearer ${process.env.CURSOR_API_KEY}` } });
+    assert.ok(response.ok, `Cursor GET ${url.origin}${url.pathname}: HTTP ${response.status}`);
     return response.json();
   };
   const agent = await get(`/agents/${match[1]}`);
@@ -202,6 +206,7 @@ async function cursorReports(check, cache) {
 
 async function recoverIncompleteReview(repository, number, pull, check) {
   const url = new URL(check.details_url);
+  assert.ok(URL.canParse(process.env.PI_DURABLE_ORIGIN), "Pi Durable installation origin is invalid");
   assert.equal(url.origin, new URL(process.env.PI_DURABLE_ORIGIN).origin, "Pi review points to another installation");
   const delivery = url.hash.slice(1);
   assert.match(delivery, /^[a-f0-9-]{36}$/, "Pi review has no delivery identity");
@@ -394,5 +399,5 @@ async function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  main().catch((error) => { console.error(error.stack ?? String(error)); process.exitCode = 1; });
+  main().catch((error) => { console.error(error); process.exitCode = 1; });
 }
