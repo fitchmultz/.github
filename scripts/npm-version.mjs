@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { isolatedEnvironment, readJson, run, stageSource } from "./common.mjs";
 import { prepareHost } from "./hosts.mjs";
-import { buildPackage, packageDifference, packPackage, publishedTarball } from "./npm-package.mjs";
+import { buildPackage, changelogFragment, packageDifference, packPackage, publishedTarball } from "./npm-package.mjs";
 import { identity, markedSource, newer, registry, sourceMarker, versionParts } from "./npm-release-core.mjs";
 import { releaseFetch } from "./release-fetch.mjs";
 
@@ -41,7 +41,33 @@ function nestNotes(generated) {
   return notes;
 }
 
-function versionChangelog(changelog, version, generated, date, supersededVersion) {
+function sortPaths(paths) {
+  return [...paths].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+}
+
+function treeFragments(source, ref) {
+  const listed = spawnSync("git", ["ls-tree", "-z", ref, "--", "changelog.d/"], { cwd: source, encoding: "utf8" });
+  if (listed.error) throw listed.error;
+  assert.equal(listed.status, 0, `Could not inspect changelog.d at ${ref}`);
+  const paths = sortPaths(listed.stdout.split("\0").filter(Boolean).flatMap((entry) => {
+    const tab = entry.indexOf("\t");
+    if (tab < 0) return [];
+    const [mode, type] = entry.slice(0, tab).split(" ");
+    const path = entry.slice(tab + 1);
+    return type === "blob" && mode !== "120000" && changelogFragment(path) ? [path] : [];
+  }));
+  const notes = paths.map((path) => git(source, ["show", `${ref}:${path}`])).filter(Boolean);
+  return { paths, notes };
+}
+
+function indexedFragments(source, env) {
+  const listed = spawnSync("git", ["ls-files", "-z", "--", "changelog.d/"], { cwd: source, env, encoding: "utf8" });
+  if (listed.error) throw listed.error;
+  assert.equal(listed.status, 0, "Could not inspect staged changelog.d entries");
+  return sortPaths([...new Set(listed.stdout.split("\0").filter(changelogFragment))]);
+}
+
+function versionChangelog(changelog, version, generated, date, supersededVersion, fragmentNotes = []) {
   versionParts(version);
   const notes = nestNotes(generated);
   let carried = "";
@@ -58,14 +84,15 @@ function versionChangelog(changelog, version, generated, date, supersededVersion
     const start = unreleased.index + unreleased[0].length;
     const next = /^##[ \t]+/m.exec(changelog.slice(start));
     const end = next ? start + next.index : changelog.length;
-    const pending = changelog.slice(start, end).trim();
+    const pending = [changelog.slice(start, end).trim(), ...fragmentNotes].filter(Boolean).join("\n\n");
     const body = `${pendingStart}\n${pending ? `${pending}\n` : ""}${pendingEnd}\n\n${releaseNotes}`;
     return `${changelog.slice(0, start)}\n\n## ${version} - ${date}\n\n${body}\n\n${changelog.slice(end)}`;
   }
+  const pending = fragmentNotes.filter(Boolean).join("\n\n");
   const heading = /^##[ \t]+/m.exec(changelog);
   const position = heading?.index ?? changelog.length;
   const prefix = changelog.slice(0, position).trimEnd();
-  return `${prefix}\n\n## ${version} - ${date}\n\n${pendingStart}\n${pendingEnd}\n\n${releaseNotes}\n\n${changelog.slice(position)}`;
+  return `${prefix}\n\n## ${version} - ${date}\n\n${pendingStart}\n${pending ? `${pending}\n` : ""}${pendingEnd}\n\n${releaseNotes}\n\n${changelog.slice(position)}`;
 }
 
 function setVersion(source, version) {
@@ -83,10 +110,10 @@ function setVersion(source, version) {
   }
 }
 
-function stageVersion(source, version, notes, date, supersededVersion) {
+function stageVersion(source, version, notes, date, supersededVersion, fragmentNotes = []) {
   setVersion(source, version);
   const path = join(source, "CHANGELOG.md");
-  writeFileSync(path, versionChangelog(readFileSync(path, "utf8"), version, notes, date, supersededVersion));
+  writeFileSync(path, versionChangelog(readFileSync(path, "utf8"), version, notes, date, supersededVersion, fragmentNotes));
 }
 
 function formatVersion(source) {
@@ -152,7 +179,7 @@ function isAncestor(source, ancestor, descendant) {
 // True when two commits differ only in the version metadata a version PR writes, so a release would change nothing.
 function versionOnly(source, from, to) {
   return git(source, ["diff", "--name-only", from, to]).split("\n").filter(Boolean).every((file) => {
-    if (file === "CHANGELOG.md") return true;
+    if (file === "CHANGELOG.md" || changelogFragment(file)) return true;
     if (file !== "package.json" && file !== "package-lock.json") return false;
     const unversioned = (commit) => {
       const exists = spawnSync("git", ["cat-file", "-e", `${commit}:${file}`], { cwd: source, stdio: "ignore" });
@@ -256,7 +283,7 @@ function mergeLines(source, env, root, name, base, ours, theirs) {
   return decoded.join("\n");
 }
 
-function resolveChangelog(source, version, scopedGit, env, root, [base, ours, theirs]) {
+function resolveChangelog(source, version, scopedGit, env, root, [base, ours, theirs], fragments = [{ notes: [] }, { notes: [] }, { notes: [] }]) {
   const unreleased = /^##[ \t]+\[?Unreleased\]?(?:[ \t].*)?\r?$/gim;
   const versionHeading = versionHeadingPattern(version);
   const sections = [base, ours, theirs].map((text) => changelogSection(text, unreleased));
@@ -265,8 +292,10 @@ function resolveChangelog(source, version, scopedGit, env, root, [base, ours, th
   assert.ok(!versionHeading.test(base) && !versionHeading.test(theirs), "Concurrent version headings require review");
   const release = ours.slice(versionSection.start, versionSection.end).trimEnd();
   const { start, end, body: reviewedPending } = noteBlock(release);
-  const incoming = mergeLines(source, env, root, "Unreleased", sections[0]?.body ?? "", reviewedPending, sections[2]?.body ?? "");
-  const pending = [incoming, sections[1]?.body].filter(Boolean).join("\n\n");
+  const basePending = [sections[0]?.body, ...fragments[0].notes].filter(Boolean).join("\n\n");
+  const theirPending = [sections[2]?.body, ...fragments[2].notes].filter(Boolean).join("\n\n");
+  const incoming = mergeLines(source, env, root, "Unreleased", basePending, reviewedPending, theirPending);
+  const pending = [incoming, sections[1]?.body, ...fragments[1].notes].filter(Boolean).join("\n\n");
   const reviewedRelease = `${release.slice(0, start + pendingStart.length)}\n${pending ? `${pending}\n` : ""}${release.slice(end)}`;
   const anchor = "<!-- npm-release:merge-anchor -->";
   assert.ok([base, ours, theirs].every((text) => !text.includes(anchor)), "Changelog contains the merge anchor");
@@ -291,6 +320,8 @@ function resolveChangelog(source, version, scopedGit, env, root, [base, ours, th
   const insertion = [heading, reviewedRelease].filter(Boolean).join("\n\n");
   const changelog = merged.stdout.replace(anchor, () => insertion);
   writeFileSync(join(source, "CHANGELOG.md"), changelog.endsWith("\n") ? changelog : `${changelog}\n`);
+  const consumed = indexedFragments(source, env);
+  if (consumed.length) scopedGit(["rm", "-f", "-q", "--", ...consumed]);
   scopedGit(["add", "CHANGELOG.md"]);
 }
 
@@ -556,7 +587,9 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
       identity(entry, repository, manifest);
       const tags = scopedGit(["tag", "--list"]).split("\n").filter(Boolean);
       const version = nextVersion(manifest.version, Object.keys(data.versions), tags);
-      stageVersion(source, version, await generatedNotes(version), new Date().toISOString().slice(0, 10), recovery?.version);
+      const fragments = treeFragments(source, "HEAD");
+      stageVersion(source, version, await generatedNotes(version), new Date().toISOString().slice(0, 10), recovery?.version, fragments.notes);
+      if (fragments.paths.length) scopedGit(["rm", "-q", "--", ...fragments.paths]);
       formatVersion(source);
       scopedGit(["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
       review?.("pre-commit");
@@ -564,18 +597,22 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
       review?.("pre-push", main);
       scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
     } else if (!isAncestor(source, main, "HEAD")) {
-      const changelogs = [scopedGit(["merge-base", "HEAD", main]), "HEAD", main]
-        .map((ref) => scopedGit(["show", `${ref}:CHANGELOG.md`]));
+      const base = scopedGit(["merge-base", "HEAD", main]);
+      const refs = [base, "HEAD", main];
+      const changelogs = refs.map((ref) => scopedGit(["show", `${ref}:CHANGELOG.md`]));
+      const fragments = refs.map((ref) => treeFragments(source, ref));
       const merged = spawnSync("git", ["merge", "--no-commit", "--no-ff", main], { cwd: source, env, encoding: "utf8" });
       if (merged.error) throw merged.error;
       let conflicts = scopedGit(["diff", "--name-only", "--diff-filter=U"]).split("\n").filter(Boolean);
       let resolved = false;
-      if ((merged.status === 0 || conflicts.length) && conflicts.every((file) => ["CHANGELOG.md", "package.json", "package-lock.json"].includes(file))) {
+      const resolvable = (file) => ["CHANGELOG.md", "package.json", "package-lock.json"].includes(file)
+        || (changelogFragment(file) && !fragments[1].paths.includes(file));
+      if ((merged.status === 0 || conflicts.length) && conflicts.every(resolvable)) {
         try {
           if (conflicts.some((file) => file === "package.json" || file === "package-lock.json")) {
             resolveVersionFiles(source, main, conflicts, scopedGit, env, root);
           }
-          resolveChangelog(source, readJson(join(source, "package.json")).version, scopedGit, env, root, changelogs);
+          resolveChangelog(source, readJson(join(source, "package.json")).version, scopedGit, env, root, changelogs, fragments);
           resolved = conflicts.length > 0;
           conflicts = scopedGit(["diff", "--name-only", "--diff-filter=U"]).split("\n").filter(Boolean);
         } catch (error) {

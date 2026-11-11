@@ -259,6 +259,9 @@ test("a package is the published one only when every installed file and manifest
     ["version metadata and development-only fields", (directory, manifest) => {
       manifest((value) => { value.version = "4.0.1"; value.devDependencies.oxlint = "2.0.0"; value.scripts.test = "node --test test/"; value.scripts.lint = "oxlint"; });
       writeFileSync(join(directory, "CHANGELOG.md"), "## 4.0.1\n\n## 4.0.0\n");
+      mkdirSync(join(directory, "changelog.d"), { recursive: true });
+      writeFileSync(join(directory, "changelog.d", "README.md"), "# Pending notes\n");
+      writeFileSync(join(directory, "changelog.d", "note.md"), "- Ignored fragment.\n");
     }, null],
     ["a changed file", (directory) => writeFileSync(join(directory, "index.js"), "export const copied = false;\n"), "index.js differs"],
     ["a new file", (directory) => writeFileSync(join(directory, "extra.js"), ""), "extra.js is new"],
@@ -849,4 +852,108 @@ test("qualified Cursor remediation preserves the mandatory review rule", (t) => 
   success(f.remediate(head, remediation, ["--package-qualified", "--version-reviewed"]));
   assert.equal(f.state().uploads.length, 1, "An admitted upload must not be repeated");
   assert.equal(f.state().submissions.length, 1, "An admitted remediation must not be repeated");
+});
+
+test("changelog.d/*.md fragments assemble without CHANGELOG.md conflicts across opening, main updates, edits, and reverts", async (t) => {
+  await t.test("consumes sorted fragments, keeps changelog.d/README.md, and merges sibling fragment PRs alongside reviewer edits", (t) => {
+    const f = fixture(t, { unreleased: false });
+    const manifest = read(join(f.writer, "package.json"));
+    manifest.scripts = { format: "node format.cjs" };
+    write(join(f.writer, "package.json"), manifest);
+    writeFileSync(join(f.writer, "format.cjs"), `const fs = require("node:fs");
+const path = "CHANGELOG.md";
+fs.writeFileSync(path, fs.readFileSync(path, "utf8").replace(/^\\* /gm, "- "));
+`);
+    mkdirSync(join(f.writer, "changelog.d"), { recursive: true });
+    writeFileSync(join(f.writer, "changelog.d", "README.md"), "# Release fragments\n");
+    writeFileSync(join(f.writer, "changelog.d", "20-second.md"), "* Second fragment note.\n");
+    writeFileSync(join(f.writer, "changelog.d", "10-first.md"), "* First fragment note.\n");
+    git(f.writer, "add", "."); git(f.writer, "commit", "--quiet", "-m", "Add initial fragments");
+    git(f.writer, "push", "--quiet", "origin", "main");
+    success(f.reconcile());
+
+    const branch = `npm-version/${f.first}`;
+    let head = f.ref(branch);
+    const listedInitial = git(f.root, "--git-dir", f.remote, "ls-tree", "--name-only", "-r", head, "--", "changelog.d");
+    assert.equal(listedInitial, "changelog.d/README.md", "Consumed fragments must be removed while keeping README.md");
+    let notes = rawChangelog(f, head);
+    assert.equal(/<!-- npm-release:unreleased:start -->\n([\s\S]*?)\n<!-- npm-release:unreleased:end -->/.exec(notes)?.[1],
+      "- First fragment note.\n\n- Second fragment note.");
+
+    git(f.writer, "fetch", "--quiet", "origin", branch);
+    git(f.writer, "switch", "--quiet", "--detach", "FETCH_HEAD");
+    writeFileSync(join(f.writer, "CHANGELOG.md"), readFileSync(join(f.writer, "CHANGELOG.md"), "utf8")
+      .replace("- First fragment note.", "- First fragment note, refined in review."));
+    git(f.writer, "add", "CHANGELOG.md"); git(f.writer, "commit", "--quiet", "-m", "Refine release note");
+    git(f.writer, "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
+
+    git(f.writer, "switch", "--quiet", "main");
+    writeFileSync(join(f.writer, "change.txt"), "Sibling PRs landed");
+    writeFileSync(join(f.writer, "changelog.d", "05-leading.md"), "* Leading sibling fragment.\n");
+    writeFileSync(join(f.writer, "changelog.d", "15-middle.md"), "* Middle sibling fragment.\n");
+    writeFileSync(join(f.writer, "changelog.d", "30-trailing.md"), "* Trailing sibling fragment.\n");
+    git(f.writer, "add", "."); git(f.writer, "commit", "--quiet", "-m", "Merge sibling fragment PRs");
+    git(f.writer, "push", "--quiet", "origin", "main");
+
+    success(f.reconcile());
+    head = f.ref(branch);
+    assert.equal(git(f.root, "--git-dir", f.remote, "ls-tree", "--name-only", "-r", head, "--", "changelog.d"), "changelog.d/README.md");
+    notes = rawChangelog(f, head);
+    assert.equal(/<!-- npm-release:unreleased:start -->\n([\s\S]*?)\n<!-- npm-release:unreleased:end -->/.exec(notes)?.[1],
+      "- Leading sibling fragment.\n\n- First fragment note, refined in review.\n\n- Middle sibling fragment.\n\n- Second fragment note.\n\n- Trailing sibling fragment.");
+  });
+
+  await t.test("reconciles main edits to an already-consumed fragment and rejects conflicting reviewer edits", (t) => {
+    const f = fixture(t, { unreleased: false });
+    mkdirSync(join(f.writer, "changelog.d"), { recursive: true });
+    writeFileSync(join(f.writer, "changelog.d", "fix.md"), "- Original fragment text.\n");
+    git(f.writer, "add", "."); git(f.writer, "commit", "--quiet", "-m", "Add fragment");
+    git(f.writer, "push", "--quiet", "origin", "main");
+    success(f.reconcile());
+    const branch = `npm-version/${f.first}`;
+
+    writeFileSync(join(f.writer, "changelog.d", "fix.md"), "- Revised on main.\n");
+    git(f.writer, "add", "."); git(f.writer, "commit", "--quiet", "-m", "Revise fragment on main");
+    git(f.writer, "push", "--quiet", "origin", "main");
+    success(f.reconcile());
+    let head = f.ref(branch);
+    assert.equal(git(f.root, "--git-dir", f.remote, "ls-tree", "--name-only", "-r", head, "--", "changelog.d"), "");
+    assert.equal(/<!-- npm-release:unreleased:start -->\n([\s\S]*?)\n<!-- npm-release:unreleased:end -->/.exec(rawChangelog(f, head))?.[1],
+      "- Revised on main.");
+
+    git(f.writer, "fetch", "--quiet", "origin", branch);
+    git(f.writer, "switch", "--quiet", "--detach", "FETCH_HEAD");
+    writeFileSync(join(f.writer, "CHANGELOG.md"), readFileSync(join(f.writer, "CHANGELOG.md"), "utf8")
+      .replace("- Revised on main.", "- Edited on version branch."));
+    git(f.writer, "add", "CHANGELOG.md"); git(f.writer, "commit", "--quiet", "-m", "Reviewer edit");
+    git(f.writer, "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
+    const reviewed = f.ref(branch);
+
+    git(f.writer, "switch", "--quiet", "main");
+    writeFileSync(join(f.writer, "changelog.d", "fix.md"), "- Conflicting main edit.\n");
+    git(f.writer, "add", "."); git(f.writer, "commit", "--quiet", "-m", "Conflicting main edit");
+    git(f.writer, "push", "--quiet", "origin", "main");
+    const conflict = f.reconcile();
+    assert.notEqual(conflict.status, 0);
+    assert.match(conflict.stderr, /Concurrent Unreleased edits need review/);
+    assert.equal(f.ref(branch), reviewed);
+  });
+
+  await t.test("reverting a fragment-backed commit closes the version PR when nothing else changed", (t) => {
+    const f = fixture(t, { unreleased: false });
+    git(f.writer, "pull", "--quiet", "--ff-only", "origin", "main");
+    mkdirSync(join(f.writer, "changelog.d"), { recursive: true });
+    writeFileSync(join(f.writer, "changelog.d", "feature.md"), "- Added feature.\n");
+    git(f.writer, "add", "."); git(f.writer, "commit", "--quiet", "--amend", "-m", "Initial source with fragment");
+    const amended = git(f.writer, "rev-parse", "HEAD");
+    git(f.writer, "push", "--quiet", "--force", "origin", "main");
+    success(f.reconcile());
+    assert.equal(f.state().open[0].branch, `npm-version/${amended}`);
+    git(f.writer, "revert", "--no-edit", amended);
+    git(f.writer, "push", "--quiet", "origin", "main");
+    const closed = f.reconcile();
+    success(closed);
+    assert.match(closed.stdout, /Closed version PR #\d+; nothing changed since v4\.0\.0/);
+    assert.equal(f.state().open.length, 0);
+  });
 });
