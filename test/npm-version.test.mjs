@@ -74,14 +74,16 @@ fs.writeFileSync(path, fs.readFileSync(path, "utf8").replace(/^\\* /gm, "- "));
   const branch = `npm-version/${f.first}`;
   let head = f.ref(branch);
   let notes = git(f.root, "--git-dir", f.remote, "show", `${head}:CHANGELOG.md`);
-  assert.match(notes, /\n- Meaningful change/);
-  assert.doesNotMatch(notes, /\n\* Meaningful change/);
+  assert.match(notes, /\n- Add project formatter\n/);
+  assert.doesNotMatch(notes, /\n\* Add project formatter/);
   f.advance("A later main merge", "* Newly merged changelog note.");
   success(f.reconcile());
   head = f.ref(branch);
   notes = git(f.root, "--git-dir", f.remote, "show", `${head}:CHANGELOG.md`);
   assert.match(notes, /\n- Newly merged changelog note\./);
   assert.doesNotMatch(notes, /\n\* Newly merged changelog note\./);
+  assert.match(notes, /\n- A later main merge\n/);
+  assert.doesNotMatch(notes, /\n\* A later main merge/);
 });
 
 test("remediation refuses a PR that is not the App-owned version for the selected source", (t) => {
@@ -116,12 +118,12 @@ test("version PR follows advancing main, and the next one starts after the commi
   assert.equal(git(f.root, "--git-dir", f.remote, "merge-base", second, head), second);
   assert.equal(JSON.parse(git(f.root, "--git-dir", f.remote, "show", `${head}:package.json`)).version, "4.0.1");
   assert.equal(JSON.parse(git(f.root, "--git-dir", f.remote, "show", `${head}:package-lock.json`)).packages[""].version, "4.0.1");
-  assert.match(git(f.root, "--git-dir", f.remote, "show", `${head}:CHANGELOG.md`), /## 4\.0\.1[\s\S]*A real pending change\.[\s\S]*Meaningful change/);
+  assert.match(git(f.root, "--git-dir", f.remote, "show", `${head}:CHANGELOG.md`), /## 4\.0\.1[\s\S]*A real pending change\.[\s\S]*\* Another main merge\n/);
   git(f.writer, "fetch", "--quiet", "origin", branch);
   git(f.writer, "switch", "--quiet", "--detach", "FETCH_HEAD");
   const changelog = join(f.writer, "CHANGELOG.md");
-  writeFileSync(changelog, readFileSync(changelog, "utf8").replace("Meaningful change", "Meaningful change with a reviewed correction"));
-  git(f.writer, "add", "CHANGELOG.md"); git(f.writer, "commit", "--quiet", "-m", "Address review");
+  writeFileSync(changelog, readFileSync(changelog, "utf8").replace("* Another main merge", "* Another main merge, described by hand"));
+  git(f.writer, "add", "CHANGELOG.md"); git(f.writer, "commit", "--quiet", "-m", "Describe a change by hand");
   git(f.writer, "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
   git(f.writer, "switch", "--quiet", "main");
   success(f.reconcile());
@@ -133,7 +135,14 @@ test("version PR follows advancing main, and the next one starts after the commi
   const mergedNotes = rawChangelog(f, head);
   assert.equal(/<!-- npm-release:unreleased:start -->\n([\s\S]*?)\n<!-- npm-release:unreleased:end -->/.exec(mergedNotes)?.[1],
     "- Newly merged changelog note.\n\n### Changed\n\nA real pending change.\nA second pending change.\n\n- Appended ordinary note.");
-  assert.match(mergedNotes, /## Unreleased\s+## 4\.0\.1[\s\S]*Newly merged changelog note\.[\s\S]*reviewed correction/);
+  assert.match(mergedNotes, /## Unreleased\s+## 4\.0\.1[\s\S]*Newly merged changelog note\./);
+  // fitchmultz/pi-subagents#347 kept the notes of the main it opened on through four updates; each one shipped a
+  // change its section did not list.
+  const pendingEnd = "<!-- npm-release:unreleased:end -->";
+  assert.equal(mergedNotes.slice(mergedNotes.indexOf(pendingEnd) + pendingEnd.length, mergedNotes.indexOf("## 4.0.0")).trim(),
+    `- Initial source ([${f.first.slice(0, 7)}](https://github.com/${repository}/commit/${f.first}))\n\n### What's Changed\n\n`
+    + "* Initial source\n* Another main merge\n* Third main merge\n\n"
+    + `**Full Changelog**: https://github.com/${repository}/compare/v4.0.0...v4.0.1`);
   assert.match(git(f.root, "--git-dir", f.remote, "show", "-s", "--format=%B", head), new RegExp(marker(f.first)));
 
   git(f.writer, "fetch", "--quiet", "origin", branch);
@@ -178,6 +187,25 @@ test("version PR follows advancing main, and the next one starts after the commi
   const nextHead = f.ref(next.branch);
   assert.equal(git(f.root, "--git-dir", f.remote, "merge-base", later, nextHead), later);
   assert.equal(JSON.parse(git(f.root, "--git-dir", f.remote, "show", `${nextHead}:package.json`)).version, "4.0.2");
+});
+
+test("an update from main that moves the PR to a later version regenerates its notes for that version", (t) => {
+  const f = fixture(t); success(f.reconcile());
+  for (const file of ["package.json", "package-lock.json"]) {
+    const manifest = read(join(f.writer, file));
+    manifest.version = "4.1.0";
+    if (manifest.packages) manifest.packages[""].version = "4.1.0";
+    write(join(f.writer, file), manifest);
+  }
+  git(f.writer, "add", "."); git(f.writer, "commit", "--quiet", "-m", "Start the 4.1 line");
+  git(f.writer, "push", "--quiet", "origin", "main");
+  success(f.reconcile());
+  const head = f.ref(`npm-version/${f.first}`);
+  assert.equal(JSON.parse(git(f.root, "--git-dir", f.remote, "show", `${head}:package.json`)).version, "4.1.1");
+  const notes = rawChangelog(f, head);
+  assert.match(notes, /## Unreleased\s+## 4\.1\.1 - /);
+  assert.doesNotMatch(notes, /4\.0\.1/);
+  assert.ok(notes.includes(`* Start the 4.1 line\n\n**Full Changelog**: https://github.com/${repository}/compare/v4.0.0...v4.1.1\n`));
 });
 
 test("nothing is released when main and the version PR match the published release apart from version metadata", (t) => {
@@ -309,7 +337,7 @@ test("main may insert or revise unreleased notes without losing reviewed version
     const prior = name === "insert" ? "A real pending change." : "A second pending change.";
     // This real pi-posthorse history note contains "$`", which is special in string replacements.
     const correction = "- All-session search and bare-ID history reads use ripgrep (Pi's managed copy, then `PATH`) to skip session files that cannot match. Without ripgrep, and for queries that could match escaped or label-only text (quotes, backslashes, brackets, parentheses, braces, colons, `$`, edge spaces, or phrases such as \"Call ID\" and \"No handoff\"), every file is scanned as before; image-count and comma queries also search every file with an image block. Results always match a full scan.";
-    writeFileSync(path, readFileSync(path, "utf8").replace(prior, () => correction).replace("Meaningful change", "Reviewed release note"));
+    writeFileSync(path, readFileSync(path, "utf8").replace(prior, () => correction));
     git(f.writer, "add", "CHANGELOG.md"); git(f.writer, "commit", "--quiet", "-m", "Address review");
     git(f.writer, "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
     git(f.writer, "switch", "--quiet", "main");
@@ -322,7 +350,6 @@ test("main may insert or revise unreleased notes without losing reviewed version
     const released = notes.slice(notes.indexOf("## 4.0.1"));
     assert.ok(released.includes(expected), "Incoming note must be preserved verbatim");
     assert.ok(released.includes(correction), "Reviewed note must be preserved verbatim");
-    assert.match(released, /Reviewed release note/);
     assert.doesNotMatch(released, new RegExp(prior.replaceAll(".", "\\.")));
   });
 });
