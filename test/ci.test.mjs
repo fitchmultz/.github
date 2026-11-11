@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -59,7 +59,24 @@ function planned(result, required) {
   assert.equal(plan.fleetRequired, required);
   assert.equal(result.output, `fleet-required=${required}\n`);
   assert.match(result.summary, new RegExp(`Fleet required: \\*\\*${required}\\*\\*`));
+  assert.ok(result.summary.includes(plan.reason), "The job summary must carry the rule that decided the scope");
   return plan;
+}
+
+// Every repository file the fleet can execute, found from the files themselves: Automation CI names its reusable workflows,
+// a workflow names repository paths (under `automation/` when a caller checks this repository out there), and a script
+// names its imports and run-time copies relative to itself. JSON is data and names nothing the fleet runs.
+function fleetFiles() {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
+  const named = (path) => {
+    const tokens = path.endsWith(".json") ? [] : readFileSync(join(root, path), "utf8").match(/[\w./-]+/g) ?? [];
+    return tokens.map((token) => path.endsWith(".yml") ? token.replace(/^(.*automation\/|\.\/)/, "") : posix.join(posix.dirname(path), token))
+      .flatMap((file) => [file, `${file}/action.yml`]).filter((file) => tracked.includes(file));
+  };
+  const reached = new Set(named(".github/workflows/ci.yml").filter((file) => file.startsWith(".github/workflows/")));
+  for (const path of reached) for (const file of named(path)) reached.add(file);
+  return [...reached];
 }
 
 test("docs and policy changes intentionally skip the fleet through the real CLI", (t) => {
@@ -75,16 +92,42 @@ test("docs and policy changes intentionally skip the fleet through the real CLI"
   planned(f.invoke(["scope", "--event", "workflow_dispatch"]), true);
 });
 
-test("all scripts, tests, workflows and unknown paths require the fleet", async (t) => {
+test("release automation changes skip the fleet and say which fast paths applied", (t) => {
+  const f = fixture(t);
+  const files = ["scripts/npm-version.mjs", "scripts/release-fetch.mjs", ".github/workflows/npm-release-bump.yml",
+    ".github/actions/npm-publish/action.yml", "test/npm-version.test.mjs", "test/fixtures/npm-version-api.mjs", "docs/npm-releases.md"];
+  for (const path of files) f.write(path, "changed\n");
+  const head = f.commit();
+  for (const event of ["pull_request", "push"]) {
+    const { reason } = planned(f.scope(head, event), false);
+    assert.match(reason, /release automation/);
+    assert.match(reason, /documentation/);
+  }
+});
+
+test("qualification, unlisted and unknown paths require the fleet even beside fast-path changes", async (t) => {
   for (const path of ["scripts/qualify.mjs", "scripts/future.mjs", "test/hosts.test.mjs", "fleet.json",
     ".github/workflows/ci.yml", "scripts/ci.mjs", "test/ci.test.mjs",
     ".github/workflows/pi-compatibility.yml", ".github/workflows/resolve-hosts.yml",
-    ".github/workflows/npm-release.yml", ".github/workflows/npm-release-plan.yml",
+    "scripts/npm-future.mjs", ".github/workflows/npm-release-future.yml", "test/fixtures/npm-version-future.mjs",
     ".github/workflows/pi-canary.yml", "future.config", "unknown\nREADME.md"]) {
     await t.test(path, (t) => {
       const f = fixture(t);
       f.write("README.md", "docs also changed\n");
+      f.write("scripts/npm-release.mjs", "release automation also changed\n");
       f.write(path, "runtime change\n");
+      assert.ok(planned(f.scope(f.commit()), true).reason.includes(JSON.stringify(path)), "The reason must name the path that required the fleet");
+    });
+  }
+});
+
+test("every file the fleet executes requires the fleet when it changes", async (t) => {
+  const files = fleetFiles();
+  assert.ok(files.includes("fleet.json"), "The walk must reach the fleet inventory, which only a workflow's script names");
+  for (const path of files) {
+    await t.test(path, (t) => {
+      const f = fixture(t);
+      f.write(path, "changed\n");
       planned(f.scope(f.commit()), true);
     });
   }
