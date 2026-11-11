@@ -626,7 +626,7 @@ test("an incomplete Pi review uses native recovery only after uncertain comments
 });
 
 test("version automation stays held when a package's required release gates are not wired", () => {
-  for (const name of ["pi-subagents", "pi-agent-browser-native", "pi-oracle", "pi-cursor-sdk", "pi-zai-mcp", "pi-codex-goal", "pi-posthorse", "pi-mcp-adapter", "pi-workflows"]) {
+  for (const name of ["pi-subagents", "pi-agent-browser-native", "pi-oracle", "pi-cursor-sdk", "pi-zai-mcp", "pi-codex-goal", "pi-posthorse", "pi-mcp-adapter"]) {
     const result = spawnSync(process.execPath, [script, "reconcile", "--source", ".", "--app-slug", "pi-durable"], {
       encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: `fitchmultz/${name}` },
     });
