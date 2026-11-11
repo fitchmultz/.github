@@ -506,7 +506,8 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
       }
     }
     if (!selected) { console.log("Main has no unreleased source commits"); return; }
-    if (await buildsPublishedPackage(source, main, data.versions[releasedVersion])) {
+    // A supersession always opens its replacement: until one merges, the failed version blocks every later release.
+    if (!recovery && await buildsPublishedPackage(source, main, data.versions[releasedVersion])) {
       console.log(`Main builds the package published as v${releasedVersion}; nothing to release`);
       return;
     }
