@@ -24,7 +24,9 @@ for (const [event, correctiveNote] of [["push", "- Correct the unpublished relea
   git(f.writer, "tag", "v4.0.5", fixed); git(f.writer, "push", "--quiet", "origin", "v4.0.5");
   const recovery = ["--supersede-version", "4.0.1", "--supersede-source", bump];
   const logOffset = readFileSync(f.log, "utf8").length;
-  success(f.reconcile("workflow_dispatch", [...args, ...recovery]));
+  const superseded = f.reconcile("workflow_dispatch", [...args, ...recovery]);
+  success(superseded);
+  assert.doesNotMatch(superseded.stdout, /published package/, "An operator's supersession opens its replacement without a package comparison");
   const pull = f.state().open[0];
   assert.equal(pull.branch, `npm-version/${fixed}`);
   assert.match(pull.body, new RegExp(`<!-- pi-npm-supersedes: 4\\.0\\.1 ${bump} -->`));

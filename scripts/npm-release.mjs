@@ -4,8 +4,9 @@ import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSyn
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { checkResources, probeCli } from "./cli-probe.mjs";
-import { awaitsFirstPublication, isolatedEnvironment, readJson, run, sha256, stageSource, writeJson } from "./common.mjs";
-import { prepareHost, resolveHostTargets, selectDevelopmentHost, verifyForkArtifact } from "./hosts.mjs";
+import { awaitsFirstPublication, isolatedEnvironment, readJson, run, sha256, writeJson } from "./common.mjs";
+import { prepareHost, resolveHostTargets, verifyForkArtifact } from "./hosts.mjs";
+import { buildPackage, packPackage } from "./npm-package.mjs";
 import { identity as assertIdentity, markedSource, newer, registry, sourceMarker, versionParts } from "./npm-release-core.mjs";
 import { history, versionCommit } from "./npm-version.mjs";
 
@@ -237,31 +238,17 @@ async function prepare() {
       cpSync(join(recovered, filename), join(destination, filename));
     } else {
       const development = join(root, "development");
-      stageSource(source, development);
-      if (existsSync(join(development, ".npmrc"))) {
-        assert.ok(!/auth|password|username|token|otp|certfile|keyfile/i.test(readFileSync(join(development, ".npmrc"), "utf8")), "Project npm configuration must not contain credentials");
-      }
-      run("npm", ["ci", "--ignore-scripts", "--dry-run"], { cwd: development, env });
-      selectDevelopmentHost(development, official, env);
-      run("npm", ["run", "build", "--if-present"], { cwd: development, env });
-      // Pack reviewed bundled dependencies, retaining the output compiled against the selected latest SDK.
-      run("npm", ["ci", "--ignore-scripts"], { cwd: development, env });
+      buildPackage(source, development, official, env);
       run("npm", ["run", "release:dry-run", "--if-present"], { cwd: development, env });
       run("git", ["diff", "--exit-code"], { cwd: development, env });
-      const packedJson = JSON.parse(run("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", destination], { cwd: development, env, quiet: true }));
-      const packed = Array.isArray(packedJson) ? packedJson : Object.values(packedJson);
-      assert.equal(packed.length, 1);
-      assert.equal(packed[0].name, manifest.name);
-      assert.equal(packed[0].version, manifest.version);
-      filename = packed[0].filename;
-      assert.equal(basename(filename), filename);
-      for (const file of packed[0].files) {
-        assert.ok(!/(^|\/)(\.git|\.pi|\.env[^/]*|\.npmrc|\.artifacts|\.debug|\.dogfood|\.DS_Store)(\/|$)/.test(file.path), `Private/repository state in tarball: ${file.path}`);
-      }
+      const packed = packPackage(development, destination, env);
+      assert.equal(packed.name, manifest.name);
+      assert.equal(packed.version, manifest.version);
+      filename = packed.filename;
       const packedTarball = join(destination, filename);
       hash = sha256(packedTarball);
       integrity = `sha512-${createHash("sha512").update(readFileSync(packedTarball)).digest("base64")}`;
-      assert.equal(integrity, packed[0].integrity);
+      assert.equal(integrity, packed.integrity);
     }
     const tarball = join(destination, filename);
     identity(packedManifest(tarball, env));
