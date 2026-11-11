@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, cpSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
+import { packageDifference, publishedTarball } from "../scripts/npm-package.mjs";
 import { fixture, git, read, write, success, check, failedRelease } from "./fixtures/npm-version-harness.mjs";
 
 const script = fileURLToPath(new URL("../scripts/npm-version.mjs", import.meta.url));
@@ -110,7 +112,10 @@ test("remediation refuses a PR that is not the App-owned version for the selecte
 test("version PR follows advancing main, and the next one starts after the commits its release published", (t) => {
   const f = fixture(t);
   const second = f.advance("Another main merge");
-  success(f.reconcile());
+  const opened = f.reconcile();
+  success(opened);
+  // The fixture registry records no tarball for 4.0.0, so main cannot be proven to build the published package.
+  assert.match(opened.stdout, /Could not compare main with the published package, so it is released as a change: .*no tarball URL/);
   const branch = `npm-version/${f.first}`;
   assert.equal(f.state().open[0].branch, branch);
   let head = f.ref(branch);
@@ -129,7 +134,9 @@ test("version PR follows advancing main, and the next one starts after the commi
   success(f.reconcile());
   writeFileSync(changelog, readFileSync(changelog, "utf8").replace("A second pending change.", "A second pending change.\n\n- Appended ordinary note."));
   const third = f.advance("Third main merge", "- Newly merged changelog note.");
-  success(f.reconcile());
+  const updated = f.reconcile();
+  success(updated);
+  assert.doesNotMatch(updated.stdout, /published package/, "An open version PR is not compared again");
   head = f.ref(branch);
   assert.equal(git(f.root, "--git-dir", f.remote, "merge-base", third, head), third);
   const mergedNotes = rawChangelog(f, head);
@@ -159,6 +166,7 @@ test("version PR follows advancing main, and the next one starts after the commi
   const waiting = f.reconcile("schedule");
   success(waiting);
   assert.match(waiting.stdout, /Waiting for pi-copy-message@4\.0\.1 to complete/);
+  assert.doesNotMatch(waiting.stdout, /published package/, "A release in flight is not compared");
   assert.match(readFileSync(f.log, "utf8"), /POST \/repos\/fitchmultz\/pi-copy-message\/actions\/runs\/99\/rerun-failed-jobs/);
   f.setState((s) => { s.artifacts[0].expired = true; });
   success(f.reconcile("schedule"));
@@ -226,7 +234,51 @@ test("nothing is released when main and the version PR match the published relea
   const idle = f.reconcile();
   success(idle);
   assert.match(idle.stdout, /Main has nothing to release since v4\.0\.0/);
+  assert.doesNotMatch(idle.stdout, /published package/, "Unchanged repository files need no package comparison");
   assert.equal(f.state().open.length, 0);
+});
+
+test("a package is the published one only when every installed file and manifest field is the same", async (t) => {
+  // 44 of 145 fleet releases (2026-11-02 to 2026-11-11) republished the previous version's installable package.
+  const root = mkdtempSync("/tmp/npm-package-test-");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const pack = (name, edit) => {
+    const directory = join(root, name);
+    mkdirSync(join(directory, "bin"), { recursive: true });
+    write(join(directory, "package.json"), { name: "pi-copy-message", version: "4.0.0", exports: { import: "./index.js", default: "./index.cjs" },
+      scripts: { test: "node --test", postinstall: "node index.js" }, dependencies: { typebox: "1.0.0" }, devDependencies: { oxlint: "1.0.0" } });
+    writeFileSync(join(directory, "index.js"), "export const copied = true;\n");
+    writeFileSync(join(directory, "bin", "copy.sh"), "#!/bin/sh\n");
+    writeFileSync(join(directory, "CHANGELOG.md"), "## 4.0.0\n");
+    edit?.(directory, (change) => { const manifest = read(join(directory, "package.json")); change(manifest); write(join(directory, "package.json"), manifest); });
+    const [packed] = Object.values(JSON.parse(spawnSync("npm", ["pack", "--json", "--ignore-scripts"], { cwd: directory, encoding: "utf8" }).stdout));
+    return join(directory, packed.filename);
+  };
+  const published = pack("published");
+  for (const [name, edit, expected] of [
+    ["version metadata and development-only fields", (directory, manifest) => {
+      manifest((value) => { value.version = "4.0.1"; value.devDependencies.oxlint = "2.0.0"; value.scripts.test = "node --test test/"; value.scripts.lint = "oxlint"; });
+      writeFileSync(join(directory, "CHANGELOG.md"), "## 4.0.1\n\n## 4.0.0\n");
+    }, null],
+    ["a changed file", (directory) => writeFileSync(join(directory, "index.js"), "export const copied = false;\n"), "index.js differs"],
+    ["a new file", (directory) => writeFileSync(join(directory, "extra.js"), ""), "extra.js is new"],
+    ["a removed file", (directory) => rmSync(join(directory, "bin", "copy.sh")), "bin/copy.sh is no longer packed"],
+    ["an executable file", (directory) => chmodSync(join(directory, "bin", "copy.sh"), 0o755), "bin/copy.sh differs"],
+    ["a runtime dependency", (directory, manifest) => manifest((value) => { value.dependencies.typebox = "1.0.1"; }), "package.json differs"],
+    ["an install script", (directory, manifest) => manifest((value) => { value.scripts.postinstall = "node bin/copy.sh"; }), "package.json differs"],
+    ["the order of export conditions", (directory, manifest) => manifest((value) => { value.exports = { default: "./index.cjs", import: "./index.js" }; }), "package.json differs"],
+  ]) await t.test(name, () => {
+    assert.equal(packageDifference(pack(name, edit), published, join(root, `${name} files`), process.env), expected);
+  });
+  await t.test("the published bytes must match the registry integrity", async (t) => {
+    const bytes = readFileSync(published);
+    t.mock.method(globalThis, "fetch", async () => new Response(bytes));
+    const dist = { tarball: "https://registry.npmjs.org/pi-copy-message/-/pi-copy-message-4.0.0.tgz",
+      integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}` };
+    assert.deepEqual(readFileSync(await publishedTarball({ dist }, root)), bytes);
+    await assert.rejects(publishedTarball({ dist: { ...dist, integrity: `sha512-${createHash("sha512").update("other").digest("base64")}` } }, root),
+      /differs from its registry integrity/);
+  });
 });
 
 test("resolved Pi findings trigger one genuine fresh review without dismissing unresolved or standalone findings", (t) => {
