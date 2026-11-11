@@ -10,6 +10,11 @@ import { releaseFetch } from "./release-fetch.mjs";
 // reference). npm runs every other script only for a command given in the package's own directory.
 const installScripts = new Set(["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare"]);
 
+// Pending release-note fragment path under changelog.d/ (excluding README.md).
+export function changelogFragment(path) {
+  return /^changelog\.d\/[^/]+\.md$/.test(path) && !/^changelog\.d\/readme\.md$/i.test(path);
+}
+
 /**
  * Stages `source`, a clean checkout of the commit to release, in `development` and builds it the way every release
  * candidate is built: imports and types resolve from the prepared `official` host, and the locked dependencies
@@ -91,14 +96,14 @@ function sameFile(candidate, published) {
 /**
  * Names the first packed file that differs between the `candidate` and `published` tarballs, or returns null when
  * an installation of either is the same package: every file has the same bytes and executable bits, apart from
- * `CHANGELOG.md` and the manifest fields no installation uses (`version`, `devDependencies` and the scripts npm
- * runs only in the package's own directory). Both tarballs are extracted beneath `directory`.
+ * `CHANGELOG.md`, `changelog.d/` and the manifest fields no installation uses (`version`, `devDependencies` and the
+ * scripts npm runs only in the package's own directory). Both tarballs are extracted beneath `directory`.
  */
 export function packageDifference(candidate, published, directory, env) {
   const built = packedFiles(candidate, join(directory, "candidate"), env);
   const released = packedFiles(published, join(directory, "published"), env);
   for (const path of [...new Set([...built.keys(), ...released.keys()])].sort()) {
-    if (path === "CHANGELOG.md") continue;
+    if (path === "CHANGELOG.md" || path.startsWith("changelog.d/")) continue;
     const [now, before] = [built.get(path), released.get(path)];
     if (!now || !before) return `${path} is ${now ? "new" : "no longer packed"}`;
     if (path === "package.json" ? installedManifest(now) !== installedManifest(before) : !sameFile(now, before)) return `${path} differs`;
