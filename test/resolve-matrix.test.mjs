@@ -85,7 +85,7 @@ test("default and explicit both preserve all 18 repositories and required Node/p
   for (const run of [result, explicit]) assert.equal(run.requests.filter((url) => url === mainUrl).length, 1);
   assert.equal(result.outputs.forkRef, mainSha);
   assert.equal(result.outputs.needsFork, "true");
-  assert.equal(result.lanes.length, 64);
+  assert.equal(result.lanes.length, 56);
   assert.deepEqual([...new Set(result.lanes.map((lane) => lane.repo))], fleet.map((entry) => entry.repo));
   for (const entry of fleet) {
     const lanes = result.lanes.filter((lane) => lane.repo === entry.repo);
@@ -93,14 +93,17 @@ test("default and explicit both preserve all 18 repositories and required Node/p
   }
   assert.ok(result.lanes.filter((lane) => lane.host === "official").every((lane) => lane.version === "9.8.7" && lane.label === "official"));
   const fork = result.lanes.filter((lane) => lane.host === "fork");
-  assert.deepEqual(platformLabels(fork, "pi-fitch-kit"), ["ubuntu-latest/24", "ubuntu-latest/26", "macos-latest/24"]);
+  assert.deepEqual(platformLabels(fork, "pi-fitch-kit"), ["ubuntu-latest/24", "ubuntu-latest/26"]);
+  assert.deepEqual(platformLabels(fork, "pi-mcp-adapter"), ["ubuntu-latest/24"]);
+  assert.deepEqual(platformLabels(fork, "pi-codex-goal"), ["ubuntu-latest/24"]);
+  assert.deepEqual(platformLabels(fork, "pi-cursor-sdk"), ["ubuntu-latest/24"]);
   assert.deepEqual(platformLabels(fork, "pi-agent-browser-native"), ["ubuntu-latest/24", "macos-latest/24"]);
   assert.deepEqual(platformLabels(fork, "macuse"), ["macos-latest/24"]);
   assert.ok(result.requests.filter((url) => url.includes("/commits/")).every((url) => url.endsWith("/commits/main")));
   assert.equal(result.requests.filter((url) => url.startsWith("https://registry.npmjs.org/")).length, 2, "Cohort preflight is cached across the fleet");
 });
 
-test("fork reverse dependencies preserve all 32 required fork lanes without any official npm or CLI lookup", async (t) => {
+test("fork reverse dependencies preserve all 28 required fork lanes without any official npm or CLI lookup", async (t) => {
   const both = await resolveFixture(t);
   const fork = await resolveFixture(t, { HOST: "fork", FORK_REF: forkSha, SOURCE_REF: "compatibility/pi-releases", OFFICIAL_VERSION: "latest" }, { official: false });
   passed(both);
@@ -108,7 +111,7 @@ test("fork reverse dependencies preserve all 32 required fork lanes without any 
   assert.deepEqual(fork.lanes, both.lanes.filter((lane) => lane.host === "fork"));
   assert.equal(fork.outputs.forkRef, forkSha);
   assert.equal(fork.outputs.needsFork, "true");
-  assert.equal(fork.lanes.length, 32);
+  assert.equal(fork.lanes.length, 28);
   assert.equal(new Set(fork.lanes.map((lane) => lane.repo)).size, 18);
   assert.ok(fork.lanes.some((lane) => lane.repo === "pi-posthorse"));
   assert.ok(fork.lanes.some((lane) => lane.repo === "pi-agent-skills"));
@@ -126,13 +129,15 @@ test("Windows diagnostics require explicit opt-in and preserve all 8 optional la
   passed(full);
   passed(trimmed);
   passed(fork);
-  assert.equal(full.lanes.length, 72);
-  assert.equal(trimmed.lanes.length, 64);
+  assert.equal(full.lanes.length, 64);
+  assert.equal(trimmed.lanes.length, 56);
   assert.deepEqual(defaults.outputs, trimmed.outputs);
   assert.deepEqual(trimmed.lanes, full.lanes.filter((lane) => lane.os !== "windows-latest"));
-  assert.equal(fork.lanes.length, 36);
+  assert.equal(fork.lanes.length, 32);
   assert.deepEqual(fork.lanes, full.lanes.filter((lane) => lane.host === "fork"));
   assert.deepEqual(platformLabels(trimmed.lanes.filter((lane) => lane.host === "fork"), "pi-agent-browser-native"), ["ubuntu-latest/24", "macos-latest/24"]);
+  assert.deepEqual(platformLabels(fork.lanes, "pi-codex-goal"), ["ubuntu-latest/24", "windows-latest/24"]);
+  assert.deepEqual(platformLabels(fork.lanes, "pi-cursor-sdk"), ["ubuntu-latest/24", "windows-latest/24"]);
   assert.equal(new Set(trimmed.lanes.map((lane) => lane.repo)).size, 18);
 });
 
@@ -159,7 +164,7 @@ test("an individual PR qualifies latest rather than selecting its stale locked d
 test("resolved identities stay frozen across later jobs instead of resolving a newer host mid-run", async (t) => {
   const result = await resolveFixture(t, { OFFICIAL_VERSION: "9.8.6", FORK_REF: forkSha, SOURCE_REF: "main" });
   passed(result);
-  assert.equal(result.lanes.length, 64);
+  assert.equal(result.lanes.length, 56);
   assert.equal(new Set(result.lanes.map((lane) => lane.repo)).size, 18);
   assert.ok(result.lanes.filter((lane) => lane.host === "official").every((lane) => lane.version === "9.8.6"));
   assert.equal(result.outputs.forkRef, forkSha);
