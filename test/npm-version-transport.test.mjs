@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { fixture, success, check } from "./fixtures/npm-version-harness.mjs";
 import { request } from "../scripts/npm-version.mjs";
+import { releaseFetch } from "../scripts/release-fetch.mjs";
 
 const transport = fileURLToPath(new URL("./fixtures/npm-version-transport.mjs", import.meta.url));
 const agent = "bc-11111111-1111-4111-8111-111111111111";
@@ -90,6 +91,74 @@ test("GitHub request keeps the original native cause without logging headers, bo
     assert.doesNotMatch(inspect(error), /sentinel-/);
     return true;
   });
+});
+
+test("releaseFetch retries transient GET socket drops and 5xx gateway errors, but never retries POST", async (t) => {
+  let getSocketCalls = 0;
+  let getStatusCalls = 0;
+  let postSocketCalls = 0;
+  let postStatusCalls = 0;
+  const server = createServer((incoming, outgoing) => {
+    if (incoming.url === "/socket-get") {
+      getSocketCalls++;
+      if (getSocketCalls <= 2) {
+        incoming.socket.destroy();
+        return;
+      }
+      outgoing.writeHead(200, { "Content-Type": "application/json" });
+      outgoing.end(JSON.stringify({ ok: true, attempts: getSocketCalls }));
+      return;
+    }
+    if (incoming.url === "/gateway-get") {
+      getStatusCalls++;
+      const status = getStatusCalls === 1 ? 502 : getStatusCalls === 2 ? 503 : 200;
+      outgoing.writeHead(status, { "Content-Type": "application/json" });
+      outgoing.end(JSON.stringify({ status, attempts: getStatusCalls }));
+      return;
+    }
+    if (incoming.url === "/permanent-503") {
+      outgoing.writeHead(503, { "Content-Type": "text/plain" });
+      outgoing.end("unavailable");
+      return;
+    }
+    if (incoming.url === "/socket-post") {
+      postSocketCalls++;
+      incoming.socket.destroy();
+      return;
+    }
+    if (incoming.url === "/gateway-post") {
+      postStatusCalls++;
+      outgoing.writeHead(502, { "Content-Type": "text/plain" });
+      outgoing.end("bad gateway");
+    }
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const recoveredSocket = await releaseFetch("GitHub", `${base}/socket-get`);
+  assert.equal(recoveredSocket.status, 200);
+  assert.deepEqual(await recoveredSocket.json(), { ok: true, attempts: 3 });
+  assert.equal(getSocketCalls, 3);
+
+  const recoveredGateway = await releaseFetch("Cursor", `${base}/gateway-get`);
+  assert.equal(recoveredGateway.status, 200);
+  assert.deepEqual(await recoveredGateway.json(), { status: 200, attempts: 3 });
+  assert.equal(getStatusCalls, 3);
+
+  const exhaustedGateway = await releaseFetch("npm", `${base}/permanent-503`);
+  assert.equal(exhaustedGateway.status, 503);
+
+  await assert.rejects(
+    releaseFetch("Pi Durable", `${base}/socket-post`, { method: "POST", body: "{}" }),
+    /Pi Durable POST http:\/\/127\.0\.0\.1:\d+\/socket-post: transport failed/,
+  );
+  assert.equal(postSocketCalls, 1);
+
+  const postGateway = await releaseFetch("GitHub", `${base}/gateway-post`, { method: "POST", body: "{}" });
+  assert.equal(postGateway.status, 502);
+  assert.equal(postStatusCalls, 1);
 });
 
 test("GitHub request diagnostics do not echo invalid URLs or URL credentials rejected by native fetch", () => {
