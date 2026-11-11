@@ -5,6 +5,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { isolatedEnvironment, readJson, run, stageSource } from "./common.mjs";
+import { prepareHost } from "./hosts.mjs";
+import { buildPackage, packageDifference, packPackage, publishedTarball } from "./npm-package.mjs";
 import { identity, markedSource, newer, registry, sourceMarker, versionParts } from "./npm-release-core.mjs";
 import { releaseFetch } from "./release-fetch.mjs";
 
@@ -163,6 +165,30 @@ function versionOnly(source, from, to) {
     const before = unversioned(from);
     return before !== null && before === unversioned(to);
   });
+}
+
+// True when release preparation would build from `main` the package already published as `published`, one
+// version's registry metadata. Only that proof skips a release: a build or comparison that cannot finish is
+// reported and counts as a change.
+async function buildsPublishedPackage(source, main, published) {
+  const root = mkdtempSync("/tmp/npm-version-package-");
+  try {
+    const env = isolatedEnvironment(root);
+    const tarball = await publishedTarball(published, root);
+    git(source, ["switch", "--detach", main]);
+    assert.equal(git(source, ["status", "--porcelain"]), "", "The main checkout has uncommitted files");
+    const development = join(root, "development");
+    buildPackage(source, development, await prepareHost(join(root, "host"), "official", "latest", env), env);
+    const candidate = join(root, packPackage(development, root, env).filename);
+    const difference = packageDifference(candidate, tarball, join(root, "packed"), env);
+    if (difference) console.log(`Main changes the published ${published.name}@${published.version}: ${difference}`);
+    return !difference;
+  } catch (error) {
+    console.log(`Could not compare main with the published package, so it is released as a change: ${error.stack ?? error}`);
+    return false;
+  } finally {
+    rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 1000 });
+  }
 }
 
 function changelogSection(text, heading) {
@@ -480,6 +506,11 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
       }
     }
     if (!selected) { console.log("Main has no unreleased source commits"); return; }
+    // A supersession always opens its replacement: until one merges, the failed version blocks every later release.
+    if (!recovery && await buildsPublishedPackage(source, main, data.versions[releasedVersion])) {
+      console.log(`Main builds the package published as v${releasedVersion}; nothing to release`);
+      return;
+    }
   }
   assert.ok(isAncestor(source, selected, main), "Release source is not an ancestor of main");
   const branch = branchFor(selected);
