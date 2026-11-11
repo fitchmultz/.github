@@ -32,10 +32,16 @@ function nextVersion(manifestVersion, publishedVersions, tags) {
   return `${major}.${minor}.${patch + 1}`;
 }
 
-function versionChangelog(changelog, version, generated, date, supersededVersion) {
-  versionParts(version);
+// Generated notes nest under their version heading.
+function nestNotes(generated) {
   const notes = generated.trim().replace(/^##[ \t]+/gm, "### ");
   assert.ok(notes, "Generated release notes are empty");
+  return notes;
+}
+
+function versionChangelog(changelog, version, generated, date, supersededVersion) {
+  versionParts(version);
+  const notes = nestNotes(generated);
   let carried = "";
   if (supersededVersion) {
     const section = changelogSection(changelog, versionHeadingPattern(supersededVersion));
@@ -180,6 +186,19 @@ function noteBlock(release, startMarker = pendingStart, endMarker = pendingEnd) 
   assert.ok(start >= 0 && end > start && release.indexOf(startMarker, start + startMarker.length) < 0
     && release.indexOf(endMarker, end + endMarker.length) < 0, "The reviewed version's note markers are missing or ambiguous");
   return { start, end, body: release.slice(start + startMarker.length, end).trim() };
+}
+
+// A version section is its curated blocks followed by generated notes. Curated text belongs inside the blocks:
+// this replaces everything after them.
+function replaceGeneratedNotes(changelog, version, generated) {
+  const section = changelogSection(changelog, versionHeadingPattern(version));
+  assert.ok(section, "The reviewed version changelog section is missing");
+  const release = changelog.slice(section.start, section.end);
+  const carried = release.includes(carriedStart) || release.includes(carriedEnd);
+  const curated = Math.max(noteBlock(release).end + pendingEnd.length,
+    carried ? noteBlock(release, carriedStart, carriedEnd).end + carriedEnd.length : 0);
+  const later = changelog.slice(section.end);
+  return `${changelog.slice(0, section.start)}${release.slice(0, curated)}\n\n${nestNotes(generated)}\n${later && `\n${later}`}`;
 }
 
 function mergeLines(source, env, root, name, base, ours, theirs) {
@@ -470,6 +489,17 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
     assert.equal(markedSource(pull.body), selected, "Version PR does not identify its source");
   }
 
+  // The source line and GitHub's notes for everything between the previous published tag and main: the changes the
+  // version ships, because its PR merges only when it contains current main.
+  const generatedNotes = async (version) => {
+    const previous = releases.find((item) => !item.draft && item.tag_name === `v${data["dist-tags"].latest}`)?.tag_name;
+    const generated = await request("releases/generate-notes", { method: "POST", body: { tag_name: `v${version}`,
+      target_commitish: main, ...(previous ? { previous_tag_name: previous } : {}) } });
+    const subject = git(source, ["show", "-s", "--format=%s", selected]);
+    const replacement = recovery ? `- Supersedes unpublished ${recovery.version} from ${recovery.source}. Includes all changes since v${releasedVersion}; the original release records remain unchanged.\n\n` : "";
+    return `${replacement}- ${subject} ([${selected.slice(0, 7)}](https://github.com/${repository}/commit/${selected}))\n\n${generated.body ?? ""}`;
+  };
+
   const root = mkdtempSync("/tmp/npm-version-git-");
   const env = { ...appEnv, HOME: root, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" };
   const scopedGit = (args, options = {}) => git(source, args, { env, ...options });
@@ -495,13 +525,7 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
       identity(entry, repository, manifest);
       const tags = scopedGit(["tag", "--list"]).split("\n").filter(Boolean);
       const version = nextVersion(manifest.version, Object.keys(data.versions), tags);
-      const previous = releases.find((item) => !item.draft && item.tag_name === `v${data["dist-tags"].latest}`)?.tag_name;
-      const generated = await request("releases/generate-notes", { method: "POST", body: { tag_name: `v${version}`,
-        target_commitish: main, ...(previous ? { previous_tag_name: previous } : {}) } });
-      const subject = git(source, ["show", "-s", "--format=%s", selected]);
-      const replacement = recovery ? `- Supersedes unpublished ${recovery.version} from ${recovery.source}. Includes all changes since v${releasedVersion}; the original release records remain unchanged.\n\n` : "";
-      const notes = `${replacement}- ${subject} ([${selected.slice(0, 7)}](https://github.com/${repository}/commit/${selected}))\n\n${generated.body ?? ""}`;
-      stageVersion(source, version, notes, new Date().toISOString().slice(0, 10), recovery?.version);
+      stageVersion(source, version, await generatedNotes(version), new Date().toISOString().slice(0, 10), recovery?.version);
       formatVersion(source);
       scopedGit(["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
       review?.("pre-commit");
@@ -538,7 +562,10 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
       const tags = scopedGit(["tag", "--list"]).split("\n").filter(Boolean);
       const next = nextVersion(mainManifest.version, Object.keys(data.versions), tags);
       const current = readJson(join(source, "package.json")).version;
-      if (newer(next, current)) retargetVersion(source, current, next);
+      const version = newer(next, current) ? next : current;
+      if (version !== current) retargetVersion(source, current, version);
+      const path = join(source, "CHANGELOG.md");
+      writeFileSync(path, replaceGeneratedNotes(readFileSync(path, "utf8"), version, await generatedNotes(version)));
       formatVersion(source);
       scopedGit(["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
       review?.("pre-commit");
