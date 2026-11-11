@@ -1,0 +1,9 @@
+name: Configure Linux backup DNS resolvers
+description: Add parallel RFC 8767 serve-stale DNS resolvers on systemd-resolved Linux runners before apt or network setup
+runs:
+  using: composite
+  steps:
+    - if: runner.os == 'Linux'
+      name: Configure backup DNS resolvers
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/../../../scripts/setup-linux-dns.sh"
