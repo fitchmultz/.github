@@ -34,9 +34,13 @@ function nextVersion(manifestVersion, publishedVersions, tags) {
   return `${major}.${minor}.${patch + 1}`;
 }
 
-// Generated notes nest under their version heading.
+// Note content nests under its version heading; a level-2 heading would end the version section.
+function nestHeading(text) {
+  return text.trim().replace(/^##[ \t]+/gm, "### ");
+}
+
 function nestNotes(generated) {
-  const notes = generated.trim().replace(/^##[ \t]+/gm, "### ");
+  const notes = nestHeading(generated);
   assert.ok(notes, "Generated release notes are empty");
   return notes;
 }
@@ -56,7 +60,7 @@ function treeFragments(source, ref) {
     const path = entry.slice(tab + 1);
     return type === "blob" && mode !== "120000" && changelogFragment(path) ? [path] : [];
   }));
-  const notes = paths.map((path) => git(source, ["show", `${ref}:${path}`])).filter(Boolean);
+  const notes = paths.map((path) => nestHeading(git(source, ["show", `${ref}:${path}`]))).filter(Boolean);
   return { paths, notes };
 }
 

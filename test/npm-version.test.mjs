@@ -956,4 +956,31 @@ fs.writeFileSync(path, fs.readFileSync(path, "utf8").replace(/^\\* /gm, "- "));
     assert.match(closed.stdout, /Closed version PR #\d+; nothing changed since v4\.0\.0/);
     assert.equal(f.state().open.length, 0);
   });
+
+  await t.test("nests level-2 fragment headings so the version section, release notes, and later updates stay intact", (t) => {
+    const f = fixture(t, { unreleased: false });
+    writeFileSync(join(f.writer, "change.txt"), "Real source change");
+    mkdirSync(join(f.writer, "changelog.d"), { recursive: true });
+    writeFileSync(join(f.writer, "changelog.d", "feature.md"), "## Added\n\n- A brand new command.\n");
+    git(f.writer, "add", ".");
+    git(f.writer, "commit", "--quiet", "-m", "Add feature fragment");
+    git(f.writer, "push", "--quiet", "origin", "main");
+    success(f.reconcile());
+    const branch = `npm-version/${f.first}`;
+    const head = f.ref(branch);
+    const notes = rawChangelog(f, head);
+    assert.equal(
+      /<!-- npm-release:unreleased:start -->\n([\s\S]*?)\n<!-- npm-release:unreleased:end -->/.exec(notes)?.[1],
+      "### Added\n\n- A brand new command.",
+    );
+    const heading = /^##[ \t]+\d+\.\d+\.\d+[^\n]*$/m.exec(notes);
+    assert.ok(heading, "Version section heading is missing");
+    const rest = notes.slice(heading.index + heading[0].length);
+    const next = /^##[ \t]+/m.exec(rest);
+    const section = rest.slice(0, next === null ? rest.length : next.index);
+    assert.ok(section.includes("<!-- npm-release:unreleased:end -->"), "Note markers must stay inside the version section");
+    assert.ok(section.includes("- A brand new command."), "Release notes must keep the fragment note");
+    f.advance("A later main merge");
+    success(f.reconcile());
+  });
 });
