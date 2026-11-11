@@ -134,8 +134,12 @@ globalThis.fetch = async (input, options = {}) => {
   if (/^issues\/\d+\/comments$/.test(path)) return json(data.comments);
   if (/^pulls\/\d+\/reviews$/.test(path)) return json([]);
   if (path === "releases/generate-notes") {
-    appendFileSync(process.env.FAKE_GITHUB_LOG, `generate-notes previous=${JSON.parse(options.body).previous_tag_name}\n`);
-    return json({ body: "## What's Changed\n\n* Meaningful change" });
+    const { tag_name: tag, target_commitish: target, previous_tag_name: previous } = JSON.parse(options.body);
+    appendFileSync(process.env.FAKE_GITHUB_LOG, `generate-notes previous=${previous}\n`);
+    // Like GitHub, list what main gained between the previous release tag and the target commit.
+    const changes = execFileSync("git", ["--git-dir", process.env.FAKE_GITHUB_REMOTE, "log", "--first-parent", "--reverse",
+      "--format=* %s", `${previous}..${target}`], { encoding: "utf8" }).trim();
+    return json({ body: `## What's Changed\n\n${changes}\n\n**Full Changelog**: https://github.com/${process.env.GITHUB_REPOSITORY}/compare/${previous}...${tag}` });
   }
   if (path === "releases") return json(data.releases);
   if (path === "actions/workflows/npm-release.yml/runs") return json({ workflow_runs: data.runs });

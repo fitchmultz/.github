@@ -46,6 +46,7 @@ for (const [event, correctiveNote] of [["push", "- Correct the unpublished relea
     assert.ok(replacement.includes(`<!-- npm-release:unreleased:end -->\n\n<!-- npm-release:carried:start -->\n${carried}\n<!-- npm-release:carried:end -->\n\n- Supersedes unpublished 4.0.1`),
       "Curated notes must remain outside the pending block and before generated notes");
     assert.match(replacement, /Supersedes unpublished 4\.0\.1/);
+    if (laterNote) assert.ok(replacement.includes("\n* Later fixed-main source\n"), "An update from main lists what main gained");
     assert.ok(replacement.includes(bump));
     assert.equal(notes.slice(oldStart, notes.indexOf("## 4.0.0")), oldSection);
   };
@@ -107,7 +108,7 @@ for (const [event, correctiveNote] of [["push", "- Correct the unpublished relea
     const firstPending = event === "push" ? [correctiveNote, "- Newly merged changelog note."] : ["- Newly merged changelog note.", correctiveNote];
     assert.equal(carried, ["### Changed\n\nA real pending change.\nA second pending change.", ...firstPending].filter(Boolean).join("\n\n"));
     assert.equal(text.split("## 4.0.6")[1], previousSections, "Both older sections must remain unchanged");
-    assert.equal(section.split("Meaningful change").length, 2, "Do not copy prior generated notes");
+    assert.equal(section.split("What's Changed").length, 2, "Do not copy prior generated notes");
   };
   assertSecondNotes();
   const secondLater = f.advance("Later main after the second recovery", "- Another merged note.");
