@@ -17,7 +17,7 @@ let invocation = 0;
 async function resolveFixture(t, environment = {}, { official = true, candidate = "9.8.7", main = { sha: mainSha }, mainStatus = 200 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "pi-resolve-"));
   const output = join(root, "output");
-  const env = { REPOSITORY: "all", HOST: undefined, WAIVED_PLATFORMS: undefined, SOURCE_REF: undefined, OFFICIAL_VERSION: undefined,
+  const env = { REPOSITORY: "all", HOST: undefined, SOURCE_REF: undefined, OFFICIAL_VERSION: undefined,
     FORK_REF: undefined, GH_TOKEN: undefined, ...environment, GITHUB_OUTPUT: output };
   const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
   const requests = [];
@@ -118,36 +118,6 @@ test("fork reverse dependencies preserve all 28 required fork lanes without any 
   assert.ok(fork.lanes.every((lane) => lane.host === "fork" && lane.label === "fork" && lane.version === ""));
   assert.equal(fork.requests.length, 18);
   assert.ok(fork.requests.every((url) => url.startsWith("https://api.github.com/") && url.endsWith("/commits/compatibility%2Fpi-releases") && !url.includes("/pi-evidence/")));
-});
-
-test("Windows diagnostics require explicit opt-in and preserve all 8 optional lanes", async (t) => {
-  const defaults = await resolveFixture(t);
-  const full = await resolveFixture(t, { WAIVED_PLATFORMS: "true" });
-  const trimmed = await resolveFixture(t, { WAIVED_PLATFORMS: "false" });
-  const fork = await resolveFixture(t, { HOST: "fork", WAIVED_PLATFORMS: "true", FORK_REF: forkSha }, { official: false });
-  passed(defaults);
-  passed(full);
-  passed(trimmed);
-  passed(fork);
-  assert.equal(full.lanes.length, 64);
-  assert.equal(trimmed.lanes.length, 56);
-  assert.deepEqual(defaults.outputs, trimmed.outputs);
-  assert.deepEqual(trimmed.lanes, full.lanes.filter((lane) => lane.os !== "windows-latest"));
-  assert.equal(fork.lanes.length, 32);
-  assert.deepEqual(fork.lanes, full.lanes.filter((lane) => lane.host === "fork"));
-  assert.deepEqual(platformLabels(trimmed.lanes.filter((lane) => lane.host === "fork"), "pi-agent-browser-native"), ["ubuntu-latest/24", "macos-latest/24"]);
-  assert.deepEqual(platformLabels(fork.lanes, "pi-codex-goal"), ["ubuntu-latest/24", "windows-latest/24"]);
-  assert.deepEqual(platformLabels(fork.lanes, "pi-cursor-sdk"), ["ubuntu-latest/24", "windows-latest/24"]);
-  assert.equal(new Set(trimmed.lanes.map((lane) => lane.repo)).size, 18);
-});
-
-test("invalid waived-platform selectors fail closed before fetching or emitting outputs", async (t) => {
-  for (const WAIVED_PLATFORMS of ["", "False", "yes"]) {
-    const result = await resolveFixture(t, { WAIVED_PLATFORMS });
-    assert.match(result.error?.message ?? "", /Waived platforms must be true or false/);
-    assert.deepEqual(result.outputs, {});
-    assert.deepEqual(result.requests, []);
-  }
 });
 
 test("an individual PR qualifies latest rather than selecting its stale locked development version", async (t) => {

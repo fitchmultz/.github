@@ -14,10 +14,6 @@ on:
         description: Exact candidate fork commit (empty resolves maintained main)
         type: string
         default: ''
-      waived-platforms:
-        description: Include optional best-effort native Windows qualification
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -101,46 +97,6 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  windows-release-verifier:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '24'
-          check-latest: true
-          package-manager-cache: false
-      - name: Verify a retained release from a native Windows path
-        shell: bash
-        run: |
-          tar --version
-          node --test test/release-verifier.native.mjs
-
-  windows-environment:
-    needs: scope
-    if: needs.scope.outputs.fleet-required == 'true'
-    # Retain a small best-effort Windows smoke check without gating delivery.
-    continue-on-error: true
-    runs-on: windows-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '24'
-          check-latest: true
-          package-manager-cache: false
-      - name: Initialize native Windows module discovery for bash
-        shell: pwsh
-        run: '"PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
-      - name: Query native process identity in the isolated environment
-        shell: bash
-        run: node --test test/windows-environment.native.mjs
-
   configuration:
     runs-on: ubuntu-latest
     steps:
@@ -179,12 +135,10 @@ jobs:
       # During the initial cross-repository PR rollout, this variable selects the candidate branches.
       # Clear it once those branches have merged; normal operation always qualifies main.
       source-ref: ${{ inputs.source-ref || vars.PI_COMPATIBILITY_SOURCE_REF || 'main' }}
-      # Full native Windows qualification is an explicit manual diagnostic, not a delivery gate.
-      waived-platforms: ${{ github.event_name == 'workflow_dispatch' && inputs.waived-platforms }}
 
   automation:
     if: always()
-    needs: [scope, hosts, tests, windows-release-verifier, configuration, fleet]
+    needs: [scope, hosts, tests, configuration, fleet]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -199,7 +153,6 @@ jobs:
           SCOPE: ${{ needs.scope.result }}
           HOSTS: ${{ needs.hosts.result }}
           TESTS: ${{ needs.tests.result }}
-          WINDOWS_RELEASE: ${{ needs.windows-release-verifier.result }}
           CONFIGURATION: ${{ needs.configuration.result }}
           FLEET_REQUIRED: ${{ needs.scope.outputs.fleet-required }}
           FLEET: ${{ needs.fleet.result }}

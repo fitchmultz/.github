@@ -30,8 +30,6 @@ import { delimiter, dirname, join, resolve } from "node:path";
 export const codingAgent = "@earendil-works/pi-coding-agent";
 // Default Node floor/current lanes.
 export const defaultNodes = ["22.23.5", "24"];
-// Native Windows is best-effort; retain the existing export/input names for pinned callers.
-export const waivedPlatforms = new Set(["windows-latest"]);
 /**
  * @param {string} os
  * @returns {"win32" | "darwin" | "linux"}

@@ -31,7 +31,7 @@ Each extension lane runs package contracts, installs a fresh Git checkout with p
 
 The checks use empty profiles without provider credentials. Keep each package's separate browser, desktop, and paid-provider release checks.
 
-**Native Windows is best-effort.** Normal PRs, releases and the daily canary require Linux/macOS, not full Windows qualification. A small Windows environment smoke check remains nonblocking; deeper Windows suites are explicit opt-in diagnostics. Their real failures remain unresolved, and a passing required check does not certify Windows support. The [qualification reference](docs/qualification.md) records the policy, opt-in, host preparation, lane settings and command budgets.
+Supported and tested platforms are Apple Silicon macOS and Linux. The [qualification reference](docs/qualification.md) records host preparation, lane settings and command budgets.
 
 ## Results and failures
 
