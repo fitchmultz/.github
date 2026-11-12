@@ -51,7 +51,7 @@ An unfinished release is reconciled without overwriting published bytes. Follow 
 
 ## Contribute
 
-Use Node 24. Run the unit tests from a checkout:
+Use Node 24.22.3 or a newer Node 24 release. Run the unit tests from a checkout:
 
 ```sh
 npm test

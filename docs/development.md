@@ -2,11 +2,11 @@
 
 [Back to the README](../README.md) · [Qualification reference](qualification.md)
 
-The automation package is private and is used directly from this repository. Its Node engine ranges and reviewed npm version are in [`package.json`](../package.json). Use Node 24 and the npm version from `packageManager` for the complete local validation sequence below.
+The automation package is private and is used directly from this repository. Its Node engine ranges and reviewed npm version are in [`package.json`](../package.json). Use Node 24.22.3 or a newer Node 24 release and the npm version from `packageManager` for the complete local validation sequence below.
 
 ## Local checks
 
-Node 24 runs the native Renovate validator. Pi host qualification and the unit/native tests also run on Node 22.22.2, the floor required by the pinned npm 12 release.
+Node 24 runs the native Renovate validator. Pi host qualification and the unit/native tests also run on Node 22.23.5, the security floor for the supported Node 22 line.
 
 ```sh
 npm ci --ignore-scripts
@@ -44,7 +44,7 @@ It installs the exact official release with the canonical installer, selects tha
 
 ## CI scope
 
-Every automation PR and push to `main` resolves the latest hosts, runs unit/native CLI checks on Node 22.22.2 and 24, validates Renovate configuration, runs actionlint and runs the strict quality check. The required `automation` check joins those results with the scope decision. PRs, manual dispatches and the daily canary run the full fleet when scope requires it; pushes to `main` intentionally skip the fleet because the pull request run already qualified the same content and the daily canary re-qualifies.
+Every automation PR and push to `main` resolves the latest hosts, runs unit/native CLI checks on Node 22.23.5 and 24, validates Renovate configuration, runs actionlint and runs the strict quality check. The required `automation` check joins those results with the scope decision. PRs, manual dispatches and the daily canary run the full fleet when scope requires it; pushes to `main` intentionally skip the fleet because the pull request run already qualified the same content and the daily canary re-qualifies.
 
 Documentation (`README.md`, `docs/`, `.github/readme/`) and the two Renovate JSON files do not need fleet qualification. Package manifest/lock changes take this fast path only when both Git revisions prove that Renovate is the sole development dependency, every locked package is development-only, and all other manifest fields, scripts and root lock metadata are unchanged. Unknown package layouts take the full path.
 

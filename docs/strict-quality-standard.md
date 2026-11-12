@@ -949,8 +949,8 @@ Record the repository and adopted version; supported runtimes and package manage
 
 **fitchmultz/.github adoption:**
 
-- Standard: 5.1.2, adopted in phases under Section 9.2. Node.js ^22.22.2, ^24.15.0 or 26 and newer. The package manager is npm 12.2.0.
-- Locked tools: Oxlint 1.90.0, oxlint-tsgolint 7.0.2005, Oxfmt 0.76.0, TypeScript 7.0.2 and @types/node 22.20.5, which matches the Node 22 engine floor.
+- Standard: 5.1.2, adopted in phases under Section 9.2. Node.js ^22.23.5, ^24.22.3 or 26.13.1 and newer. The package manager is npm 12.2.0.
+- Locked tools: Oxlint 1.90.0, oxlint-tsgolint 7.0.2005, Oxfmt 0.76.0, TypeScript 7.0.2 and @types/node 22.20.5, for the Node 22 API surface.
 - Policy and coverage: `.oxlintrc.json` is Appendix A without adaptations, `.oxfmtrc.json` is Section 7.1 and `tsconfig.json` is one checked-JavaScript project with the Section 4.2 settings. Normal acceptance is `npm run check:quality` after `npm ci --ignore-scripts`. `scripts/check-quality.mjs` runs the compiler, native semantic lint, the directive check, formatting and the policy check as independent steps and fails if any of them fails. The CI `configuration` job runs it, and the `check` aggregate requires that job. `npm test` remains the test gate.
 - Strict scope and source profile: the production profile applies to `scripts/select-development-host.mjs`, `scripts/check-quality.mjs` and every repository module that the compiler resolves from them, currently `scripts/hosts.mjs`, `scripts/official-release.mjs` and `scripts/common.mjs`. The check fails when an entrypoint leaves the compiler program, when `tsconfig.json` does not list a resolved module in `files` (semantic lint gives compiler types only to listed files) or when a configuration differs from this copy.
 - Formatter ownership: Oxfmt checks the strict scope, the three configurations and this copy. The check fails when an ignore file excludes a selected file. No generator owns a file in the strict scope.
