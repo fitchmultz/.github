@@ -1,7 +1,7 @@
 [
   { "repo": "pi-subagents", "kind": "extension", "npmPackage": "@fitchmultz/pi-subagents", "npmRelease": "automatic", "releaseQualification": true, "releaseChecks": ["compatibility"], "nodes": ["24"], "extraPlatforms": ["macos-latest"], "contractTimeoutMs": { "linux": 3540000, "darwin": 3540000 } },
   { "repo": "pi-agent-browser-native", "kind": "extension", "npmPackage": "pi-agent-browser-native", "npmRelease": "automatic", "releaseQualification": true, "releaseChecks": ["quality", "Native lifecycle Linux", "Official Pi / Node 24", "Fork Pi / Node 24", "macOS package smoke"], "nodes": ["24"], "extraPlatforms": ["macos-latest", "windows-latest"], "contractTimeoutMs": { "linux": 1800000, "darwin": 1800000, "win32": 2700000 } },
-  { "repo": "pi-change-working-dir", "kind": "extension", "nodes": ["24.15.0", "24"], "extraPlatforms": ["macos-latest"] },
+  { "repo": "pi-change-working-dir", "kind": "extension", "nodes": ["24.22.3", "24"], "extraPlatforms": ["macos-latest"] },
   { "repo": "pi-stash", "kind": "extension", "npmPackage": "@fitchmultz/pi-stash", "npmRelease": "automatic", "nodes": ["24"] },
   { "repo": "pi-fitch-kit", "kind": "extension", "nodes": ["24", "26"] },
   { "repo": "pi-ctx-info", "kind": "extension", "nodes": ["24"] },
