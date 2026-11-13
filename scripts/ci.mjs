@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
-import { isDeepStrictEqual, parseArgs } from "node:util";
+import { parseArgs } from "node:util";
 
 const help = `Usage:
   node scripts/ci.mjs scope --event pull_request|push|workflow_dispatch --base SHA --head SHA
@@ -22,55 +22,8 @@ Exit codes: 0 = planned or checks passed; 1 = invalid input, Git failure or fail
   -h, --help  Show this help`;
 
 const git = (...args) => execFileSync("git", args, { encoding: "utf8", timeout: 30_000, maxBuffer: 64 * 1024 * 1024 });
-const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-const onlyKeys = (value, keys) => object(value) && Object.keys(value).every((key) => keys.includes(key));
-const validatorDependency = (value) => object(value) && Object.keys(value).length === 1
-  && typeof value.renovate === "string" && value.renovate.length > 0;
-const withoutDev = ({ devDependencies, ...rest }) => rest;
-// Exact paths that no fleet lane executes. They may depend on qualification modules; nothing the fleet runs may depend on them,
-// and test/ci.test.mjs fails if a fleet workflow or its import graph reaches one. A path missing here runs the fleet.
-const releaseAutomation = [
-  ".github/actions/npm-publish/action.yml", ".github/actions/npm-version-candidate-review/action.yml",
-  ".github/workflows/npm-release-bump.yml", ".github/workflows/npm-release-plan.yml", ".github/workflows/npm-release-prepare.yml",
-  ".github/workflows/npm-release-qualified.yml", ".github/workflows/npm-release.yml",
-  "scripts/npm-package.mjs", "scripts/npm-release-core.mjs", "scripts/npm-release.mjs", "scripts/npm-remediation-prompt.mjs",
-  "scripts/npm-remediation.mjs", "scripts/npm-version.mjs", "scripts/release-fetch.mjs",
-  "test/fixtures/npm-version-api.mjs", "test/fixtures/npm-version-gh.mjs", "test/fixtures/npm-version-harness.mjs",
-  "test/fixtures/npm-version-transport.mjs", "test/npm-release.test.mjs", "test/npm-version-recovery.test.mjs",
-  "test/npm-version-transport.test.mjs", "test/npm-version.test.mjs", "test/release-verifier.native.mjs",
-];
-
-function validatorOnly(before, after) {
-  // ponytail: Only the single-validator npm v3 layout gets a fast path; extend this proof when adopting another tool or lock format.
-  try {
-    const read = (ref, file) => JSON.parse(git("show", `${ref}:${file}`));
-    const inputs = [before, after].map((ref) => ({
-      manifest: read(ref, "package.json"), lock: read(ref, "package-lock.json"),
-    }));
-    for (const { manifest, lock } of inputs) {
-      if (!onlyKeys(manifest, ["name", "version", "private", "type", "packageManager", "scripts", "engines", "devDependencies", "allowScripts"])
-        || !validatorDependency(manifest.devDependencies)
-        || !object(manifest.scripts) || typeof manifest.scripts["check:renovate"] !== "string"
-        || !Object.values(manifest.scripts).every((script) => typeof script === "string")
-        || !onlyKeys(lock, ["name", "version", "lockfileVersion", "requires", "packages"])
-        || lock.lockfileVersion !== 3 || lock.requires !== true || !object(lock.packages)) return false;
-      const root = lock.packages[""];
-      if (!onlyKeys(root, ["name", "version", "devDependencies", "engines"])
-        || !isDeepStrictEqual(root.devDependencies, manifest.devDependencies)
-        || root.name !== manifest.name || root.version !== manifest.version
-        || !object(lock.packages["node_modules/renovate"])
-        || !Object.entries(lock.packages).every(([path, entry]) => path === ""
-          || (path.startsWith("node_modules/") && object(entry) && entry.dev === true && !Object.hasOwn(entry, "link")))) return false;
-    }
-    const comparable = ({ manifest, lock }) => ({
-      manifest: { ...withoutDev(manifest), scripts: Object.fromEntries(Object.entries(manifest.scripts).filter(([key]) => key !== "check:renovate")) },
-      lock: { ...lock, packages: { "": withoutDev(lock.packages[""]) } },
-    });
-    return isDeepStrictEqual(comparable(inputs[0]), comparable(inputs[1]));
-  } catch {
-    return false;
-  }
-}
+const docsOrPolicy = (path) => path === "README.md" || path.startsWith("docs/") || path.startsWith(".github/readme/")
+  || ["renovate.json", "pi-extensions.json"].includes(path);
 
 function scope(values) {
   if (values.event === "workflow_dispatch") return { fleetRequired: true, reason: "Manual dispatch requires full qualification.", files: [] };
@@ -83,23 +36,12 @@ function scope(values) {
   // NUL preserves unusual filenames; disabling rename detection retains deleted runtime paths.
   const files = git("diff", "--name-only", "-z", "--no-renames", before, values.head, "--").split("\0").filter(Boolean);
   if (!files.length) return { fleetRequired: true, reason: "No changed paths to prove a fast-path scope.", files };
-  const packageFiles = ["package.json", "package-lock.json"];
-  const fastPaths = [
-    ["documentation and policy", (path) => path === "README.md" || path.startsWith("docs/") || path.startsWith(".github/readme/")
-      || ["renovate.json", "pi-extensions.json"].includes(path)],
-    ["release automation", (path) => releaseAutomation.includes(path)],
-    ["proven validator-only package inputs", (path) => packageFiles.includes(path)],
-  ];
-  const unclassified = files.filter((path) => !fastPaths.some(([, matches]) => matches(path)));
+  const unclassified = files.filter((path) => !docsOrPolicy(path));
   if (unclassified.length) {
     const paths = unclassified.map((path) => JSON.stringify(path)).join(", ");
     return { fleetRequired: true, reason: `Default rule: these changed paths are on no fast path, so the fleet is required: ${paths}.`, files };
   }
-  if (files.some((path) => packageFiles.includes(path)) && !validatorOnly(before, values.head)) {
-    return { fleetRequired: true, reason: "Package inputs are not proven to be validator-only.", files };
-  }
-  const applied = fastPaths.filter(([, matches]) => files.some(matches)).map(([name]) => name);
-  return { fleetRequired: false, reason: `Every changed path is on a fast path: ${applied.join("; ")}.`, files };
+  return { fleetRequired: false, reason: "Only documentation and Renovate policy files changed.", files };
 }
 
 function check() {
