@@ -59,4 +59,4 @@ npm test
 
 Follow the [development guide](docs/development.md) for dependency setup, native CLI tests, Renovate validation, the [strict quality check](docs/development.md#strict-quality-scope), and local qualification.
 
-This repository's CI runs the full fleet for scripts, workflows, manifests and manual dispatches. Documentation and Renovate policy changes keep the local checks without requalifying every package; see [CI scope](docs/development.md#ci-scope).
+This repository's CI runs the full fleet for shared compatibility harness changes and manual dispatches, runs targeted repository lanes for `fleet.json` compatibility entry edits and CI-wiring edits, and skips fleet requalification for release-only, documentation, lint/test, and Renovate changes; see [CI scope](docs/development.md#ci-scope).
