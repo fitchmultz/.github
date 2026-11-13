@@ -9,7 +9,7 @@ const pull = (item) => ({ number: item.number, state: "open", base: { ref: "main
 const json = (value, status = 200) => Response.json(value, { status });
 if (process.env.FAKE_FAST_POLL) {
   const sleep = globalThis.setTimeout;
-  globalThis.setTimeout = (callback, ms, ...args) => sleep(callback, ms === 30_000 || ms === 10_000 ? 1 : ms, ...args);
+  globalThis.setTimeout = (callback, ms, ...args) => sleep(callback, ms === 30_000 || ms === 10_000 || ms === 2_000 ? 1 : ms, ...args);
 }
 
 globalThis.fetch = async (input, options = {}) => {
@@ -119,6 +119,11 @@ globalThis.fetch = async (input, options = {}) => {
   if (/^git\/refs\/heads\/npm-version\/[a-f0-9]{40}$/.test(path) && options.method === "DELETE") return new Response(null, { status: 204 });
   if (/^pulls\/\d+$/.test(path)) {
     const item = data.open.find((value) => value.number === Number(path.split("/")[1]));
+    if (item && data.stalePullHeads?.length) {
+      const staleHead = data.stalePullHeads.shift();
+      writeFileSync(process.env.FAKE_GITHUB_STATE, JSON.stringify(data));
+      return json({ ...pull(item), head: { ...pull(item).head, sha: staleHead } });
+    }
     return item ? json(pull(item)) : json({ message: "Not Found" }, 404);
   }
   if (/^commits\/[a-f0-9]{40}\/pulls$/.test(path)) {

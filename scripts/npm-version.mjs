@@ -676,9 +676,14 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
         scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
       }
     }
-    const current = await request(`pulls/${number}`);
+    const expectedHead = scopedGit(["rev-parse", "HEAD"]);
+    let current = await request(`pulls/${number}`);
+    for (let attempt = 0; attempt < 6 && pull && pull.head.sha !== expectedHead && current.head.sha === pull.head.sha; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      current = await request(`pulls/${number}`);
+    }
     assert.equal(current.head.ref, branch);
-    assert.equal(current.head.sha, scopedGit(["rev-parse", "HEAD"]), "Version PR head changed during reconciliation");
+    assert.equal(current.head.sha, expectedHead, "Version PR head changed during reconciliation");
     output({ pull: String(number), head: current.head.sha, source: selected });
     console.log(`Version PR #${number} covers ${selected}`);
   } finally {

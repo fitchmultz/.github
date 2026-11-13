@@ -199,6 +199,7 @@ test("version PR follows advancing main, and the next one starts after the commi
 
 test("an update from main that moves the PR to a later version regenerates its notes for that version", (t) => {
   const f = fixture(t); success(f.reconcile());
+  const previousHead = f.ref(`npm-version/${f.first}`);
   for (const file of ["package.json", "package-lock.json"]) {
     const manifest = read(join(f.writer, file));
     manifest.version = "4.1.0";
@@ -207,13 +208,21 @@ test("an update from main that moves the PR to a later version regenerates its n
   }
   git(f.writer, "add", "."); git(f.writer, "commit", "--quiet", "-m", "Start the 4.1 line");
   git(f.writer, "push", "--quiet", "origin", "main");
-  success(f.reconcile());
+  // fitchmultz/pi-cursor-sdk run 43402745581 read the pre-push PR head 660ms after git push.
+  f.setState((s) => { s.stalePullHeads = [previousHead, previousHead]; });
+  success(f.invoke(["reconcile", "--source", f.source, "--app-slug", "pi-durable"], "push", { FAKE_FAST_POLL: "1" }));
   const head = f.ref(`npm-version/${f.first}`);
   assert.equal(JSON.parse(git(f.root, "--git-dir", f.remote, "show", `${head}:package.json`)).version, "4.1.1");
   const notes = rawChangelog(f, head);
   assert.match(notes, /## Unreleased\s+## 4\.1\.1 - /);
   assert.doesNotMatch(notes, /4\.0\.1/);
   assert.ok(notes.includes(`* Start the 4.1 line\n\n**Full Changelog**: https://github.com/${repository}/compare/v4.0.0...v4.1.1\n`));
+
+  // An unexpected concurrent commit on the PR branch still fails immediately without polling.
+  f.setState((s) => { s.stalePullHeads = ["1".repeat(40)]; });
+  const raced = f.invoke(["reconcile", "--source", f.source, "--app-slug", "pi-durable"], "push", { FAKE_FAST_POLL: "1" });
+  assert.notEqual(raced.status, 0);
+  assert.match(raced.stderr, /Version PR head changed during reconciliation/);
 });
 
 test("nothing is released when main and the version PR match the published release apart from version metadata", (t) => {
