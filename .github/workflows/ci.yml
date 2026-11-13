@@ -28,6 +28,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       fleet-required: ${{ steps.scope.outputs.fleet-required }}
+      fleet-repository: ${{ steps.scope.outputs.fleet-repository }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -129,7 +130,7 @@ jobs:
     uses: ./.github/workflows/pi-compatibility.yml
     with:
       automation-ref: ${{ github.sha }}
-      repository: all
+      repository: ${{ needs.scope.outputs.fleet-repository }}
       official-version: ${{ needs.hosts.outputs.official-version }}
       fork-ref: ${{ needs.hosts.outputs.fork-ref }}
       # During the initial cross-repository PR rollout, this variable selects the candidate branches.
@@ -155,6 +156,7 @@ jobs:
           TESTS: ${{ needs.tests.result }}
           CONFIGURATION: ${{ needs.configuration.result }}
           FLEET_REQUIRED: ${{ needs.scope.outputs.fleet-required }}
+          FLEET_REPOSITORY: ${{ needs.scope.outputs.fleet-repository }}
           FLEET: ${{ needs.fleet.result }}
           EVENT: ${{ github.event_name }}
         run: node scripts/ci.mjs check

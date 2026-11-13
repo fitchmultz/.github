@@ -7,7 +7,15 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const cli = fileURLToPath(new URL("../scripts/ci.mjs", import.meta.url));
-const gate = { SCOPE: "success", HOSTS: "success", TESTS: "success", CONFIGURATION: "success", FLEET_REQUIRED: "true", FLEET: "success" };
+const gate = {
+  SCOPE: "success",
+  HOSTS: "success",
+  TESTS: "success",
+  CONFIGURATION: "success",
+  FLEET_REQUIRED: "true",
+  FLEET_REPOSITORY: "all",
+  FLEET: "success",
+};
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), "pi-ci-"));
@@ -28,6 +36,10 @@ function fixture(t) {
     "node_modules/renovate": { version: "1.0.0", dev: true, dependencies: { validator: "1.0.0" } },
     "node_modules/validator": { version: "1.0.0", dev: true },
   } };
+  const baseFleet = [
+    { repo: "pi-calculator", kind: "extension", npmPackage: "@fitchmultz/pi-calculator", npmRelease: "automatic", nodes: ["24"] },
+    { repo: "pi-stash", kind: "extension", npmPackage: "@fitchmultz/pi-stash", npmRelease: "automatic", releaseQualification: true, nodes: ["24"] },
+  ];
   const commit = () => {
     git("add", ".");
     git("-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "fixture");
@@ -36,6 +48,7 @@ function fixture(t) {
   git("init", "--quiet");
   write("package.json", manifest);
   write("package-lock.json", lock);
+  write("fleet.json", baseFleet);
   write("scripts/qualify.mjs", "runtime\n");
   const base = commit();
   const invoke = (args, environment = {}) => {
@@ -50,56 +63,133 @@ function fixture(t) {
       summary: existsSync(summary) ? readFileSync(summary, "utf8") : "" };
   };
   const scope = (head, event = "pull_request", before = base) => invoke(["scope", "--event", event, "--base", before, "--head", head]);
-  return { root, manifest, lock, git, write, commit, base, invoke, scope };
+  return { root, manifest, lock, baseFleet, git, write, commit, base, invoke, scope };
 }
 
-function planned(result, required) {
+function planned(result, required, repository = required ? "all" : "") {
   assert.equal(result.status, 0, result.stderr);
   const plan = JSON.parse(result.stdout);
   assert.equal(plan.fleetRequired, required);
-  assert.equal(result.output, `fleet-required=${required}\n`);
+  assert.equal(plan.fleetRepository, repository);
+  assert.equal(result.output, `fleet-required=${required}\nfleet-repository=${repository}\n`);
   assert.match(result.summary, new RegExp(`Fleet required: \\*\\*${required}\\*\\*`));
   assert.ok(result.summary.includes(plan.reason), "The job summary must carry the rule that decided the scope");
   return plan;
 }
 
-test("docs and policy changes intentionally skip the fleet through the real CLI", (t) => {
+test("non-compatibility changes intentionally skip the fleet through the real CLI", (t) => {
   const f = fixture(t);
-  const files = ["README.md", "docs/guide with\nnewline.md", ".github/readme/qualification.svg",
-    "renovate.json", "pi-extensions.json"];
+  const files = [
+    "README.md",
+    "docs/guide with\nnewline.md",
+    ".github/readme/qualification.svg",
+    "renovate.json",
+    "pi-extensions.json",
+    ".oxlintrc.json",
+    "scripts/check-quality.mjs",
+    "scripts/npm-version.mjs",
+    "scripts/npm-release.mjs",
+    ".github/workflows/npm-release-bump.yml",
+    ".github/workflows/npm-release.yml",
+    ".github/workflows/pi-canary.yml",
+    "test/hosts.test.mjs",
+    "test/ci.test.mjs",
+  ];
   for (const path of files) f.write(path, "changed\n");
   const head = f.commit();
   for (const event of ["pull_request", "push"]) {
     assert.deepEqual(planned(f.scope(head, event), false).files.sort(), files.sort());
   }
   // A manual run must never inherit the fast path, even without comparison refs.
-  planned(f.invoke(["scope", "--event", "workflow_dispatch"]), true);
+  planned(f.invoke(["scope", "--event", "workflow_dispatch"]), true, "all");
 });
 
-test("scripts, workflows, manifests and unknown paths require the fleet even beside fast-path changes", async (t) => {
-  for (const path of ["package.json", "package-lock.json", "scripts/qualify.mjs", "scripts/npm-release.mjs",
-    "scripts/future.mjs", "test/hosts.test.mjs", "fleet.json", ".github/workflows/ci.yml",
-    ".github/workflows/npm-release-bump.yml", "scripts/ci.mjs", "test/ci.test.mjs",
-    ".github/workflows/pi-compatibility.yml", ".github/workflows/resolve-hosts.yml",
-    ".github/workflows/pi-canary.yml", "future.config", "unknown\nREADME.md"]) {
+test("compatibility harness scripts, workflows, manifests and unknown paths require the full fleet", async (t) => {
+  for (const path of [
+    "package.json",
+    "package-lock.json",
+    "scripts/qualify.mjs",
+    "scripts/cli-probe.mjs",
+    "scripts/probe-model.mjs",
+    "scripts/hosts.mjs",
+    "scripts/official-release.mjs",
+    "scripts/pack-fork.mjs",
+    "scripts/resolve-hosts.mjs",
+    "scripts/resolve-matrix.mjs",
+    "scripts/select-development-host.mjs",
+    "scripts/common.mjs",
+    "scripts/setup-linux-dns.sh",
+    ".github/actions/setup-linux-dns/action.yml",
+    ".github/workflows/pi-compatibility.yml",
+    ".github/workflows/resolve-hosts.yml",
+    "scripts/future.mjs",
+    ".github/workflows/future.yml",
+    "future.config",
+    "unknown\nREADME.md",
+  ]) {
     await t.test(path, (t) => {
       const f = fixture(t);
       f.write("README.md", "docs also changed\n");
       f.write(path, "runtime change\n");
-      assert.ok(planned(f.scope(f.commit()), true).reason.includes(JSON.stringify(path)), "The reason must name the path that required the fleet");
+      assert.ok(planned(f.scope(f.commit()), true, "all").reason.includes(JSON.stringify(path)), "The reason must name the path that required the fleet");
     });
   }
 });
 
-test("deletions and runtime renames into documentation cannot hide a fleet change", async (t) => {
-  for (const rename of [false, true]) {
-    await t.test(rename ? "rename" : "delete", (t) => {
+test("CI wiring changes select the single-repository smoke and fail closed if smoke entry is absent", (t) => {
+  for (const path of [".github/workflows/ci.yml", "scripts/ci.mjs"]) {
+    const f = fixture(t);
+    f.write(path, "ci wiring change\n");
+    planned(f.scope(f.commit()), true, "fitchmultz/pi-calculator");
+  }
+  const missingSmoke = fixture(t);
+  missingSmoke.write("fleet.json", [{ repo: "pi-stash", kind: "extension", nodes: ["24"] }]);
+  const baseWithoutSmoke = missingSmoke.commit();
+  missingSmoke.write("scripts/ci.mjs", "ci wiring change\n");
+  planned(missingSmoke.scope(missingSmoke.commit(), "pull_request", baseWithoutSmoke), true, "all");
+});
+
+test("fleet.json changes target only entries whose compatibility configuration changed", (t) => {
+  const releaseOnly = fixture(t);
+  releaseOnly.write("fleet.json", [
+    releaseOnly.baseFleet[0],
+    { ...releaseOnly.baseFleet[1], releaseQualification: false, versionQualification: true },
+  ]);
+  planned(releaseOnly.scope(releaseOnly.commit()), false, "");
+
+  const removedOnly = fixture(t);
+  removedOnly.write("fleet.json", [removedOnly.baseFleet[0]]);
+  planned(removedOnly.scope(removedOnly.commit()), false, "");
+
+  const oneRepo = fixture(t);
+  oneRepo.write("fleet.json", [
+    oneRepo.baseFleet[0],
+    { ...oneRepo.baseFleet[1], extraPlatforms: ["macos-latest"] },
+  ]);
+  planned(oneRepo.scope(oneRepo.commit()), true, "fitchmultz/pi-stash");
+
+  const twoRepos = fixture(t);
+  twoRepos.write("fleet.json", [
+    { ...twoRepos.baseFleet[0], nodes: ["24", "26"] },
+    twoRepos.baseFleet[1],
+    { repo: "pi-oracle", kind: "extension", nodes: ["24"] },
+  ]);
+  planned(twoRepos.scope(twoRepos.commit()), true, "fitchmultz/pi-calculator,fitchmultz/pi-oracle");
+
+  const malformed = fixture(t);
+  malformed.write("fleet.json", "{not-json\n");
+  planned(malformed.scope(malformed.commit()), true, "all");
+});
+
+test("deletions and runtime renames into documentation or tests cannot hide a compatibility change", async (t) => {
+  for (const target of [null, "docs/moved.md", "test/moved.test.mjs"]) {
+    await t.test(target ?? "delete", (t) => {
       const f = fixture(t);
-      if (rename) {
-        mkdirSync(join(f.root, "docs"));
-        renameSync(join(f.root, "scripts/qualify.mjs"), join(f.root, "docs/moved.md"));
+      if (target) {
+        mkdirSync(dirname(join(f.root, target)), { recursive: true });
+        renameSync(join(f.root, "scripts/qualify.mjs"), join(f.root, target));
       } else rmSync(join(f.root, "scripts/qualify.mjs"));
-      const plan = planned(f.scope(f.commit()), true);
+      const plan = planned(f.scope(f.commit()), true, "all");
       assert.ok(plan.files.includes("scripts/qualify.mjs"));
     });
   }
@@ -116,12 +206,12 @@ test("PR merge-base scope excludes base-only changes while a multi-commit push i
   f.write("scripts/qualify.mjs", "pushed runtime\n");
   f.commit();
   f.write("docs/guide.md", "last push commit is docs\n");
-  planned(f.scope(f.commit(), "push"), true);
+  planned(f.scope(f.commit(), "push"), true, "all");
 });
 
 test("invalid events and unavailable or noncommit refs never emit a fast-path decision", (t) => {
   const f = fixture(t);
-  planned(f.scope(f.base), true);
+  planned(f.scope(f.base), true, "all");
   const blob = f.git("rev-parse", "HEAD:package.json");
   for (const args of [
     ["scope", "--event", "schedule"],
@@ -139,21 +229,35 @@ test("invalid events and unavailable or noncommit refs never emit a fast-path de
 
 test("automation requires every cheap check and only permits an explicit intentional fleet skip", (t) => {
   const f = fixture(t);
-  for (const environment of [gate, { ...gate, FLEET_REQUIRED: "false" }, { ...gate, FLEET_REQUIRED: "false", FLEET: "skipped" }]) {
+  for (const environment of [
+    gate,
+    { ...gate, FLEET_REPOSITORY: "fitchmultz/pi-calculator" },
+    { ...gate, FLEET_REQUIRED: "false", FLEET_REPOSITORY: "" },
+    { ...gate, FLEET_REQUIRED: "false", FLEET_REPOSITORY: "", FLEET: "skipped" },
+  ]) {
     const result = f.invoke(["check"], environment);
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.summary, environment.FLEET === "skipped" ? /not fleet qualification/ : /full fleet qualification/);
+    assert.match(
+      result.summary,
+      environment.FLEET === "skipped"
+        ? /not fleet qualification/
+        : environment.FLEET_REPOSITORY === "fitchmultz/pi-calculator"
+          ? /targeted fleet qualification \(fitchmultz\/pi-calculator\)/
+          : /full fleet qualification/,
+    );
   }
+  assert.equal(f.invoke(["check"], { ...gate, FLEET_REQUIRED: "false", FLEET_REPOSITORY: "all", FLEET: "skipped" }).status, 1);
   for (const name of ["SCOPE", "HOSTS", "TESTS", "CONFIGURATION"]) {
     for (const state of ["", "failure", "cancelled", "skipped", "unknown"]) {
-      const result = f.invoke(["check"], { ...gate, [name]: state, FLEET_REQUIRED: "false", FLEET: "skipped" });
+      const result = f.invoke(["check"], { ...gate, [name]: state, FLEET_REQUIRED: "false", FLEET_REPOSITORY: "", FLEET: "skipped" });
       assert.equal(result.status, 1, `${name}=${state}: ${result.stdout}`);
     }
   }
   for (const required of ["true", "false"]) {
+    const repository = required === "true" ? "all" : "";
     for (const fleet of ["skipped", "failure", "cancelled", "", "unknown"]) {
       if (fleet === "skipped" && required === "false") continue;
-      const result = f.invoke(["check"], { ...gate, FLEET_REQUIRED: required, FLEET: fleet });
+      const result = f.invoke(["check"], { ...gate, FLEET_REQUIRED: required, FLEET_REPOSITORY: repository, FLEET: fleet });
       assert.equal(result.status, 1, `required=${required}, fleet=${fleet}: ${result.stdout}`);
       assert.equal(result.summary, "");
     }
