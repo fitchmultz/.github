@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
-import { dirname, join, posix } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -63,22 +63,6 @@ function planned(result, required) {
   return plan;
 }
 
-// Every repository file the fleet can execute, found from the files themselves: Automation CI names its reusable workflows,
-// a workflow names repository paths (under `automation/` when a caller checks this repository out there), and a script
-// names its imports and run-time copies relative to itself. JSON is data and names nothing the fleet runs.
-function fleetFiles() {
-  const root = fileURLToPath(new URL("..", import.meta.url));
-  const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
-  const named = (path) => {
-    const tokens = path.endsWith(".json") ? [] : readFileSync(join(root, path), "utf8").match(/[\w./-]+/g) ?? [];
-    return tokens.map((token) => path.endsWith(".yml") ? token.replace(/^(.*automation\/|\.\/)/, "") : posix.join(posix.dirname(path), token))
-      .flatMap((file) => [file, `${file}/action.yml`]).filter((file) => tracked.includes(file));
-  };
-  const reached = new Set(named(".github/workflows/ci.yml").filter((file) => file.startsWith(".github/workflows/")));
-  for (const path of reached) for (const file of named(path)) reached.add(file);
-  return [...reached];
-}
-
 test("docs and policy changes intentionally skip the fleet through the real CLI", (t) => {
   const f = fixture(t);
   const files = ["README.md", "docs/guide with\nnewline.md", ".github/readme/qualification.svg",
@@ -92,43 +76,17 @@ test("docs and policy changes intentionally skip the fleet through the real CLI"
   planned(f.invoke(["scope", "--event", "workflow_dispatch"]), true);
 });
 
-test("release automation changes skip the fleet and say which fast paths applied", (t) => {
-  const f = fixture(t);
-  const files = ["scripts/npm-version.mjs", "scripts/release-fetch.mjs", ".github/workflows/npm-release-bump.yml",
-    ".github/actions/npm-publish/action.yml", "test/npm-version.test.mjs", "test/fixtures/npm-version-api.mjs", "docs/npm-releases.md"];
-  for (const path of files) f.write(path, "changed\n");
-  const head = f.commit();
-  for (const event of ["pull_request", "push"]) {
-    const { reason } = planned(f.scope(head, event), false);
-    assert.match(reason, /release automation/);
-    assert.match(reason, /documentation/);
-  }
-});
-
-test("qualification, unlisted and unknown paths require the fleet even beside fast-path changes", async (t) => {
-  for (const path of ["scripts/qualify.mjs", "scripts/future.mjs", "test/hosts.test.mjs", "fleet.json",
-    ".github/workflows/ci.yml", "scripts/ci.mjs", "test/ci.test.mjs",
+test("scripts, workflows, manifests and unknown paths require the fleet even beside fast-path changes", async (t) => {
+  for (const path of ["package.json", "package-lock.json", "scripts/qualify.mjs", "scripts/npm-release.mjs",
+    "scripts/future.mjs", "test/hosts.test.mjs", "fleet.json", ".github/workflows/ci.yml",
+    ".github/workflows/npm-release-bump.yml", "scripts/ci.mjs", "test/ci.test.mjs",
     ".github/workflows/pi-compatibility.yml", ".github/workflows/resolve-hosts.yml",
-    "scripts/npm-future.mjs", ".github/workflows/npm-release-future.yml", "test/fixtures/npm-version-future.mjs",
     ".github/workflows/pi-canary.yml", "future.config", "unknown\nREADME.md"]) {
     await t.test(path, (t) => {
       const f = fixture(t);
       f.write("README.md", "docs also changed\n");
-      f.write("scripts/npm-release.mjs", "release automation also changed\n");
       f.write(path, "runtime change\n");
       assert.ok(planned(f.scope(f.commit()), true).reason.includes(JSON.stringify(path)), "The reason must name the path that required the fleet");
-    });
-  }
-});
-
-test("every file the fleet executes requires the fleet when it changes", async (t) => {
-  const files = fleetFiles();
-  assert.ok(files.includes("fleet.json"), "The walk must reach the fleet inventory, which only a workflow's script names");
-  for (const path of files) {
-    await t.test(path, (t) => {
-      const f = fixture(t);
-      f.write(path, "changed\n");
-      planned(f.scope(f.commit()), true);
     });
   }
 });
@@ -161,53 +119,6 @@ test("PR merge-base scope excludes base-only changes while a multi-commit push i
   planned(f.scope(f.commit(), "push"), true);
 });
 
-test("only proven validator manifest/lock edits qualify for the package fast path", async (t) => {
-  const cases = [
-    ["validator command flags", false, (m) => { m.scripts["check:renovate"] += " --no-global"; }],
-    ["Renovate security upgrade", false, (m, l) => {
-      m.devDependencies.renovate = l.packages[""].devDependencies.renovate = "1.0.1";
-      l.packages["node_modules/renovate"].version = "1.0.1";
-    }],
-    ["transitive development security fix", false, (m, l) => { l.packages["node_modules/validator"].version = "1.0.1"; }],
-    ["runtime script", true, (m) => { m.scripts.qualify += " --changed"; }],
-    ["another script", true, (m) => { m.scripts.future = "node future.mjs"; }],
-    ["Node floor", true, (m) => { m.engines.node = ">=24"; }],
-    ["npm version", true, (m) => { m.packageManager = "npm@12.3.0"; }],
-    ["another dev dependency", true, (m, l) => {
-      m.devDependencies.other = "1.0.0";
-      l.packages[""].devDependencies.other = "1.0.0";
-      l.packages["node_modules/other"] = { version: "1.0.0", dev: true };
-    }],
-    ["production dependency despite dev lock flags", true, (m) => { m.dependencies = { validator: "1.0.0" }; }],
-    ["optional dependency", true, (m) => { m.optionalDependencies = { validator: "1.0.0" }; }],
-    ["unknown manifest field", true, (m) => { m.futureRuntimeInput = true; }],
-    ["non-development lock entry", true, (m, l) => { delete l.packages["node_modules/validator"].dev; }],
-    ["linked package", true, (m, l) => { l.packages["node_modules/validator"].link = true; }],
-    ["unknown lock layout", true, (m, l) => { l.lockfileVersion = 4; }],
-    ["unknown lock metadata", true, (m, l) => { l.futureRuntimeInput = true; }],
-    ["changed root lock engines", true, (m, l) => { l.packages[""].engines = { node: ">=24" }; }],
-    ["mismatched root development dependency", true, (m) => { m.devDependencies.renovate = "2.0.0"; }],
-    ["workspace lock entry", true, (m, l) => { l.packages["packages/future"] = { dev: true }; }],
-  ];
-  for (const [name, required, change] of cases) {
-    await t.test(name, (t) => {
-      const f = fixture(t);
-      change(f.manifest, f.lock);
-      f.write("package.json", f.manifest);
-      f.write("package-lock.json", f.lock);
-      planned(f.scope(f.commit()), required);
-    });
-  }
-  for (const malformed of [false, true]) {
-    await t.test(malformed ? "malformed manifest" : "deleted lock", (t) => {
-      const f = fixture(t);
-      if (malformed) f.write("package.json", "{invalid");
-      else rmSync(join(f.root, "package-lock.json"));
-      planned(f.scope(f.commit()), true);
-    });
-  }
-});
-
 test("invalid events and unavailable or noncommit refs never emit a fast-path decision", (t) => {
   const f = fixture(t);
   planned(f.scope(f.base), true);
@@ -223,25 +134,6 @@ test("invalid events and unavailable or noncommit refs never emit a fast-path de
     const result = f.invoke(args);
     assert.equal(result.status, 1, result.stdout);
     assert.equal(result.output, "");
-  }
-});
-
-test("a validator update cannot hide preexisting runtime or unknown package inputs", async (t) => {
-  for (const [name, change] of [
-    ["runtime manifest dependency", (m) => { m.dependencies = { runtime: "1.0.0" }; }],
-    ["unknown manifest field", (m) => { m.futureRuntimeInput = true; }],
-    ["non-development baseline lock entry", (m, l) => { delete l.packages["node_modules/validator"].dev; }],
-  ]) {
-    await t.test(name, (t) => {
-      const f = fixture(t);
-      change(f.manifest, f.lock);
-      f.write("package.json", f.manifest);
-      f.write("package-lock.json", f.lock);
-      const before = f.commit();
-      f.lock.packages["node_modules/validator"] = { version: "1.0.1", dev: true };
-      f.write("package-lock.json", f.lock);
-      planned(f.scope(f.commit(), "push", before), true);
-    });
   }
 });
 
