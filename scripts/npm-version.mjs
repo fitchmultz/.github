@@ -11,19 +11,13 @@ import { identity, markedSource, newer, registry, sourceMarker, versionParts } f
 import { releaseFetch } from "./release-fetch.mjs";
 
 const stable = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
-const branchFor = (source) => `npm-version/${source}`;
+const releaseSubject = /^chore\(release\): \S+(?: \(#\d+\))?(?:\r?\n|$)/;
 const pendingStart = "<!-- npm-release:unreleased:start -->";
 const pendingEnd = "<!-- npm-release:unreleased:end -->";
 const carriedStart = "<!-- npm-release:carried:start -->";
 const carriedEnd = "<!-- npm-release:carried:end -->";
 const supersessionMarker = ({ version, source }) => `<!-- pi-npm-supersedes: ${version} ${source} -->`;
-
-function supersession(text) {
-  const match = /^<!-- pi-npm-supersedes: (\S+) ([a-f0-9]{40}) -->$/m.exec(text ?? "");
-  if (!match) return null;
-  versionParts(match[1]);
-  return { version: match[1], source: match[2] };
-}
+const versionFiles = ["package.json", "package-lock.json", "CHANGELOG.md"];
 
 function nextVersion(manifestVersion, publishedVersions, tags) {
   const versions = [manifestVersion, ...publishedVersions, ...tags.map((tag) => tag.replace(/^v/, ""))].filter((version) => stable.test(version));
@@ -64,11 +58,27 @@ function treeFragments(source, ref) {
   return { paths, notes };
 }
 
-function indexedFragments(source, env) {
-  const listed = spawnSync("git", ["ls-files", "-z", "--", "changelog.d/"], { cwd: source, env, encoding: "utf8" });
-  if (listed.error) throw listed.error;
-  assert.equal(listed.status, 0, "Could not inspect staged changelog.d entries");
-  return sortPaths([...new Set(listed.stdout.split("\0").filter(changelogFragment))]);
+function changelogSection(text, heading) {
+  const matches = [...text.matchAll(heading)];
+  assert.ok(matches.length <= 1, "Expected at most one matching changelog section");
+  if (!matches.length) return null;
+  const start = matches[0].index;
+  const headerEnd = start + matches[0][0].length;
+  const next = /^##[ \t]+/m.exec(text.slice(headerEnd));
+  const end = next ? headerEnd + next.index : text.length;
+  return { start, end, heading: matches[0][0], body: text.slice(headerEnd, end).trim() };
+}
+
+function versionHeadingPattern(version) {
+  return new RegExp(`^##[ \\t]+\\[?v?${version.replaceAll(".", "\\.")}\\]?(?:[ \\t].*)?\\r?$`, "gm");
+}
+
+function noteBlock(release, startMarker = pendingStart, endMarker = pendingEnd) {
+  const start = release.indexOf(startMarker);
+  const end = release.indexOf(endMarker);
+  assert.ok(start >= 0 && end > start && release.indexOf(startMarker, start + startMarker.length) < 0
+    && release.indexOf(endMarker, end + endMarker.length) < 0, "The reviewed version's note markers are missing or ambiguous");
+  return { start, end, body: release.slice(start + startMarker.length, end).trim() };
 }
 
 function versionChangelog(changelog, version, generated, date, supersededVersion, fragmentNotes = []) {
@@ -129,21 +139,12 @@ function formatVersion(source) {
     stageSource(source, staged);
     run("npm", ["ci", "--ignore-scripts"], { cwd: staged, env });
     run("npm", ["run", "format"], { cwd: staged, env });
-    for (const file of ["package.json", "package-lock.json", "CHANGELOG.md"]) {
+    for (const file of versionFiles) {
       copyFileSync(join(staged, file), join(source, file));
     }
   } finally {
     rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 1000 });
   }
-}
-
-function retargetVersion(source, previous, version) {
-  const path = join(source, "CHANGELOG.md");
-  const changelog = readFileSync(path, "utf8");
-  const heading = new RegExp(`^(##[ \\t]+\\[?v?)${previous.replaceAll(".", "\\.")}(\\]?(?:[ \\t].*)?\\r?)$`, "gm");
-  assert.equal([...changelog.matchAll(heading)].length, 1, `Expected one ${previous} changelog heading`);
-  setVersion(source, version);
-  writeFileSync(path, changelog.replace(heading, (_, prefix, suffix) => `${prefix}${version}${suffix}`));
 }
 
 export function history(source, ref = "HEAD") {
@@ -156,15 +157,21 @@ export function history(source, ref = "HEAD") {
   return commits;
 }
 
-export async function versionCommit(commits, repository, pulls) {
-  for (const commit of commits) {
-    const source = markedSource(commit.message);
-    if (!source) continue;
-    const associated = await pulls(commit.sha);
-    if (associated.some((pull) => pull.merged_at && pull.merge_commit_sha === commit.sha && pull.base?.ref === "main"
-      && pull.head?.ref === branchFor(source) && pull.head?.repo?.full_name === repository && pull.user?.type === "Bot")) {
-      return { ...commit, source };
-    }
+async function isVersionCommit(commit, parent, inspectCommit, source) {
+  const marked = markedSource(commit.message);
+  if (!marked || !releaseSubject.test(commit.message)) return null;
+  if (source && parent && !versionOnly(source, parent, commit.sha)) return null;
+  const details = await inspectCommit(commit.sha);
+  if (details?.sha === commit.sha && details.author?.type === "Bot" && details.commit?.verification?.verified === true) {
+    return { ...commit, source: marked };
+  }
+  return null;
+}
+
+export async function versionCommit(commits, inspectCommit, source) {
+  for (let index = 0; index < commits.length; index++) {
+    const found = await isVersionCommit(commits[index], commits[index + 1]?.sha, inspectCommit, source);
+    if (found) return found;
   }
   return null;
 }
@@ -180,7 +187,7 @@ function isAncestor(source, ancestor, descendant) {
   return result.status === 0;
 }
 
-// True when two commits differ only in the version metadata a version PR writes, so a release would change nothing.
+// True when two commits differ only in the version metadata a release commit writes, so a release would change nothing.
 function versionOnly(source, from, to) {
   return git(source, ["diff", "--name-only", from, to]).split("\n").filter(Boolean).every((file) => {
     if (file === "CHANGELOG.md" || changelogFragment(file)) return true;
@@ -206,7 +213,7 @@ async function buildsPublishedPackage(source, main, published) {
   try {
     const env = isolatedEnvironment(root);
     const tarball = await publishedTarball(published, root);
-    git(source, ["switch", "--detach", main]);
+    git(source, ["switch", "--force", "--detach", main]);
     assert.equal(git(source, ["status", "--porcelain"]), "", "The main checkout has uncommitted files");
     const development = join(root, "development");
     buildPackage(source, development, await prepareHost(join(root, "host"), "official", "latest", env), env);
@@ -220,146 +227,6 @@ async function buildsPublishedPackage(source, main, published) {
   } finally {
     rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 1000 });
   }
-}
-
-function changelogSection(text, heading) {
-  const matches = [...text.matchAll(heading)];
-  assert.ok(matches.length <= 1, "Expected at most one matching changelog section");
-  if (!matches.length) return null;
-  const start = matches[0].index;
-  const headerEnd = start + matches[0][0].length;
-  const next = /^##[ \t]+/m.exec(text.slice(headerEnd));
-  const end = next ? headerEnd + next.index : text.length;
-  return { start, end, heading: matches[0][0], body: text.slice(headerEnd, end).trim() };
-}
-
-function versionHeadingPattern(version) {
-  return new RegExp(`^##[ \\t]+\\[?v?${version.replaceAll(".", "\\.")}\\]?(?:[ \\t].*)?\\r?$`, "gm");
-}
-
-function noteBlock(release, startMarker = pendingStart, endMarker = pendingEnd) {
-  const start = release.indexOf(startMarker);
-  const end = release.indexOf(endMarker);
-  assert.ok(start >= 0 && end > start && release.indexOf(startMarker, start + startMarker.length) < 0
-    && release.indexOf(endMarker, end + endMarker.length) < 0, "The reviewed version's note markers are missing or ambiguous");
-  return { start, end, body: release.slice(start + startMarker.length, end).trim() };
-}
-
-// A version section is its curated blocks followed by generated notes. Curated text belongs inside the blocks:
-// this replaces everything after them.
-function replaceGeneratedNotes(changelog, version, generated) {
-  const section = changelogSection(changelog, versionHeadingPattern(version));
-  assert.ok(section, "The reviewed version changelog section is missing");
-  const release = changelog.slice(section.start, section.end);
-  const carried = release.includes(carriedStart) || release.includes(carriedEnd);
-  const curated = Math.max(noteBlock(release).end + pendingEnd.length,
-    carried ? noteBlock(release, carriedStart, carriedEnd).end + carriedEnd.length : 0);
-  const later = changelog.slice(section.end);
-  return `${changelog.slice(0, section.start)}${release.slice(0, curated)}\n\n${nestNotes(generated)}\n${later && `\n${later}`}`;
-}
-
-function mergeLines(source, env, root, name, base, ours, theirs) {
-  const separator = "<!-- npm-release:merge-line -->";
-  assert.ok([base, ours, theirs].every((value) => !value.includes(separator)), `${name} contains the merge separator`);
-  // Separate adjacent lines so Git can merge independent edits without changing their formatting.
-  const encode = (value) => value ? value.replace(/\n$/, "").split("\n").map((line) => `${line}\n${separator}\n`).join("") : "";
-  const paths = ["ours", "base", "theirs"].map((side) => join(root, `${name}-${side}`));
-  [ours, base, theirs].forEach((value, index) => writeFileSync(paths[index], encode(value)));
-  const merged = spawnSync("git", ["merge-file", "--stdout", "--diff3",
-    "-L", "ours", "-L", "base", "-L", "theirs", ...paths], { cwd: source, env, encoding: "utf8" });
-  if (merged.error) throw merged.error;
-  assert.ok(merged.status === 0 || (merged.status > 0 && merged.status < 128), `Could not merge ${name}`);
-  const conflict = /^<<<<<<< ours\n([\s\S]*?)^\|\|\|\|\|\|\| base\n([\s\S]*?)^=======\n([\s\S]*?)^>>>>>>> theirs\n/gm;
-  const unique = (text, part) => part && text.indexOf(part) >= 0 && text.indexOf(part) === text.lastIndexOf(part);
-  const result = merged.stdout.replace(conflict, (_, ourPart, basePart, theirPart) => {
-    if (unique(theirPart, basePart)) return theirPart.replace(basePart, () => ourPart);
-    if (unique(ourPart, basePart)) return ourPart.replace(basePart, () => theirPart);
-    throw new Error(`Concurrent ${name} edits need review`);
-  });
-  assert.ok(!/^<<<<<<< ours$/m.test(result), `Concurrent ${name} edits need review`);
-  const lines = result.split("\n");
-  assert.equal(lines.pop(), "");
-  const decoded = [];
-  for (let index = 0; index < lines.length; index += 2) {
-    assert.equal(lines[index + 1], separator, `Could not preserve ${name} formatting`);
-    decoded.push(lines[index]);
-  }
-  return decoded.join("\n");
-}
-
-function resolveChangelog(source, version, scopedGit, env, root, [base, ours, theirs], fragments = [{ notes: [] }, { notes: [] }, { notes: [] }]) {
-  const unreleased = /^##[ \t]+\[?Unreleased\]?(?:[ \t].*)?\r?$/gim;
-  const versionHeading = versionHeadingPattern(version);
-  const sections = [base, ours, theirs].map((text) => changelogSection(text, unreleased));
-  const versionSection = changelogSection(ours, versionHeading);
-  assert.ok(versionSection, "The reviewed version changelog section is missing");
-  assert.ok(!versionHeading.test(base) && !versionHeading.test(theirs), "Concurrent version headings require review");
-  const release = ours.slice(versionSection.start, versionSection.end).trimEnd();
-  const { start, end, body: reviewedPending } = noteBlock(release);
-  const basePending = [sections[0]?.body, ...fragments[0].notes].filter(Boolean).join("\n\n");
-  const theirPending = [sections[2]?.body, ...fragments[2].notes].filter(Boolean).join("\n\n");
-  const incoming = mergeLines(source, env, root, "Unreleased", basePending, reviewedPending, theirPending);
-  const pending = [incoming, sections[1]?.body, ...fragments[1].notes].filter(Boolean).join("\n\n");
-  const reviewedRelease = `${release.slice(0, start + pendingStart.length)}\n${pending ? `${pending}\n` : ""}${release.slice(end)}`;
-  const anchor = "<!-- npm-release:merge-anchor -->";
-  assert.ok([base, ours, theirs].every((text) => !text.includes(anchor)), "Changelog contains the merge anchor");
-  const normalize = (original, removeVersion = false) => {
-    let text = original;
-    if (removeVersion) text = text.slice(0, versionSection.start) + text.slice(versionSection.end);
-    const section = changelogSection(text, unreleased);
-    if (section) return `${text.slice(0, section.start)}${anchor}\n\n${text.slice(section.end)}`;
-    const first = /^##[ \t]+/m.exec(text);
-    const position = first?.index ?? text.length;
-    const prefix = text.slice(0, position);
-    return `${prefix}${prefix && !prefix.endsWith("\n") ? "\n\n" : ""}${anchor}\n\n${text.slice(position)}`;
-  };
-  const paths = ["ours", "base", "theirs"].map((name) => join(root, `changelog-${name}`));
-  [normalize(ours, true), normalize(base), normalize(theirs)]
-    .forEach((text, index) => writeFileSync(paths[index], text));
-  const merged = spawnSync("git", ["merge-file", "--stdout", ...paths], { cwd: source, env, encoding: "utf8" });
-  if (merged.error) throw merged.error;
-  assert.equal(merged.status, 0, "Concurrent changelog changes need review");
-  assert.equal(merged.stdout.split(anchor).length, 2, "Merged changelog lost its release position");
-  const heading = sections[2]?.heading ?? sections[1]?.heading;
-  const insertion = [heading, reviewedRelease].filter(Boolean).join("\n\n");
-  const changelog = merged.stdout.replace(anchor, () => insertion);
-  writeFileSync(join(source, "CHANGELOG.md"), changelog.endsWith("\n") ? changelog : `${changelog}\n`);
-  const consumed = indexedFragments(source, env);
-  if (consumed.length) scopedGit(["rm", "-f", "-q", "--", ...consumed]);
-  scopedGit(["add", "CHANGELOG.md"]);
-}
-
-function resolveVersionFiles(source, main, conflicts, scopedGit, env, root) {
-  const files = ["package.json", "package-lock.json"];
-  const base = scopedGit(["merge-base", "HEAD", main]);
-  const versions = [base, "HEAD", main].map((ref) => JSON.parse(scopedGit(["show", `${ref}:package.json`])).version);
-  const directory = join(root, "version-merge");
-  mkdirSync(directory);
-  for (const file of files) writeFileSync(join(directory, file), `${scopedGit(["show", `HEAD:${file}`])}\n`);
-  const original = files.map((file) => readJson(join(directory, file)));
-  run("npm", ["version", versions[0], "--no-git-tag-version", "--ignore-scripts", "--allow-same-version"],
-    { cwd: directory, env: isolatedEnvironment(root), quiet: true });
-  files.forEach((file, index) => {
-    const normalized = readJson(join(directory, file));
-    assert.equal(normalized.version, versions[0], `Could not normalize ${file}`);
-    delete original[index].version;
-    delete normalized.version;
-    if (file === "package-lock.json") {
-      assert.equal(normalized.packages?.[""]?.version, versions[0], "Could not normalize the lockfile root version");
-      delete original[index].packages[""].version;
-      delete normalized.packages[""].version;
-    }
-    assert.deepEqual(normalized, original[index], `npm changed non-version fields in ${file}`);
-  });
-  const merged = new Map();
-  for (const file of files.filter((name) => conflicts.includes(name))) {
-    const result = mergeLines(source, env, root, file, scopedGit(["show", `:1:${file}`]),
-      readFileSync(join(directory, file), "utf8"), scopedGit(["show", `:3:${file}`]));
-    merged.set(file, `${result}\n`);
-  }
-  for (const [file, text] of merged) writeFileSync(join(source, file), text);
-  setVersion(source, versions[1]);
-  scopedGit(["add", ...files]);
 }
 
 export async function request(path, { method = "GET", body, token = process.env.RELEASE_GH_TOKEN, paginate = false } = {}) {
@@ -376,6 +243,24 @@ export async function request(path, { method = "GET", body, token = process.env.
     url = paginate ? /<([^>]+)>;\s*rel="next"/.exec(response.headers.get("link") ?? "")?.[1] : undefined;
   } while (url);
   return paginate ? pages.flat() : pages[0];
+}
+
+async function fastForwardMain(sha, token = process.env.RELEASE_GH_TOKEN) {
+  assert.ok(token, "GitHub token is missing");
+  const url = `https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/git/refs/heads/main`;
+  const response = await releaseFetch("GitHub", url, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ sha, force: false }),
+  });
+  if (response.status === 422) return false;
+  assert.ok(response.ok, `GitHub PATCH ${new URL(url).origin}${new URL(url).pathname}: HTTP ${response.status}`);
+  return true;
 }
 
 async function npmMetadata(entry, repository) {
@@ -440,443 +325,180 @@ function versionReviewer(source, entry, enabled) {
   };
 }
 
-async function reconcile(source, entry, repository, appSlug, versionReviewEnabled, requestedSupersession) {
-  const appEnv = { ...process.env, GH_TOKEN: process.env.RELEASE_GH_TOKEN };
-  delete appEnv.ZAI_API_KEY;
-  const pulls = (sha) => request(`commits/${sha}/pulls?per_page=100`, { paginate: true });
-  const open = await request("pulls?state=open&base=main&per_page=100", { paginate: true });
-  const ours = open.filter((pull) => pull.head?.repo?.full_name === repository && pull.head.ref.startsWith("npm-version/")
-    && pull.user?.login === `${appSlug}[bot]`);
-  assert.ok(ours.length <= 1, "More than one automatic version PR is open");
-
-  git(source, ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main", "--tags"]);
-  const main = git(source, ["rev-parse", "refs/remotes/origin/main"]);
-  const commits = history(source, "refs/remotes/origin/main");
-  const latestBump = await versionCommit(commits, repository, pulls);
-  const data = await npmMetadata(entry, repository);
-  const releases = await request("releases?per_page=100", { paginate: true });
-  const pendingSupersession = supersession(ours[0]?.body);
-  if (requestedSupersession && ours[0]) {
-    assert.deepEqual(pendingSupersession, requestedSupersession, "Open version PR is not this supersession");
+async function publishSignedCommit(source, main, message, deletedPaths, localTree) {
+  const baseCommit = await request(`git/commits/${main}`);
+  assert.match(baseCommit?.tree?.sha ?? "", /^[a-f0-9]{40}$/, "Could not inspect main tree SHA");
+  const tree = [];
+  for (const file of versionFiles) {
+    const blob = await request("git/blobs", {
+      method: "POST",
+      body: { content: readFileSync(join(source, file), "utf8"), encoding: "utf-8" },
+    });
+    assert.match(blob?.sha ?? "", /^[a-f0-9]{40}$/, `Could not upload ${file} blob`);
+    tree.push({ path: file, mode: "100644", type: "blob", sha: blob.sha });
   }
-  const recovery = requestedSupersession ?? pendingSupersession;
-  if (recovery) {
-    assert.equal(latestBump?.sha, recovery.source, "Supersession source does not match the latest automatic version");
-    const manifest = JSON.parse(git(source, ["show", `${latestBump.sha}:package.json`]));
-    identity(entry, repository, manifest);
-    assert.equal(manifest.version, recovery.version, "Supersession version does not match the latest automatic version");
-    assert.ok(!data.versions[recovery.version], "Supersession version is already published on npm; reconcile its original release");
-    assert.ok(!releases.some((release) => release.tag_name === `v${recovery.version}` && !release.draft),
-      "Supersession version is already published on GitHub");
-    const runs = await request(`actions/workflows/npm-release.yml/runs?head_sha=${recovery.source}&per_page=1`, { token: process.env.GH_TOKEN });
-    const run = runs.workflow_runs[0];
-    assert.ok(run?.head_sha === recovery.source && run.head_branch === "main"
-      && ["push", "schedule", "workflow_dispatch"].includes(run.event) && run.status === "completed" && run.conclusion === "failure",
-    "Supersession requires a failed original main release run");
-    assert.notEqual(main, recovery.source, "Supersession requires fixed main after the failed automatic version");
-    console.log(`Superseding unpublished ${entry.npmPackage}@${recovery.version} from ${recovery.source}; preserving its release records`);
+  for (const path of deletedPaths) {
+    tree.push({ path, mode: "100644", type: "blob", sha: null });
   }
+  const createdTree = await request("git/trees", {
+    method: "POST",
+    body: { base_tree: baseCommit.tree.sha, tree },
+  });
+  assert.equal(createdTree.sha, localTree, "Remote release tree differs from reviewed local tree");
+  const createdCommit = await request("git/commits", {
+    method: "POST",
+    body: { message, tree: createdTree.sha, parents: [main] },
+  });
+  assert.equal(createdCommit.verification?.verified, true, "GitHub did not sign the automatic version commit");
+  const updated = await fastForwardMain(createdCommit.sha);
+  return { updated, sha: createdCommit.sha };
+}
 
-  // The commit the latest release published. A version PR merges main before it merges, so this commit's tree holds
-  // every source commit that preceded it on main.
-  let released;
-  let releasedVersion;
-  if (latestBump && !recovery) {
-    const bumpManifest = JSON.parse(git(source, ["show", `${latestBump.sha}:package.json`]));
-    identity(entry, repository, bumpManifest);
-    const release = releases.find((item) => item.tag_name === `v${bumpManifest.version}`);
-    const published = data.versions[bumpManifest.version];
-    const match = /<!-- pi-npm-release: ([a-f0-9]{40}) (sha512-[^\s]+) -->/.exec(release?.body ?? "");
-    const complete = release && !release.draft && published && match && match[2] === published.dist?.integrity
-      && markedSource(release.body) === latestBump.source && isAncestor(source, latestBump.sha, match[1])
-      && isAncestor(source, match[1], main) && git(source, ["rev-parse", `refs/tags/v${bumpManifest.version}^{commit}`]) === match[1];
-    if (!complete) {
-      console.log(`Waiting for ${entry.npmPackage}@${bumpManifest.version} to complete on npm and GitHub`);
-      await rerunRelease(match?.[1] ?? latestBump.sha, main, Boolean(release?.draft));
-      return;
-    }
-    released = match[1];
-    releasedVersion = bumpManifest.version;
-  } else {
-    releasedVersion = data["dist-tags"].latest;
-    const tag = `v${releasedVersion}`;
-    assert.ok(releases.some((release) => release.tag_name === tag && !release.draft && !release.prerelease),
-      `Latest npm version ${releasedVersion} has no published GitHub release`);
-    released = git(source, ["rev-parse", `refs/tags/${tag}^{commit}`]);
-    const tagged = JSON.parse(git(source, ["show", `${released}:package.json`]));
-    identity(entry, repository, tagged);
-    assert.equal(tagged.version, releasedVersion, "Latest npm version and GitHub tag manifest differ");
-  }
-
-  if (ours[0]) {
-    const head = `refs/remotes/origin/${ours[0].head.ref}`;
-    git(source, ["fetch", "origin", `+refs/heads/${ours[0].head.ref}:${head}`]);
-    // A PR behind main is judged by its own changes since it last merged main: updating it first would let this run
-    // review and merge the update before another reconcile could close it.
-    if (versionOnly(source, released, main) && versionOnly(source, git(source, ["merge-base", main, head]), head)) {
-      await request(`issues/${ours[0].number}/comments`, { method: "POST", body: { body: "Closing without a release: main and "
-        + `this PR match the published v${releasedVersion} apart from version metadata, so nothing would change.` } });
-      await request(`pulls/${ours[0].number}`, { method: "PATCH", body: { state: "closed" } });
-      await request(`git/refs/heads/${ours[0].head.ref}`, { method: "DELETE" });
-      console.log(`Closed version PR #${ours[0].number}; nothing changed since v${releasedVersion}`);
-      return;
-    }
-  }
-
-  let selected = ours[0] && /^npm-version\/([a-f0-9]{40})$/.exec(ours[0].head.ref)?.[1];
-  if (!selected) {
-    if (versionOnly(source, released, main)) { console.log(`Main has nothing to release since v${releasedVersion}`); return; }
-    const cursor = commits.findIndex((commit) => commit.sha === released);
-    assert.ok(cursor >= 0, "The latest release is not on main's first-parent history");
-    if (recovery) selected = main;
-    else if (!latestBump && cursor > 0) {
-      const installed = git(source, ["log", "--first-parent", "--diff-filter=A", "-1", "--format=%H", main,
-        "--", ".github/workflows/npm-version.yml"]);
-      const installation = commits.findIndex((commit) => commit.sha === installed);
-      assert.ok(installation >= 0 && installation < cursor, "The version workflow was not installed after the latest published release");
-      selected = installed;
-    } else {
-      for (const commit of commits.slice(0, cursor).reverse()) {
-        if (!(await versionCommit([commit], repository, pulls))) { selected = commit.sha; break; }
-      }
-    }
-    if (!selected) { console.log("Main has no unreleased source commits"); return; }
-    // A supersession always opens its replacement: until one merges, the failed version blocks every later release.
-    if (!recovery && await buildsPublishedPackage(source, main, data.versions[releasedVersion])) {
-      console.log(`Main builds the package published as v${releasedVersion}; nothing to release`);
-      return;
-    }
-  }
-  assert.ok(isAncestor(source, selected, main), "Release source is not an ancestor of main");
-  const branch = branchFor(selected);
-  const pull = ours[0];
-  if (pull) {
-    assert.equal(pull.head.ref, branch, "Automatic version PR source changed");
-    assert.equal(markedSource(pull.body), selected, "Version PR does not identify its source");
-  }
-
-  // The source line and GitHub's notes for everything between the previous published tag and main: the changes the
-  // version ships, because its PR merges only when it contains current main.
-  const generatedNotes = async (version) => {
-    const previous = releases.find((item) => !item.draft && item.tag_name === `v${data["dist-tags"].latest}`)?.tag_name;
-    const generated = await request("releases/generate-notes", { method: "POST", body: { tag_name: `v${version}`,
-      target_commitish: main, ...(previous ? { previous_tag_name: previous } : {}) } });
-    const subject = git(source, ["show", "-s", "--format=%s", selected]);
-    const replacement = recovery ? `- Supersedes unpublished ${recovery.version} from ${recovery.source}. Includes all changes since v${releasedVersion}; the original release records remain unchanged.\n\n` : "";
-    return `${replacement}- ${subject} ([${selected.slice(0, 7)}](https://github.com/${repository}/commit/${selected}))\n\n${generated.body ?? ""}`;
-  };
-
+async function reconcile(source, entry, repository, appSlug, versionReviewEnabled, recovery) {
   const root = mkdtempSync("/tmp/npm-version-git-");
-  const env = { ...appEnv, HOME: root, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" };
-  const scopedGit = (args, options = {}) => git(source, args, { env, ...options });
+  const appEnv = { ...process.env, GH_TOKEN: process.env.RELEASE_GH_TOKEN, HOME: root, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" };
+  delete appEnv.ZAI_API_KEY;
+  const scopedGit = (args, options = {}) => git(source, args, { env: appEnv, ...options });
+  const inspectCommit = (sha) => request(`commits/${sha}`, { token: process.env.GH_TOKEN });
   try {
     const review = versionReviewer(source, entry, versionReviewEnabled);
-    run("gh", ["auth", "setup-git"], { cwd: source, env, quiet: true });
-    const bot = await request(`https://api.github.com/users/${encodeURIComponent(`${appSlug}[bot]`)}`);
     scopedGit(["config", "user.name", `${appSlug}[bot]`]);
-    scopedGit(["config", "user.email", `${bot.id}+${appSlug}[bot]@users.noreply.github.com`]);
-    const remote = spawnSync("git", ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`], { cwd: source, env, encoding: "utf8" });
-    if (remote.error) throw remote.error;
-    assert.ok(remote.status === 0 || remote.status === 2, "Could not inspect the version branch");
-    const exists = remote.status === 0;
-    if (exists) {
-      scopedGit(["fetch", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
-      scopedGit(["switch", "--detach", `refs/remotes/origin/${branch}`]);
-      if (!pull) assert.ok(scopedGit(["log", "--format=%B", `${main}..HEAD`]).includes(sourceMarker(selected)),
-        "Version branch does not identify its source");
-    } else scopedGit(["switch", "--detach", "refs/remotes/origin/main"]);
+    scopedGit(["config", "user.email", `${appSlug}[bot]@users.noreply.github.com`]);
 
-    if (!exists) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      git(source, ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main", "--tags"]);
+      const main = git(source, ["rev-parse", "refs/remotes/origin/main"]);
+      const commits = history(source, "refs/remotes/origin/main");
+      const latestBump = await versionCommit(commits, inspectCommit, source);
+      const data = await npmMetadata(entry, repository);
+      const releases = await request("releases?per_page=100", { token: process.env.GH_TOKEN, paginate: true });
+
+      if (recovery) {
+        assert.equal(latestBump?.sha, recovery.source, "Supersession source does not match the latest automatic version");
+        const manifest = JSON.parse(git(source, ["show", `${latestBump.sha}:package.json`]));
+        identity(entry, repository, manifest);
+        assert.equal(manifest.version, recovery.version, "Supersession version does not match the latest automatic version");
+        assert.ok(!data.versions[recovery.version], "Supersession version is already published on npm; reconcile its original release");
+        assert.ok(!releases.some((release) => release.tag_name === `v${recovery.version}` && !release.draft),
+          "Supersession version is already published on GitHub");
+        const runs = await request(`actions/workflows/npm-release.yml/runs?head_sha=${recovery.source}&per_page=1`, { token: process.env.GH_TOKEN });
+        const run = runs.workflow_runs[0];
+        assert.ok(run?.head_sha === recovery.source && run.head_branch === "main"
+          && ["push", "schedule", "workflow_dispatch"].includes(run.event) && run.status === "completed" && run.conclusion === "failure",
+        "Supersession requires a failed original main release run");
+        assert.notEqual(main, recovery.source, "Supersession requires fixed main after the failed automatic version");
+        console.log(`Superseding unpublished ${entry.npmPackage}@${recovery.version} from ${recovery.source}; preserving its release records`);
+      }
+
+      let released;
+      let releasedVersion;
+      if (latestBump && !recovery) {
+        const bumpManifest = JSON.parse(git(source, ["show", `${latestBump.sha}:package.json`]));
+        identity(entry, repository, bumpManifest);
+        const release = releases.find((item) => item.tag_name === `v${bumpManifest.version}`);
+        const published = data.versions[bumpManifest.version];
+        const match = /<!-- pi-npm-release: ([a-f0-9]{40}) (sha512-[^\s]+) -->/.exec(release?.body ?? "");
+        const complete = release && !release.draft && published && match && match[2] === published.dist?.integrity
+          && markedSource(release.body) === latestBump.source && isAncestor(source, latestBump.sha, match[1])
+          && isAncestor(source, match[1], main) && git(source, ["rev-parse", `refs/tags/v${bumpManifest.version}^{commit}`]) === match[1];
+        if (!complete) {
+          console.log(`Waiting for ${entry.npmPackage}@${bumpManifest.version} to complete on npm and GitHub`);
+          await rerunRelease(match?.[1] ?? latestBump.sha, main, Boolean(release?.draft));
+          return;
+        }
+        released = match[1];
+        releasedVersion = bumpManifest.version;
+      } else {
+        releasedVersion = data["dist-tags"].latest;
+        const tag = `v${releasedVersion}`;
+        assert.ok(releases.some((release) => release.tag_name === tag && !release.draft && !release.prerelease),
+          `Latest npm version ${releasedVersion} has no published GitHub release`);
+        released = git(source, ["rev-parse", `refs/tags/${tag}^{commit}`]);
+        const tagged = JSON.parse(git(source, ["show", `${released}:package.json`]));
+        identity(entry, repository, tagged);
+        assert.equal(tagged.version, releasedVersion, "Latest npm version and GitHub tag manifest differ");
+      }
+
+      if (!recovery && versionOnly(source, released, main)) {
+        console.log(`Main has nothing to release since v${releasedVersion}`);
+        return;
+      }
+
+      const cursor = commits.findIndex((commit) => commit.sha === released);
+      assert.ok(cursor >= 0, "The latest release is not on main's first-parent history");
+      let selected;
+      if (recovery) {
+        selected = main;
+      } else if (!latestBump && cursor > 0) {
+        const installed = git(source, ["log", "--first-parent", "--diff-filter=A", "-1", "--format=%H", main,
+          "--", ".github/workflows/npm-version.yml"]);
+        const installation = commits.findIndex((commit) => commit.sha === installed);
+        assert.ok(installation >= 0 && installation < cursor, "The version workflow was not installed after the latest published release");
+        selected = installed;
+      } else {
+        for (let index = cursor - 1; index >= 0; index--) {
+          if (!(await isVersionCommit(commits[index], commits[index + 1]?.sha, inspectCommit, source))) {
+            selected = commits[index].sha;
+            break;
+          }
+        }
+      }
+      if (!selected) {
+        console.log("Main has no unreleased source commits");
+        return;
+      }
+      assert.ok(isAncestor(source, selected, main), "Release source is not an ancestor of main");
+
+      if (!recovery && await buildsPublishedPackage(source, main, data.versions[releasedVersion])) {
+        console.log(`Main builds the package published as v${releasedVersion}; nothing to release`);
+        return;
+      }
+
+      scopedGit(["switch", "--force", "--detach", main]);
       const manifest = readJson(join(source, "package.json"));
       identity(entry, repository, manifest);
       const tags = scopedGit(["tag", "--list"]).split("\n").filter(Boolean);
       const version = nextVersion(manifest.version, Object.keys(data.versions), tags);
+      const previous = releases.find((item) => !item.draft && item.tag_name === `v${data["dist-tags"].latest}`)?.tag_name;
+      const generated = await request("releases/generate-notes", {
+        method: "POST",
+        body: { tag_name: `v${version}`, target_commitish: main, ...(previous ? { previous_tag_name: previous } : {}) },
+      });
+      const subject = git(source, ["show", "-s", "--format=%s", selected]);
+      const replacement = recovery
+        ? `- Supersedes unpublished ${recovery.version} from ${recovery.source}. Includes all changes since v${releasedVersion}; the original release records remain unchanged.\n\n`
+        : "";
+      const notes = `${replacement}- ${subject} ([${selected.slice(0, 7)}](https://github.com/${repository}/commit/${selected}))\n\n${generated.body ?? ""}`;
+
       const fragments = treeFragments(source, "HEAD");
-      stageVersion(source, version, await generatedNotes(version), new Date().toISOString().slice(0, 10), recovery?.version, fragments.notes);
+      stageVersion(source, version, notes, new Date().toISOString().slice(0, 10), recovery?.version, fragments.notes);
       if (fragments.paths.length) scopedGit(["rm", "-q", "--", ...fragments.paths]);
       formatVersion(source);
-      scopedGit(["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
+      scopedGit(["add", ...versionFiles]);
       review?.("pre-commit");
-      scopedGit(["commit", "-m", `chore(release): ${version}`, "-m", sourceMarker(selected)]);
+      const message = `chore(release): ${version}\n\n${sourceMarker(selected)}${recovery ? `\n\n${supersessionMarker(recovery)}` : ""}`;
+      scopedGit(["commit", "-m", message]);
+      assert.ok(versionOnly(source, main, "HEAD"), "Automatic version commit changed non-version files");
       review?.("pre-push", main);
-      scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
-    } else if (!isAncestor(source, main, "HEAD")) {
-      const base = scopedGit(["merge-base", "HEAD", main]);
-      const refs = [base, "HEAD", main];
-      const changelogs = refs.map((ref) => scopedGit(["show", `${ref}:CHANGELOG.md`]));
-      const fragments = refs.map((ref) => treeFragments(source, ref));
-      const merged = spawnSync("git", ["merge", "--no-commit", "--no-ff", main], { cwd: source, env, encoding: "utf8" });
-      if (merged.error) throw merged.error;
-      let conflicts = scopedGit(["diff", "--name-only", "--diff-filter=U"]).split("\n").filter(Boolean);
-      let resolved = false;
-      const resolvable = (file) => ["CHANGELOG.md", "package.json", "package-lock.json"].includes(file)
-        || (changelogFragment(file) && !fragments[1].paths.includes(file));
-      if ((merged.status === 0 || conflicts.length) && conflicts.every(resolvable)) {
-        try {
-          if (conflicts.some((file) => file === "package.json" || file === "package-lock.json")) {
-            resolveVersionFiles(source, main, conflicts, scopedGit, env, root);
-          }
-          resolveChangelog(source, readJson(join(source, "package.json")).version, scopedGit, env, root, changelogs, fragments);
-          resolved = conflicts.length > 0;
-          conflicts = scopedGit(["diff", "--name-only", "--diff-filter=U"]).split("\n").filter(Boolean);
-        } catch (error) {
-          scopedGit(["merge", "--abort"]);
-          throw error;
-        }
+      const localTree = scopedGit(["rev-parse", "HEAD^{tree}"]);
+      const published = await publishSignedCommit(source, main, message, fragments.paths, localTree);
+      if (published.updated) {
+        git(source, ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"]);
+        output({ commit: published.sha, version, source: selected });
+        console.log(`Committed ${entry.npmPackage}@${version} (${published.sha}) on main for ${selected}`);
+        return;
       }
-      if (conflicts.length) {
-        scopedGit(["merge", "--abort"]);
-        throw new Error(`Version PR needs its actual merge conflicts resolved: ${conflicts.join(", ")}`);
-      }
-      assert.ok(merged.status === 0 || resolved, `Could not update the version PR: ${merged.stderr}`);
-      const mainManifest = JSON.parse(git(source, ["show", `${main}:package.json`]));
-      identity(entry, repository, mainManifest);
-      const tags = scopedGit(["tag", "--list"]).split("\n").filter(Boolean);
-      const next = nextVersion(mainManifest.version, Object.keys(data.versions), tags);
-      const current = readJson(join(source, "package.json")).version;
-      const version = newer(next, current) ? next : current;
-      if (version !== current) retargetVersion(source, current, version);
-      const path = join(source, "CHANGELOG.md");
-      writeFileSync(path, replaceGeneratedNotes(readFileSync(path, "utf8"), version, await generatedNotes(version)));
-      formatVersion(source);
-      scopedGit(["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
-      review?.("pre-commit");
-      scopedGit(["commit", "-m", "chore(release): update from main", "-m", sourceMarker(selected)]);
-      review?.("pre-push", scopedGit(["rev-parse", `refs/remotes/origin/${branch}`]));
-      scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
+      console.log(`Main advanced past ${main} before fast-forward (attempt ${attempt}/3); retrying`);
     }
-
-    let number = pull?.number;
-    if (!number) {
-      const url = run("gh", ["pr", "create", "--repo", repository, "--base", "main", "--head", branch,
-        "--title", `chore(release): ${readJson(join(source, "package.json")).version}`,
-        "--body", `Automatic version, lockfile and changelog update for ${selected}.\n\n${sourceMarker(selected)}${recovery ? `\n\n${supersessionMarker(recovery)}` : ""}`], { cwd: source, env, quiet: true }).trim();
-      number = Number(new URL(url).pathname.split("/").at(-1));
-    }
-    assert.ok(Number.isSafeInteger(number) && number > 0, "Could not identify the version PR");
-    // Pi retains a finding-bearing failure after its threads are resolved on the same head, and a Cursor review that
-    // ends without a report leaves nothing to address. A new, empty head lets both native reviewers reassess the
-    // version without changing the release.
-    if (pull && pull.head.sha === scopedGit(["rev-parse", "HEAD"])) {
-      const checks = await checkRuns(pull.head.sha);
-      const pi = checks.find((check) => check.app?.slug === "pi-durable" && check.name === "Pi Durable Review");
-      const cursor = checks.find((check) => check.app?.slug === "cursor" && check.name === "Cursor Automation: PR Bug Review - Maintained Repos");
-      let recheck;
-      if (pi?.status === "completed" && pi.conclusion === "failure" && findingCheck(pi)) {
-        const count = reportedFindings(pi, pull.base.sha, pull.head.sha);
-        const { resolvedPi, addressedPi, unresolved, unanswered } = await reviewThreads(number, pull.head.sha, true, pi);
-        if (unresolved === 0 && unanswered.length === 0 && resolvedPi + addressedPi >= count) recheck = "chore(release): recheck reviewed disposition";
-      }
-      // Each version head gets one fresh Cursor review; remediation stops if the recheck head's review has no report either.
-      if (unreportedCursor(cursor) && scopedGit(["show", "-s", "--format=%s", "HEAD"]) !== cursorRecheck) recheck = cursorRecheck;
-      if (recheck) {
-        review?.("pre-commit");
-        scopedGit(["commit", "--allow-empty", "-m", recheck, "-m", sourceMarker(selected)]);
-        review?.("pre-push", scopedGit(["rev-parse", `refs/remotes/origin/${branch}`]));
-        scopedGit(["push", "origin", `HEAD:refs/heads/${branch}`]);
-      }
-    }
-    const expectedHead = scopedGit(["rev-parse", "HEAD"]);
-    let current = await request(`pulls/${number}`);
-    for (let attempt = 0; attempt < 6 && pull && pull.head.sha !== expectedHead && current.head.sha === pull.head.sha; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
-      current = await request(`pulls/${number}`);
-    }
-    assert.equal(current.head.ref, branch);
-    assert.equal(current.head.sha, expectedHead, "Version PR head changed during reconciliation");
-    output({ pull: String(number), head: current.head.sha, source: selected });
-    console.log(`Version PR #${number} covers ${selected}`);
+    throw new Error("Main advanced concurrently across 3 version commit attempts");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 }
 
-export async function checkRuns(head) {
-  const pages = await request(`commits/${head}/check-runs?per_page=100`, { token: process.env.GH_TOKEN, paginate: true });
-  return pages.flatMap((page) => page.check_runs);
-}
-
-function reviewedPair(check, base, head) {
-  const pair = /\*\*Reviewed pair:\*\* base `([a-f0-9]{40})` → head `([a-f0-9]{40})`/.exec(check.output?.summary ?? "");
-  assert.ok(pair?.[1] === base && pair[2] === head && check.head_sha === head, "Pi did not review the current base and head");
-}
-
-export function findingCheck(check) {
-  return /^(?:Review completed|Completed review reused) — [1-9]\d* findings? reported$/.test(check.output?.title ?? "");
-}
-
-function reportedFindings(check, base, head) {
-  const title = /^(?:Review completed|Completed review reused) — ([1-9]\d*) findings? reported$/.exec(check.output?.title ?? "");
-  assert.ok(title, "Pi finding check does not identify a completed review");
-  reviewedPair(check, base, head);
-  const count = Number(title[1]);
-  assert.ok(Number.isSafeInteger(count), "Invalid Pi finding count");
-  return count;
-}
-
-function failedCheck(check) {
-  return check.status === "completed"
-    && ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"].includes(check.conclusion);
-}
-
-export const cursorRecheck = "chore(release): recheck the unreported Cursor review";
-
-// Cursor reports an automation error as a completed "neutral" check: it neither passed nor failed, so no report exists.
-export function unreportedCursor(check) {
-  return check?.status === "completed" && check.conclusion !== "success" && !failedCheck(check);
-}
-
-async function reviewState(number, head, entry, cursorId, allowPiFindings = false) {
-  const token = process.env.GH_TOKEN;
-  const pull = await request(`pulls/${number}`, { token });
-  assert.equal(pull.state, "open", "Version PR is no longer open");
-  assert.equal(pull.head.sha, head, "Version PR head changed while checks were running");
-  const checks = await checkRuns(head);
-  const expected = [["pi-durable", "Pi Durable Review"], ["cursor", "Cursor Automation: PR Bug Review - Maintained Repos"],
-    ...(entry.releaseChecks ?? ["compatibility / compatibility"]).map((name) => ["github-actions", name])];
-  const required = expected.map(([app, name]) => checks.find((check) => check.app?.slug === app && check.name === name && check.head_sha === head));
-  const pi = required[0];
-  assert.equal(required[1]?.id, cursorId, "The current Cursor review changed after its report was handled");
-  const piFailure = allowPiFindings && pi?.status === "completed" && pi.conclusion === "failure" && findingCheck(pi)
-    ? reportedFindings(pi, pull.base.sha, head) : 0;
-  for (const check of checks) {
-    if (check === pi && piFailure) continue;
-    if (failedCheck(check)) {
-      throw new Error(`${check.name} did not pass: ${check.html_url ?? check.details_url ?? ""}`);
-    }
-  }
-  for (const check of required.filter(Boolean)) {
-    if (check.status === "completed" && check !== pi) assert.equal(check.conclusion, "success", `${check.name} did not pass`);
-    if (check === pi && check.status === "completed" && !piFailure) assert.equal(check.conclusion, "success", `${check.name} did not pass`);
-  }
-  if (pi?.status === "completed" && pi.conclusion === "success") reviewedPair(pi, pull.base.sha, head);
-  const passed = (check) => check?.status === "completed" && check.conclusion === "success";
-  return { ready: required.every(passed), otherReady: required.slice(1).every(passed), piFailure };
-}
-
-export async function reviewThreads(number, head, allowUnresolved = false, pi = undefined) {
-  const [owner, name] = process.env.GITHUB_REPOSITORY.split("/");
-  let cursor = null;
-  let resolvedPi = 0;
-  let unresolved = 0;
-  do {
-    const result = await request("https://api.github.com/graphql", { method: "POST", token: process.env.GH_TOKEN, body: {
-      query: `query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
-        repository(owner:$owner,name:$name) { pullRequest(number:$number) { headRefOid
-          reviewThreads(first:100,after:$cursor) {
-            nodes { isResolved comments(first:1) { nodes { author { login } body originalCommit { oid } } } }
-            pageInfo { hasNextPage endCursor }
-          }
-        } }
-      }`, variables: { owner, name, number, cursor },
-    } });
-    assert.ok(!result.errors?.length, `GitHub review thread lookup failed: ${JSON.stringify(result.errors)}`);
-    const pull = result.data.repository.pullRequest;
-    assert.equal(pull.headRefOid, head, "Version PR head changed while checking review threads");
-    for (const thread of pull.reviewThreads.nodes) {
-      if (!thread.isResolved) unresolved++;
-      const comment = thread.comments.nodes[0];
-      if (thread.isResolved && comment?.author?.login === "pi-durable" && comment.originalCommit?.oid === head
-        && /<!-- pi-durable-review:/.test(comment.body ?? "")) resolvedPi++;
-    }
-    cursor = pull.reviewThreads.pageInfo.hasNextPage ? pull.reviewThreads.pageInfo.endCursor : null;
-  } while (cursor);
-  const comments = await request(`issues/${number}/comments?per_page=100`, { token: process.env.GH_TOKEN, paginate: true });
-  const addressed = (url) => comments.some((comment) => ["pi-durable[bot]", "fitchmultz"].includes(comment.user?.login)
-    && comment.body?.includes(url) && comment.body.replace(url, "").trim());
-  const standalone = comments.filter((comment) => /<!-- pi-durable-review:/.test(comment.body ?? ""));
-  const unanswered = standalone.filter((comment) => !addressed(comment.html_url))
-    .map((comment) => ({ kind: "comment", id: comment.id, url: comment.html_url }));
-  const start = Date.parse(pi?.started_at ?? "");
-  const end = Date.parse(pi?.completed_at ?? "");
-  const addressedPi = standalone.filter((comment) => addressed(comment.html_url)
-    && Date.parse(comment.created_at ?? "") >= start && Date.parse(comment.created_at ?? "") <= end).length;
-  const reviews = await request(`pulls/${number}/reviews?per_page=100`, { token: process.env.GH_TOKEN, paginate: true });
-  for (const review of reviews.filter((item) => item.user?.login === "cursor[bot]" && item.body?.includes("CURSOR_AUTOMATION_ID"))) {
-    const inline = await request(`pulls/${number}/reviews/${review.id}/comments?per_page=100`, { token: process.env.GH_TOKEN, paginate: true });
-    if (!inline.length && !addressed(review.html_url)) unanswered.push({ kind: "review", id: review.id, url: review.html_url });
-  }
-  if (!allowUnresolved) {
-    assert.equal(unresolved, 0, "Version PR has unresolved review threads");
-    assert.equal(unanswered.length, 0, `Version PR has a standalone finding requiring disposition: ${unanswered[0]?.url ?? ""}`);
-  }
-  return { resolvedPi, addressedPi, unresolved, unanswered };
-}
-
-async function waitForChecks(number, head, entry, cursorId) {
-  while (true) {
-    const failed = (await checkRuns(head)).find((check) => failedCheck(check)
-      && !(check.app?.slug === "pi-durable" && check.name === "Pi Durable Review"
-        && findingCheck(check)));
-    if (failed) {
-      console.log(`${failed.name} needs remediation: ${failed.html_url ?? failed.details_url ?? ""}`);
-      output({ refresh: "true" });
-      return;
-    }
-    const state = await reviewState(number, head, entry, cursorId, true);
-    if (state.piFailure || state.ready) {
-      const { resolvedPi, addressedPi, unresolved, unanswered } = await reviewThreads(number, head, true,
-        state.piFailure ? (await checkRuns(head)).find((check) => check.app?.slug === "pi-durable" && check.name === "Pi Durable Review") : undefined);
-      if (unresolved > 0 || unanswered.length > 0) {
-        output({ refresh: "true" });
-        console.log("New review findings need remediation");
-        return;
-      }
-      if (unresolved === 0 && unanswered.length === 0 && state.piFailure && state.otherReady) {
-        assert.ok(resolvedPi + addressedPi >= state.piFailure,
-          `Pi reported ${state.piFailure} findings but only ${resolvedPi + addressedPi} current-head dispositions were found`);
-        output({ refresh: "true" });
-        console.log("Resolved Pi findings require a fresh review on a new version PR head");
-        return;
-      }
-      if (unresolved === 0 && unanswered.length === 0 && state.ready) {
-        const result = spawnSync("gh", ["pr", "checks", String(number), "--repo", process.env.GITHUB_REPOSITORY, "--watch", "--fail-fast"],
-          { env: process.env, stdio: "inherit" });
-        if (result.error) throw result.error;
-        if (result.status !== 0 && (await checkRuns(head)).some(failedCheck)) {
-          output({ refresh: "true" });
-          console.log("A check failed while waiting; reconcile it immediately");
-          return;
-        }
-        assert.equal(result.status, 0, "Version PR checks did not pass");
-        const current = await reviewState(number, head, entry, cursorId);
-        const threads = await reviewThreads(number, head, true);
-        if (current.ready && threads.unresolved === 0 && threads.unanswered.length === 0) {
-          output({ ready: "true" });
-          return;
-        }
-      }
-      await new Promise((resolve) => setTimeout(resolve, 30_000));
-    } else {
-      console.log("Waiting for current-head compatibility and reviews");
-      await new Promise((resolve) => setTimeout(resolve, 10_000));
-    }
-  }
-}
-
-async function mergeVersion(source, number, head, entry, cursorId) {
-  assert.ok((await reviewState(number, head, entry, cursorId)).ready, "Version PR checks are not complete");
-  await reviewThreads(number, head);
-  const pull = await request(`pulls/${number}`);
-  git(source, ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"]);
-  const main = git(source, ["rev-parse", "refs/remotes/origin/main"]);
-  assert.equal(pull.base.sha, main, "Main advanced while the version PR was being reviewed");
-  assert.ok(isAncestor(source, main, head), "Version PR must be updated to current main before merging");
-  const original = markedSource(pull.body);
-  assert.ok(original && pull.head.ref === branchFor(original), "Version PR source marker differs from its branch");
-  assert.equal(git(source, ["rev-parse", "HEAD"]), head, "Checked-out version PR head changed");
-  const version = readJson(join(source, "package.json")).version;
-  versionParts(version);
-  const recovery = supersession(pull.body);
-  run("gh", ["pr", "merge", String(number), "--repo", process.env.GITHUB_REPOSITORY, "--squash",
-    "--match-head-commit", head, "--subject", `chore(release): ${version}`,
-    "--body", `${sourceMarker(original)}${recovery ? `\n\n${supersessionMarker(recovery)}` : ""}`],
-  { cwd: source, env: { ...process.env, GH_TOKEN: process.env.RELEASE_GH_TOKEN } });
-}
-
 async function main() {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: {
-    source: { type: "string" }, "app-slug": { type: "string" }, pull: { type: "string" }, head: { type: "string" }, cursor: { type: "string" },
+    source: { type: "string" }, "app-slug": { type: "string" },
     "package-qualified": { type: "boolean", default: false },
     "version-reviewed": { type: "boolean", default: false },
     "supersede-version": { type: "string" }, "supersede-source": { type: "string" },
@@ -885,14 +507,13 @@ async function main() {
   if (values.help) {
     console.log(`Usage:
   npm-version.mjs reconcile --source PATH --app-slug APP [--package-qualified] [--version-reviewed]
-    [--supersede-version X.Y.Z --supersede-source FAILED_VERSION_MERGE_SHA]
-  npm-version.mjs wait --pull NUMBER --head SHA --cursor CHECK_ID [--package-qualified] [--version-reviewed]
-  npm-version.mjs merge --source PATH --pull NUMBER --head SHA --cursor CHECK_ID [--package-qualified] [--version-reviewed]
+    [--supersede-version X.Y.Z --supersede-source FAILED_VERSION_COMMIT_SHA]
 
-Version automation runs only in GitHub Actions on main. Supersession requires an operator
-workflow_dispatch of the trusted npm-version.yml caller. It opens a new normal version PR
-from fixed main for the latest failed, npm-unpublished automatic version. Existing release
-records are preserved. Omit the recovery inputs to reconcile normally.`);
+Version automation runs only in GitHub Actions on main. It compares main against the
+published npm tarball and commits a GitHub-signed version, lockfile, and changelog update
+directly onto main when installable package contents changed. Supersession requires an
+operator workflow_dispatch of the trusted npm-version.yml caller to advance past a failed,
+npm-unpublished automatic version while preserving existing release records.`);
     return;
   }
   assert.equal(process.env.GITHUB_ACTIONS, "true", "Version automation only runs in GitHub Actions");
@@ -902,7 +523,7 @@ records are preserved. Omit the recovery inputs to reconcile normally.`);
   if (values["supersede-version"] !== undefined || values["supersede-source"] !== undefined) {
     assert.ok(values["supersede-version"] && values["supersede-source"], "Supersession requires both --supersede-version and --supersede-source");
     versionParts(values["supersede-version"]);
-    assert.match(values["supersede-source"], /^[a-f0-9]{40}$/, "Supersession requires an exact failed version merge SHA");
+    assert.match(values["supersede-source"], /^[a-f0-9]{40}$/, "Supersession requires an exact failed version commit SHA");
     assert.equal(positionals[0], "reconcile", "Supersession inputs apply only to reconcile");
     assert.equal(process.env.GITHUB_EVENT_NAME, "workflow_dispatch", "Supersession requires an operator workflow_dispatch");
     assert.equal(process.env.GITHUB_WORKFLOW_REF, `${repository}/.github/workflows/npm-version.yml@refs/heads/main`,
@@ -913,18 +534,11 @@ records are preserved. Omit the recovery inputs to reconcile normally.`);
   assert.ok(entry?.npmRelease === "automatic", "Repository has no automatic npm release channel");
   assert.ok(!entry.versionQualification || values["version-reviewed"],
     `${repository} requires its exact-diff pre-commit and pre-push review before automatic versioning`);
-  assert.ok(!entry.releaseQualification || values["package-qualified"], `${repository} requires its package-specific release qualification before automatic versioning`);
-  if (positionals[0] === "reconcile") {
-    assert.ok(values.source && values["app-slug"], "reconcile requires --source and --app-slug");
-    await reconcile(resolve(values.source), entry, repository, values["app-slug"], values["version-reviewed"], recovery);
-  } else if (["wait", "merge"].includes(positionals[0])) {
-    const number = Number(values.pull);
-    assert.ok(Number.isSafeInteger(number) && number > 0 && /^[a-f0-9]{40}$/.test(values.head ?? ""), "wait/merge require --pull and --head");
-    const cursorId = Number(values.cursor);
-    assert.ok(Number.isSafeInteger(cursorId) && cursorId > 0, "wait/merge require the handled Cursor check ID");
-    if (positionals[0] === "wait") await waitForChecks(number, values.head, entry, cursorId);
-    else { assert.ok(values.source, "merge requires --source"); await mergeVersion(resolve(values.source), number, values.head, entry, cursorId); }
-  } else throw new Error("Choose reconcile, wait or merge");
+  assert.ok(!entry.releaseQualification || values["package-qualified"],
+    `${repository} requires its package-specific release qualification before automatic versioning`);
+  assert.equal(positionals[0], "reconcile", "Choose reconcile");
+  assert.ok(values.source && values["app-slug"], "reconcile requires --source and --app-slug");
+  await reconcile(resolve(values.source), entry, repository, values["app-slug"], values["version-reviewed"], recovery);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

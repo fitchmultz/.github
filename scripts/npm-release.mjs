@@ -150,7 +150,7 @@ async function plan() {
   const matchingDraft = draft?.draft === true && draftMarker?.[1] === ref
     && (!existing || draftMarker[2] === existing.dist?.integrity);
   const automatic = existsSync(join(source, ".github/workflows/npm-version.yml"));
-  const bump = automatic ? await versionCommit(history(source), repository, (sha) => github(`commits/${sha}/pulls?per_page=100`)) : null;
+  const bump = automatic ? await versionCommit(history(source), (sha) => github(`commits/${sha}`), source) : null;
   const bumpVersion = bump && JSON.parse(run("git", ["show", `${bump.sha}:package.json`], { cwd: source, quiet: true })).version;
   const reviewedSource = !automatic || Boolean(bump && bump.sha === ref && bumpVersion === manifest.version);
   const release = reviewedSource && (matchingDraft || (!existing && !draft));

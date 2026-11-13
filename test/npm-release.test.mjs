@@ -38,11 +38,12 @@ function fixture(t, version = "4.0.1", changelog = `## ${version} - 2026-10-04\n
 }
 
 function versionCommit(f) {
-  f.trigger = f.ref;
   mkdirSync(join(f.source, ".github", "workflows"), { recursive: true });
   writeFileSync(join(f.source, ".github", "workflows", "npm-version.yml"), "name: npm version\n");
   exec("git", ["add", ".github/workflows/npm-version.yml"], f.source);
-  exec("git", ["commit", "--quiet", "-m", "chore(release): version", "-m", `<!-- pi-npm-source: ${f.trigger} -->`], f.source);
+  exec("git", ["commit", "--quiet", "-m", "Enable automatic versioning"], f.source);
+  f.trigger = exec("git", ["rev-parse", "HEAD"], f.source);
+  exec("git", ["commit", "--allow-empty", "--quiet", "-m", `chore(release): ${f.version}`, "-m", `<!-- pi-npm-source: ${f.trigger} -->`], f.source);
   f.ref = exec("git", ["rev-parse", "HEAD"], f.source);
   return f;
 }
@@ -54,7 +55,7 @@ function metadata(latest = "4.0.0") {
 
 // Execute the real CLI entry point, including Git cleanliness, HTTP response handling and workflow outputs.
 // HTTP and publication subprocess boundaries are replaced; this is not real host/OIDC qualification.
-async function invoke(t, fixture, command, { data = metadata(), pulls, draft, releasePages, releaseStatus = 200, status = 200, args = [], environment = {}, published, publishedStatus = 200 } = {}) {
+async function invoke(t, fixture, command, { data = metadata(), pulls, commitRecord, draft, releasePages, releaseStatus = 200, status = 200, args = [], environment = {}, published, publishedStatus = 200 } = {}) {
   const { repository, name } = fixture;
   const argv = process.argv;
   const exitCode = process.exitCode;
@@ -82,6 +83,13 @@ async function invoke(t, fixture, command, { data = metadata(), pulls, draft, re
       return Response.json(releasePages?.[page - 1] ?? (draft ? [{ ...draft, tag_name: `v${data["dist-tags"].latest}` }] : []), { status: releaseStatus });
     }
     const versionRef = fixture.bumpRef ?? fixture.ref;
+    if (String(url) === `https://api.github.com/repos/${repository}/commits/${versionRef}`) {
+      return Response.json(commitRecord ?? {
+        sha: versionRef,
+        author: { login: "pi-durable[bot]", type: "Bot" },
+        commit: { verification: { verified: true, reason: "valid" } },
+      });
+    }
     assert.equal(String(url), `https://api.github.com/repos/${repository}/commits/${versionRef}/pulls?per_page=100`);
     return Response.json(pulls ?? [{ merged_at: "2026-10-04T12:00:00Z", base: { ref: "main" }, merge_commit_sha: versionRef,
       head: { ref: `npm-version/${fixture.trigger}`, repo: { full_name: repository } }, user: { type: "Bot" } }]);
@@ -235,15 +243,25 @@ test("foreign npm ownership, source identity changes and registry failures never
   }
 });
 
-test("a marker without its merged bot version PR cannot authorize publication", async (t) => {
-  for (const pulls of [[], [{ merged_at: null, base: { ref: "main" } }],
-    [{ merged_at: "2026-10-04", base: { ref: "other" } }],
-    [{ merged_at: "2026-10-04", base: { ref: "main" }, merge_commit_sha: "a".repeat(40) }]]) {
+test("a marker without a GitHub-verified Bot version-only commit cannot authorize publication", async (t) => {
+  for (const makeRecord of [
+    (sha) => ({ sha, author: { type: "User" }, commit: { verification: { verified: true } } }),
+    (sha) => ({ sha, author: { type: "Bot" }, commit: { verification: { verified: false } } }),
+    () => ({ sha: "a".repeat(40), author: { type: "Bot" }, commit: { verification: { verified: true } } }),
+  ]) {
     const f = versionCommit(fixture(t));
-    const result = await invoke(t, f, "plan", { pulls });
+    const result = await invoke(t, f, "plan", { commitRecord: makeRecord(f.ref) });
     assert.equal(result.failed, false, result.errors);
     assert.equal(result.outputs.release, "false");
   }
+  const tampered = versionCommit(fixture(t));
+  writeFileSync(join(tampered.source, "tampered.js"), "export const extra = 1;\n");
+  exec("git", ["add", "tampered.js"], tampered.source);
+  exec("git", ["commit", "--amend", "--no-edit", "--quiet"], tampered.source);
+  tampered.ref = exec("git", ["rev-parse", "HEAD"], tampered.source);
+  const tamperedResult = await invoke(t, tampered, "plan");
+  assert.equal(tamperedResult.failed, false, tamperedResult.errors);
+  assert.equal(tamperedResult.outputs.release, "false");
 });
 
 test("downgrades and prereleases cannot move the automated latest channel", async (t) => {
@@ -385,7 +403,7 @@ test("first-publication absence never relaxes namespace, registry, merged-source
     }
     versionCommit(f);
     const result = await invoke(t, f, "plan", { status: typeof kind === "number" ? kind : 404, data: null,
-      pulls: kind === "direct" ? [] : undefined });
+      commitRecord: kind === "direct" ? { sha: f.ref, author: { type: "User" }, commit: { verification: { verified: false } } } : undefined });
     const reasons = { unscoped: /HTTP 404/, namespace: /Package name differs/, repository: /repository identity/,
       private: /Private packages/, prerelease: /stable x.y.z/, notes: /versioned section/ };
     if (kind === "direct") {
