@@ -4,11 +4,22 @@ import { fleetPlatforms, readJson } from "./common.mjs";
 import { resolveHostTargets } from "./hosts.mjs";
 
 const fleet = readJson(new URL("../fleet.json", import.meta.url));
-const requested = process.env.REPOSITORY;
+const requested = process.env.REPOSITORY ?? "";
 const host = process.env.HOST ?? "both";
 assert.ok(["both", "fork"].includes(host), "Host must be both or fork");
-const selected = fleet.filter((entry) => (requested === "all" || `fitchmultz/${entry.repo}` === requested)
-  && (host !== "fork" || entry.kind !== "cli"));
+let selected;
+if (requested === "all") {
+  selected = fleet.filter((entry) => host !== "fork" || entry.kind !== "cli");
+} else {
+  const names = requested.split(",").filter(Boolean);
+  assert.ok(names.length && names.join(",") === requested, `No applicable fleet repository: ${requested} (host: ${host})`);
+  const byName = new Map(fleet.map((entry) => [`fitchmultz/${entry.repo}`, entry]));
+  selected = [...new Set(names)].map((name) => {
+    const entry = byName.get(name);
+    assert.ok(entry && (host !== "fork" || entry.kind !== "cli"), `No applicable fleet repository: ${name} (host: ${host})`);
+    return entry;
+  });
+}
 assert.ok(selected.length, `No applicable fleet repository: ${requested} (host: ${host})`);
 const needsFork = selected.some((entry) => entry.kind !== "cli");
 const targets = needsFork ? await resolveHostTargets({ host, officialVersion: process.env.OFFICIAL_VERSION, forkRef: process.env.FORK_REF })

@@ -186,10 +186,22 @@ test("failed or invalid maintained-main resolution emits no qualification output
 });
 
 test("unknown repositories and nonimmutable fork targets still fail closed", async (t) => {
-  for (const environment of [{ HOST: "fork", REPOSITORY: "fitchmultz/unknown" }, { HOST: "fork", FORK_REF: "main" }]) {
+  for (const environment of [
+    { HOST: "fork", REPOSITORY: "fitchmultz/unknown" },
+    { HOST: "both", REPOSITORY: "fitchmultz/pi-calculator,fitchmultz/unknown" },
+    { HOST: "both", REPOSITORY: "fitchmultz/pi-calculator," },
+    { HOST: "fork", FORK_REF: "main" },
+  ]) {
     const result = await resolveFixture(t, environment);
     assert.match(result.error?.message ?? "", /No applicable fleet repository|Fork host must be pinned to a full commit SHA/);
     assert.deepEqual(result.outputs, {});
     assert.deepEqual(result.requests, []);
   }
+});
+
+test("comma-separated repository selection resolves only the listed repositories in order", async (t) => {
+  const result = await resolveFixture(t, { REPOSITORY: "fitchmultz/pi-calculator,fitchmultz/pi-stash" });
+  passed(result);
+  assert.deepEqual([...new Set(result.lanes.map((lane) => lane.repo))], ["pi-calculator", "pi-stash"]);
+  assert.equal(result.lanes.length, 4);
 });
