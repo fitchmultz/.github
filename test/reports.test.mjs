@@ -11,7 +11,7 @@ const pass = { repo: "pi-calculator", flavor: "official", lane: "official", host
   platform: "linux", node: "v24.21.0", source: "a".repeat(40), result: "passed" };
 const fork = { ...pass, flavor: "fork", lane: "fork", host: { version: "0.86.1", provenance: { ref: "b".repeat(40) } } };
 const run = "https://github.com/fitchmultz/.github/actions/runs/123";
-const inventory = [{ repo: "pi-calculator", kind: "extension", nodes: ["24"], extraPlatforms: ["windows-latest"] }];
+const inventory = [{ repo: "pi-calculator", kind: "extension", nodes: ["24"] }];
 
 test("one repository report keeps every host, Node and platform result together", () => {
   const reports = failureReports([pass, fork, { ...pass, node: "v22.19.0", result: "failed", phase: "package-contracts", error: "seeded fixture failure" }], run, inventory);
@@ -20,7 +20,7 @@ test("one repository report keeps every host, Node and platform result together"
   assert.equal(reports[0].title, "Pi compatibility: pi-calculator");
   assert.equal(reports[0].failed, true);
   assert.match(reports[0].body, /seeded fixture failure/);
-  assert.match(reports[0].body, /missing Windows evidence is unqualified, not a pass/);
+  assert.match(reports[0].body, /Apple Silicon macOS and Linux/);
   assert.match(reports[0].body, /v22.19.0/);
   assert.match(reports[0].body, /--target 0.86.1/);
   assert.match(reports[0].body, new RegExp(`fork ${"b".repeat(40)}`));
@@ -28,18 +28,10 @@ test("one repository report keeps every host, Node and platform result together"
   assert.equal(failureReports([{ ...pass, host: { version: "0.87.0", provenance: { version: "0.87.0" } }, result: "failed" }], `${run}4`, inventory)[0].key, reports[0].key);
 });
 
-test("best-effort Windows failures stay visible without keeping the report open", () => {
-  const [report] = failureReports([pass, fork, { ...pass, platform: "win32", result: "failed", phase: "published-npm", error: "windows diagnostic" }], run, inventory);
-  assert.equal(report.failed, false);
-  assert.equal(report.complete, true);
-  assert.match(report.body, /best-effort diagnostic/);
-  assert.match(report.body, /windows diagnostic/);
-});
-
 test("only complete required evidence can close a report", () => {
   assert.equal(requiredLaneCount(inventory[0]), 2);
   assert.equal(requiredLaneCount({ repo: "cli", kind: "cli", nodes: ["22.22.2", "24"] }), 2);
-  const [partial] = failureReports([pass, { ...pass, platform: "win32", result: "failed" }], run, inventory);
+  const [partial] = failureReports([pass], run, inventory);
   assert.equal(partial.failed, false);
   assert.equal(partial.complete, false);
   const [unknown] = failureReports([{ ...pass, repo: "retired" }], run, inventory);

@@ -2,19 +2,18 @@ import assert from "node:assert/strict";
 import { globSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { fleetPlatforms, readJson, runnerPlatform, waivedPlatforms } from "./common.mjs";
+import { fleetPlatforms, readJson } from "./common.mjs";
 
 const fleet = readJson(new URL("../fleet.json", import.meta.url));
 export const reportKey = (repo) => `<!-- pi-compatibility:${repo} -->`;
 // Earlier reports opened one issue per repository, host flavor and exact host identity.
 const legacyKeyPrefix = (repo) => `<!-- pi-compatibility:${repo}:`;
 const identity = (result) => result.host?.provenance.ref ?? result.host?.version ?? result.target ?? "unresolved";
-const waived = (result) => [...waivedPlatforms].some((os) => runnerPlatform(os) === result.platform);
 
-// Required (non-waived) lanes a complete canary run produces for one fleet entry.
+// Required lanes a complete canary run produces for one fleet entry.
 export function requiredLaneCount(entry) {
   const hosts = entry.kind === "cli" ? 1 : 2;
-  return fleetPlatforms(entry).filter((platform) => !waivedPlatforms.has(platform.os)).length * hosts;
+  return fleetPlatforms(entry).length * hosts;
 }
 
 // One report per repository: the latest run's lanes across both hosts. Only required lanes keep it failing,
@@ -27,21 +26,19 @@ export function failureReports(qualifications, runUrl, inventory = fleet) {
   }
   return [...groups].map(([repo, results]) => {
     results.sort((a, b) => `${a.flavor}/${a.platform}/${a.node}`.localeCompare(`${b.flavor}/${b.platform}/${b.node}`));
-    const required = results.filter((result) => !waived(result));
-    const failures = required.filter((result) => result.result !== "passed");
-    const diagnostics = results.filter((result) => waived(result) && result.result !== "passed");
+    const failures = results.filter((result) => result.result !== "passed");
     const entry = inventory.find((item) => item.repo === repo);
-    const complete = Boolean(entry) && required.length >= requiredLaneCount(entry);
+    const complete = Boolean(entry) && results.length >= requiredLaneCount(entry);
     const hosts = [...new Set(results.map((result) => `${result.flavor} ${identity(result)}`))];
     const body = [reportKey(repo), `Latest qualification: ${runUrl}`, "",
       `Repository: fitchmultz/${repo}. Hosts: ${hosts.join(", ")}.`, "",
-      ...results.map((result) => `- ${result.flavor} ${identity(result)} / ${result.platform} / ${result.node}: **${result.result}**${result.phase ? ` (${result.phase})` : ""}${waived(result) ? " — best-effort diagnostic" : ""}; source \`${result.source}\`.`), "",
-      ...[...failures, ...diagnostics].flatMap((result) => [`${result.flavor} ${identity(result)} / ${result.platform} / ${result.node}${waived(result) ? " (best-effort diagnostic)" : ""}:`,
+      ...results.map((result) => `- ${result.flavor} ${identity(result)} / ${result.platform} / ${result.node}: **${result.result}**${result.phase ? ` (${result.phase})` : ""}; source \`${result.source}\`.`), "",
+      ...failures.flatMap((result) => [`${result.flavor} ${identity(result)} / ${result.platform} / ${result.node}:`,
         "```text", String(result.error ?? "See the failing job log").slice(0, 5000), "```", ""]),
       "Reproduce by checking out the recorded source commit and this run's automation revision, then running:", "",
       "```sh", ...[...new Set((failures.length ? failures : results).map((result) =>
         `node scripts/qualify.mjs --repo ${repo} --source /path/to/checkout --host ${result.flavor} --target ${result.flavor === "fork" ? "/path/to/downloaded/fork-host-artifact" : identity(result)} --output /tmp/pi-qualification`))], "```", "",
-      "This single issue tracks the repository across official and fork hosts; each canary run updates it and closes it once every required lane passes. Native Windows is best-effort and outside required coverage; Windows results are listed only when evidence is available; missing Windows evidence is unqualified, not a pass. Explicitly requested Windows lanes retain their actual diagnostic outcomes and do not keep this issue open. The run's qualification artifacts include the selected SDK/CLI paths and hashes, host provenance, packed npm artifact, and native probe output. Published-package failures are checked by adding --published. Repair through the repository's normal PR and compatibility checks; this canary never creates a repair PR or promotes a release.",
+      "This single issue tracks the repository across official and fork hosts; each canary run updates it and closes it once every required lane passes. Supported and tested platforms are Apple Silicon macOS and Linux. The run's qualification artifacts include the selected SDK/CLI paths and hashes, host provenance, packed npm artifact, and native probe output. Published-package failures are checked by adding --published. Repair through the repository's normal PR and compatibility checks; this canary never creates a repair PR or promotes a release.",
     ].join("\n");
     return { key: reportKey(repo), repo, failed: failures.length > 0, complete, title: `Pi compatibility: ${repo}`, body };
   });

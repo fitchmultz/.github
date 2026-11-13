@@ -18,10 +18,6 @@ on:
         description: 'Host selection: both for normal qualification, fork for fork reverse dependencies'
         default: both
         type: string
-      waived-platforms:
-        description: Include optional best-effort native Windows qualification
-        default: false
-        type: boolean
       official-version:
         description: Official version already resolved earlier in this run; empty resolves latest
         default: ''
@@ -65,7 +61,6 @@ jobs:
           REPOSITORY: ${{ inputs.repository || github.repository }}
           SOURCE_REF: ${{ inputs.source-ref || github.sha }}
           HOST: ${{ inputs.host }}
-          WAIVED_PLATFORMS: ${{ inputs.waived-platforms }}
           OFFICIAL_VERSION: ${{ inputs.official-version }}
           FORK_REF: ${{ inputs.fork-ref }}
         run: node scripts/resolve-matrix.mjs
@@ -151,9 +146,7 @@ jobs:
       matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
     name: ${{ matrix.repo }} / ${{ matrix.label }} / ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.repo == 'pi-subagents' && 120 || matrix.os == 'windows-latest' && (matrix.repo == 'pi-agent-browser-native' && 70 || matrix.repo == 'pi-cursor-sdk' && 35 || 25) || matrix.repo == 'pi-agent-browser-native' && 45 || matrix.repo == 'pi-apply-edits' && matrix.os == 'macos-latest' && 45 || 25 }}
-    # Native Windows is best-effort; retain actual diagnostic failures and artifacts.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    timeout-minutes: ${{ matrix.repo == 'pi-subagents' && 120 || matrix.repo == 'pi-agent-browser-native' && 45 || matrix.repo == 'pi-apply-edits' && matrix.os == 'macos-latest' && 45 || 25 }}
     env:
       npm_config_cache: ${{ github.workspace }}/.npm-cache
     steps:
@@ -202,10 +195,6 @@ jobs:
           for tool in fd ripgrep zstd; do
             brew list "$tool" >/dev/null 2>&1 || brew install "$tool"
           done
-      - name: Initialize native Windows module discovery for bash
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: '"PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         if: matrix.repo == 'pi-posthorse' || matrix.repo == 'pi-apply-edits' || matrix.repo == 'pi-subagents' || matrix.repo == 'pi-agent-browser-native'
         with:
@@ -272,7 +261,6 @@ jobs:
           rsvg-convert --version
           jq --version
       - name: Qualify the selected host and consumer artifacts
-        timeout-minutes: ${{ matrix.os == 'windows-latest' && (matrix.repo == 'pi-agent-browser-native' && 60 || matrix.repo == 'pi-cursor-sdk' && 25 || 15) || 360 }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

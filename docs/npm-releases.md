@@ -19,7 +19,7 @@ Version PRs and their release notes are generated automatically; maintainers can
 
 - **pi-subagents:** its packed entry must load through real Pi and exercise an actual native child session on the selected hosts; a loader-only smoke is not equivalent.
 - **pi-agent-browser-native:** its own release verification includes the configured-source Pi lifecycle and required macOS/Ubuntu Crabbox smoke; its release instructions also require real-site dogfood. The shared host checks do not replace them.
-- **pi-oracle:** its `release:check` requires eight actual ChatGPT preset jobs for the exact post-merge HEAD and its doctor-first macOS, Ubuntu and native Windows platform suites. A PR-head run or offline test is not equivalent.
+- **pi-oracle:** its `release:check` requires eight actual ChatGPT preset jobs for the exact post-merge HEAD. A PR-head run or offline test is not equivalent.
 - **pi-cursor-sdk:** its release instructions require a deep maintainability review of the exact release diff, with findings addressed and review repeated until clear, in addition to applicable verification.
 - **pi-zai-mcp:** its release and completion checks include the production `npm audit`, which is not part of `check:compat`.
 - **pi-codex-goal:** release-sensitive changes require interactive real-model `/goal` session evidence, which offline compatibility does not provide.
