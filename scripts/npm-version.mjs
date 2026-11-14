@@ -4,7 +4,7 @@ import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmS
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { isDeepStrictEqual, parseArgs } from "node:util";
+import { parseArgs } from "node:util";
 import { isolatedEnvironment, readJson, run, stageSource } from "./common.mjs";
 import { prepareHost } from "./hosts.mjs";
 import { buildPackage, changelogFragment, packageDifference, packPackage, publishedTarball } from "./npm-package.mjs";
@@ -199,10 +199,11 @@ function versionOnly(source, from, to) {
       const manifest = JSON.parse(git(source, ["show", `${commit}:${file}`]));
       delete manifest.version;
       if (manifest.packages?.[""]) delete manifest.packages[""].version;
-      return manifest;
+      // Preserve key insertion order so semantic reorders such as package.json `exports` conditions are detected.
+      return JSON.stringify(manifest);
     };
     const before = unversioned(from);
-    return before !== null && isDeepStrictEqual(before, unversioned(to));
+    return before !== null && before === unversioned(to);
   });
 }
 

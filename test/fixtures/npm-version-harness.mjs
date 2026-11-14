@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,8 +19,8 @@ const git = (cwd, ...args) => command("git", args, cwd);
 const read = (path) => JSON.parse(readFileSync(path, "utf8"));
 const write = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 
-function fixture(t, { unreleased = true, repo = repository, packageName = "pi-copy-message", versionReview = false } = {}) {
-  const root = mkdtempSync("/tmp/npm-version-test-");
+function fixture(t, { unreleased = true, repo = repository, packageName = "pi-copy-message", versionReview = false, exports: manifestExports } = {}) {
+  const root = mkdtempSync(join(tmpdir(), "npm-version-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const source = join(root, "source");
   const remote = join(root, "remote.git");
@@ -36,6 +37,7 @@ function fixture(t, { unreleased = true, repo = repository, packageName = "pi-co
     author: "Original author",
     contributors: ["Original contributor"],
     repository: { type: "git", url: `git+https://github.com/${repo}.git` },
+    ...(manifestExports ? { exports: manifestExports } : {}),
   };
   write(join(source, "package.json"), manifest);
   write(join(source, "package-lock.json"), {

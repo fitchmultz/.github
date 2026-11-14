@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -186,7 +187,7 @@ test("unverified or human commits carrying a source marker are ignored as releas
 });
 
 test("nothing is released when main matches the published release apart from version metadata", (t) => {
-  const f = fixture(t);
+  const f = fixture(t, { exports: { ".": { types: "./index.d.ts", import: "./index.js", default: "./index.cjs" } } });
   git(f.writer, "pull", "--quiet", "--ff-only", "origin", "main");
   git(f.writer, "revert", "--no-edit", f.first);
   git(f.writer, "push", "--quiet", "origin", "main");
@@ -196,10 +197,21 @@ test("nothing is released when main matches the published release apart from ver
   assert.match(idle.stdout, /Main has nothing to release since v4\.0\.0/);
   assert.doesNotMatch(idle.stdout, /published package/, "Unchanged repository files need no package comparison");
   assert.equal(f.ref("main"), reverted);
+
+  const manifest = read(join(f.writer, "package.json"));
+  manifest.exports = { ".": { default: "./index.cjs", import: "./index.js", types: "./index.d.ts" } };
+  write(join(f.writer, "package.json"), manifest);
+  git(f.writer, "add", "package.json");
+  git(f.writer, "commit", "--quiet", "-m", "Reorder export conditions");
+  git(f.writer, "push", "--quiet", "origin", "main");
+  success(f.reconcile());
+  const released = f.ref("main");
+  assert.notEqual(released, reverted, "Reordered package.json exports conditions must trigger a release");
+  assert.equal(JSON.parse(git(f.root, "--git-dir", f.remote, "show", `${released}:package.json`)).version, "4.0.1");
 });
 
 test("a package is the published one only when every installed file and manifest field is the same", async (t) => {
-  const root = mkdtempSync("/tmp/npm-package-test-");
+  const root = mkdtempSync(join(tmpdir(), "npm-package-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const pack = (name, edit) => {
     const directory = join(root, name);

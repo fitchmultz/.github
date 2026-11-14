@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { checkResources, probeCli } from "./cli-probe.mjs";
@@ -180,7 +181,7 @@ async function select() {
   run("git", ["merge-base", "--is-ancestor", values["release-source"], ref], { cwd: source, quiet: true });
   const notes = releaseNotes(source, manifest.version);
   assert.ok(process.env.GH_TOKEN, "Selecting a release candidate requires GitHub access to drafts");
-  const root = mkdtempSync("/tmp/npm-select-");
+  const root = mkdtempSync(join(tmpdir(), "npm-select-"));
   const env = isolatedEnvironment(root);
   try {
     const gh = (args, options = {}) => run("gh", args, { cwd: root, env: { ...env, GH_TOKEN: process.env.GH_TOKEN }, quiet: true, ...options });
@@ -221,7 +222,7 @@ async function prepare() {
   run("git", ["merge-base", "--is-ancestor", releaseSource, ref], { cwd: source, quiet: true });
   const notes = releaseNotes(source, manifest.version);
   mkdirSync(destination, { recursive: true });
-  const root = mkdtempSync("/tmp/npm-release-");
+  const root = mkdtempSync(join(tmpdir(), "npm-release-"));
   const env = isolatedEnvironment(root);
   try {
     const official = await prepareHost(join(root, "official", "host"), "official", values["official-version"] || "latest", env);
@@ -418,7 +419,7 @@ async function publish() {
   assert.match(values["official-version"] ?? "", /^\d+\.\d+\.\d+$/, "publish requires exact --official-version from this run's planner");
   assert.match(values["fork-ref"] ?? "", /^[a-f0-9]{40}$/, "publish requires exact --fork-ref from this run's planner");
   const directory = resolve(values.artifact);
-  const root = mkdtempSync("/tmp/npm-publish-");
+  const root = mkdtempSync(join(tmpdir(), "npm-publish-"));
   const env = isolatedEnvironment(root);
   try {
     const candidate = verifyArtifact(directory, env);
