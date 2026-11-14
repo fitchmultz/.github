@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -110,7 +111,7 @@ function versionChangelog(changelog, version, generated, date, supersededVersion
 }
 
 function setVersion(source, version) {
-  const root = mkdtempSync("/tmp/npm-version-");
+  const root = mkdtempSync(join(tmpdir(), "npm-version-"));
   try {
     const env = isolatedEnvironment(root);
     run("npm", ["version", version, "--no-git-tag-version", "--ignore-scripts", "--allow-same-version"], { cwd: source, env });
@@ -132,7 +133,7 @@ function stageVersion(source, version, notes, date, supersededVersion, fragmentN
 
 function formatVersion(source) {
   if (!readJson(join(source, "package.json")).scripts?.format) return;
-  const root = mkdtempSync("/tmp/npm-version-format-");
+  const root = mkdtempSync(join(tmpdir(), "npm-version-format-"));
   try {
     const env = isolatedEnvironment(root);
     const staged = join(root, "source");
@@ -198,6 +199,7 @@ function versionOnly(source, from, to) {
       const manifest = JSON.parse(git(source, ["show", `${commit}:${file}`]));
       delete manifest.version;
       if (manifest.packages?.[""]) delete manifest.packages[""].version;
+      // Preserve key insertion order so semantic reorders such as package.json `exports` conditions are detected.
       return JSON.stringify(manifest);
     };
     const before = unversioned(from);
@@ -209,7 +211,7 @@ function versionOnly(source, from, to) {
 // version's registry metadata. Only that proof skips a release: a build or comparison that cannot finish is
 // reported and counts as a change.
 async function buildsPublishedPackage(source, main, published) {
-  const root = mkdtempSync("/tmp/npm-version-package-");
+  const root = mkdtempSync(join(tmpdir(), "npm-version-package-"));
   try {
     const env = isolatedEnvironment(root);
     const tarball = await publishedTarball(published, root);
@@ -355,7 +357,7 @@ async function publishSignedCommit(source, main, message, deletedPaths, localTre
 }
 
 async function reconcile(source, entry, repository, appSlug, versionReviewEnabled, recovery) {
-  const root = mkdtempSync("/tmp/npm-version-git-");
+  const root = mkdtempSync(join(tmpdir(), "npm-version-git-"));
   const appEnv = { ...process.env, GH_TOKEN: process.env.RELEASE_GH_TOKEN, HOME: root, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" };
   delete appEnv.ZAI_API_KEY;
   const scopedGit = (args, options = {}) => git(source, args, { env: appEnv, ...options });

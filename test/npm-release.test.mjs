@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import childProcess from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { syncBuiltinESMExports } from "node:module";
 import test from "node:test";
@@ -21,7 +22,7 @@ function exec(command, args, cwd) {
 }
 
 function fixture(t, version = "4.0.1", changelog = `## ${version} - 2026-10-04\n\nFix copying a selected message.\n\n## 4.0.0\n\nEarlier release.\n`, repo = repository, packageName = name) {
-  const root = mkdtempSync("/tmp/npm-release-test-");
+  const root = mkdtempSync(join(tmpdir(), "npm-release-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const source = join(root, "source");
   mkdirSync(source);
