@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const state = () => JSON.parse(readFileSync(process.env.FAKE_GITHUB_STATE, "utf8"));
@@ -16,7 +17,7 @@ if (process.env.FAKE_FAST_POLL) {
 }
 
 function buildTree(baseTree, entries) {
-  const dir = mkdtempSync("/tmp/fake-gh-tree-");
+  const dir = mkdtempSync(join(tmpdir(), "fake-gh-tree-"));
   const env = { ...process.env, GIT_INDEX_FILE: join(dir, "index") };
   try {
     git(["read-tree", baseTree], { env });
