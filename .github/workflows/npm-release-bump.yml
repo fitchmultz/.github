@@ -35,17 +35,8 @@ on:
       RELEASE_APP_PRIVATE_KEY:
         description: Private key stored in the main-only release environment
         required: false
-      PI_DURABLE_ACCESS_TOKEN:
-        description: Accepted for legacy caller compatibility; unused by direct versioning
-        required: false
-      CURSOR_API_KEY:
-        description: Accepted for legacy caller compatibility; unused by direct versioning
-        required: false
       ZAI_API_KEY:
         description: Direct Z.ai credential for the package's version reviewer
-        required: false
-      CURSOR_CATALOG_API_KEY:
-        description: Accepted for legacy caller compatibility; unused by direct versioning
         required: false
 
 permissions:
