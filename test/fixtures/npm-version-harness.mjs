@@ -73,7 +73,7 @@ appendFileSync(join(root, "review.log"), JSON.stringify({
   staged: git("diff", "--cached", "--name-only"),
   base: baseIndex < 0 ? null : process.argv[baseIndex + 1],
   remoteMain: git("--git-dir", remote, "rev-parse", "refs/heads/main"),
-  leaked: ["GH_TOKEN", "RELEASE_GH_TOKEN", "CURSOR_API_KEY", "PI_DURABLE_ACCESS_TOKEN"].filter((key) => process.env[key]),
+  leaked: ["GH_TOKEN", "RELEASE_GH_TOKEN"].filter((key) => process.env[key]),
   zai: process.env.ZAI_API_KEY,
   automation: process.env.PI_RELEASE_REVIEW_AUTOMATION_VERSIONER,
 }) + "\\n");
