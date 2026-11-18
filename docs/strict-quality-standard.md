@@ -950,12 +950,12 @@ Record the repository and adopted version; supported runtimes and package manage
 **fitchmultz/.github adoption:**
 
 - Standard: 5.1.2, adopted in phases under Section 9.2. Node.js ^22.23.5, ^24.22.3 or 26.13.1 and newer. The package manager is npm 12.2.0.
-- Locked tools: Oxlint 1.90.0, oxlint-tsgolint 7.0.2005, Oxfmt 0.76.0, TypeScript 7.0.2 and @types/node 22.20.5, for the Node 22 API surface.
+- Locked tools: Oxlint 1.94.0, tsrs 7.1.0-beta.tsrs2 (Section 2 exception QX-001 in place of stable oxlint-tsgolint 7.0.2007), Oxfmt 0.79.0, TypeScript 7.0.2 and @types/node 22.20.5, for the Node 22 API surface.
 - Policy and coverage: `.oxlintrc.json` is Appendix A without adaptations, `.oxfmtrc.json` is Section 7.1 and `tsconfig.json` is one checked-JavaScript project with the Section 4.2 settings. Normal acceptance is `npm run check:quality` after `npm ci --ignore-scripts`. `scripts/check-quality.mjs` runs the compiler, native semantic lint, the directive check, formatting and the policy check as independent steps and fails if any of them fails. The CI `configuration` job runs it, and the `check` aggregate requires that job. `npm test` remains the test gate.
 - Strict scope and source profile: the production profile applies to `scripts/select-development-host.mjs`, `scripts/check-quality.mjs` and every repository module that the compiler resolves from them, currently `scripts/hosts.mjs`, `scripts/official-release.mjs` and `scripts/common.mjs`. The check fails when an entrypoint leaves the compiler program, when `tsconfig.json` does not list a resolved module in `files` (semantic lint gives compiler types only to listed files) or when a configuration differs from this copy.
 - Formatter ownership: Oxfmt checks the strict scope, the three configurations and this copy. The check fails when an ignore file excludes a selected file. No generator owns a file in the strict scope.
 - Migration status: **INCOMPLETE**. Strict enforcement covers only the strict scope. The other scripts (`scripts/ci.mjs`, `scripts/cli-probe.mjs`, `scripts/npm-package.mjs`, `scripts/npm-release.mjs`, `scripts/npm-release-core.mjs`, `scripts/npm-version.mjs`, `scripts/observe.ts`, `scripts/pack-fork.mjs`, `scripts/qualify.mjs`, `scripts/report-canary.mjs`, `scripts/resolve-hosts.mjs` and `scripts/resolve-matrix.mjs`), the tests and fixtures in `test/` and the inline program in `.github/workflows/ci.yml` keep their existing checks. Their migration needs the test profile and, for `node:test` registrations, a qualified Section 6.4 allowance.
-- Last verification: local only, on Node 24.22.2 and 22.22.3, at the change that introduced this record. Hosted CI has not run.
+- Last verification: `npm run check:quality` and `npm test` passed on Node 24.22.3 (2026-11-18) with Oxlint 1.94.0, tsrs 7.1.0-beta.tsrs2, and Oxfmt 0.79.0; hosted CI fleet and tests run on PR #182.
 
 ### Quality-exception record
 
@@ -975,7 +975,21 @@ Retained protection, lost detection, and established assumptions:
 Review and revisit trigger:
 ```
 
-**fitchmultz/.github exceptions:** none. `npm run check:quality` rejects every lint directive in the strict scope.
+**fitchmultz/.github directive exceptions:** none. `npm run check:quality` rejects every lint directive in the strict scope.
+
+```text
+ID and title: QX-001 — adopt prerelease tsrs@7.1.0-beta.tsrs2 as the type-aware lint backend in place of stable oxlint-tsgolint.
+Rule, option, or threshold; installed tool versions: Section 5.1 ("latest stable published releases of Oxlint, oxlint-tsgolint, Oxfmt"); oxlint 1.94.0 (2026-11-16T12:26Z), tsrs 7.1.0-beta.tsrs2 (2026-11-16T11:59Z), oxfmt 0.79.0 (2026-11-16T12:27Z), TypeScript 7.0.2.
+Scope: files, authorized operations, origins, or bounded pattern: package.json / package-lock.json devDependencies and type-aware lint execution across the strict scope (oxlint --type-aware discovers node_modules/.bin/tsrs-lint natively).
+Directive selectors/inventory and optional duplication bounds: none (backend package substitution only; source directives remain forbidden by check:quality).
+Diagnostic and required contract: Section 5.1 prescribes stable published releases, whereas tsrs publishes prereleases only (dist-tags.latest is 0.25.0-ts7.1.0-beta; 7.1.0-beta.tsrs2 is an untagged prerelease; stable oxlint-tsgolint 7.0.2007 remains published on npm).
+Actual compliant alternative and demonstrated quality cost: retaining stable oxlint-tsgolint@7.0.2007 preserves Section 5.1 directly, at ~2.9x–5.3x slower type-aware lint execution and ~3x–6x higher peak RSS memory observed in cross-repository benchmarks across Pi ecosystem packages while evaluating the same Appendix A rules.
+Chosen adjustment and why its scope is appropriate: owner-approved substitution of tsrs@7.1.0-beta.tsrs2 without modifying any Appendix A rule, severity, compiler setting, or directive check. Oxlint 1.94.0 discovers tsrs-lint automatically and fails closed (exit 1) if no type-aware backend binary is present.
+Structural comparison or unsafe-type evidence, where applicable: benchmark parity verified across ecosystem strict-lint suites; no rule or compiler option relaxed.
+Verification commands, relevant tests, and results: `npm run check:quality` (compiler, membership, lint with --type-aware --deny-warnings, directivesAbsent, oxfmt --check, policyViolations) exit 0; `npm test` exit 0.
+Retained protection, lost detection, and established assumptions: all Appendix A semantic rules, structural thresholds, and tsc --noEmit checks remain active; assumes tsrs@7.1.0-beta.tsrs2 maintains diagnostic parity with oxlint-tsgolint.
+Review and revisit trigger: first stable tsrs release, any oxlint release changing type-aware backend discovery, or any type-aware diagnostic regression.
+```
 
 ## References
 
