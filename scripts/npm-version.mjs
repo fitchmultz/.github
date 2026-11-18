@@ -282,18 +282,23 @@ function output(values) {
   for (const [key, value] of Object.entries(values)) appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
 }
 
-async function rerunRelease(sha, main, draft) {
-  if (!["schedule", "workflow_dispatch"].includes(process.env.GITHUB_EVENT_NAME)) return;
+async function rerunRelease(sha, main, draft, publishedDraft = false) {
+  const event = process.env.GITHUB_EVENT_NAME;
+  const workflowRunFinalize = event === "workflow_run" && publishedDraft;
+  if (!["schedule", "workflow_dispatch"].includes(event) && !workflowRunFinalize) return;
   const token = process.env.GH_TOKEN;
-  const runs = await request(`actions/workflows/npm-release.yml/runs?head_sha=${sha}&per_page=1`, { token });
+  const runs = await request(`actions/workflows/npm-release.yml/runs?head_sha=${sha}&per_page=10`, { token });
   const run = runs.workflow_runs.find((item) => item.head_sha === sha);
   if (!run) {
+    if (workflowRunFinalize) return;
     assert.ok(!draft || sha === main, `No original release run remains for draft ${sha}; a main dispatch cannot reproduce its provenance`);
     await request("actions/workflows/npm-release.yml/dispatches", { method: "POST", body: { ref: "main" }, token });
     console.log(`Dispatched npm release on main; no run exists for ${sha}`);
   } else if (run.status === "completed") {
+    if (workflowRunFinalize && (run.conclusion !== "failure" || (run.run_attempt ?? 1) >= 3)) return;
     const pages = await request(`actions/runs/${run.id}/artifacts?per_page=100`, { token, paginate: true });
     const candidate = pages.flatMap((page) => page.artifacts).some((artifact) => artifact.name === `npm-candidate-${sha}` && !artifact.expired);
+    if (workflowRunFinalize && !candidate) return;
     const retry = run.conclusion === "failure" && candidate ? "rerun-failed-jobs" : "rerun";
     await request(`actions/runs/${run.id}/${retry}`, { method: "POST", token });
     console.log(`Requested ${retry} for npm release run ${run.id}`);
@@ -405,7 +410,8 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
           && isAncestor(source, match[1], main) && git(source, ["rev-parse", `refs/tags/v${bumpManifest.version}^{commit}`]) === match[1];
         if (!complete) {
           console.log(`Waiting for ${entry.npmPackage}@${bumpManifest.version} to complete on npm and GitHub`);
-          await rerunRelease(match?.[1] ?? latestBump.sha, main, Boolean(release?.draft));
+          const publishedDraft = Boolean(release?.draft && published && match && match[2] === published.dist?.integrity);
+          await rerunRelease(match?.[1] ?? latestBump.sha, main, Boolean(release?.draft), publishedDraft);
           return;
         }
         released = match[1];

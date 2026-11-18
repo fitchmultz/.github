@@ -3,6 +3,7 @@ import { globSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { fleetPlatforms, readJson } from "./common.mjs";
+import { releaseFetch } from "./release-fetch.mjs";
 
 const fleet = readJson(new URL("../fleet.json", import.meta.url));
 export const reportKey = (repo) => `<!-- pi-compatibility:${repo} -->`;
@@ -19,11 +20,10 @@ export function requiredLaneCount(entry) {
 // One report per repository: the latest run's lanes across both hosts. Only required lanes keep it failing,
 // and only complete required evidence may close it (a failed runner can omit an artifact).
 export function failureReports(qualifications, runUrl, inventory = fleet) {
-  const groups = new Map();
-  for (const result of qualifications.filter((result) => result.lane !== "baseline")) {
-    if (!groups.has(result.repo)) groups.set(result.repo, []);
-    groups.get(result.repo).push(result);
-  }
+  const groups = Map.groupBy(
+    qualifications.filter((result) => result.lane !== "baseline"),
+    (result) => result.repo,
+  );
   return [...groups].map(([repo, results]) => {
     results.sort((a, b) => `${a.flavor}/${a.platform}/${a.node}`.localeCompare(`${b.flavor}/${b.platform}/${b.node}`));
     const failures = results.filter((result) => result.result !== "passed");
@@ -77,8 +77,10 @@ async function main() {
     complete: conclusion === "success",
     title: "Pi compatibility: fleet qualification infrastructure", body: `<!-- pi-compatibility:infrastructure -->\n\nLatest run: ${runUrl}\n\nQualification result: ${conclusion}. A failed run without a package failure needs investigation in the resolver, fork build or runner jobs. Incomplete publication is infrastructure; it is not an extension incompatibility.` });
   async function github(path, method = "GET", body) {
-    const response = await fetch(`https://api.github.com/repos/${repository}${path ? `/${path}` : ""}`, { method,
+    const response = await releaseFetch("GitHub", `https://api.github.com/repos/${repository}${path ? `/${path}` : ""}`, {
+      method,
       headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${process.env.GH_TOKEN}`, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(30_000),
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     if (!response.ok) throw new Error(`GitHub canary report ${method} ${path}: HTTP ${response.status}`);

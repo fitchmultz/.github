@@ -126,6 +126,10 @@ test("direct release commit ships current main, holds while release is incomplet
     s.runs = [{ id: 99, head_sha: bump, status: "completed", conclusion: "failure" }];
     s.artifacts = [{ name: `npm-candidate-${bump}`, expired: false }];
   });
+  const unpublishedWorkflowRun = f.reconcile("workflow_run");
+  success(unpublishedWorkflowRun);
+  assert.doesNotMatch(readFileSync(f.log, "utf8"), /\/rerun/, "workflow_run must not rerun unpublished failures");
+
   const waiting = f.reconcile("schedule");
   success(waiting);
   assert.match(waiting.stdout, /Waiting for pi-copy-message@4\.0\.1 to complete/);
@@ -145,6 +149,58 @@ test("direct release commit ships current main, holds while release is incomplet
   assert.notEqual(missingRun.status, 0);
   assert.match(missingRun.stderr, /No original release run remains.*cannot reproduce its provenance/);
   assert.doesNotMatch(readFileSync(f.log, "utf8"), /\/dispatches/);
+
+  const publishedDraftLogOffset = readFileSync(f.log, "utf8").length;
+  f.setState((s) => {
+    s.runs = [{ id: 105, head_sha: bump, status: "completed", conclusion: "failure", run_attempt: 1 }];
+    s.artifacts = [{ name: `npm-candidate-${bump}`, expired: false }];
+    s.releases = [{ tag_name: "v4.0.1", draft: true, body: `${marker(f.first)}\n<!-- pi-npm-release: ${bump} sha512-verified-bytes -->` }];
+    s.registry["dist-tags"].latest = "4.0.1";
+    s.registry.versions["4.0.1"] = {
+      ...s.registry.versions["4.0.0"],
+      version: "4.0.1",
+      dist: { ...s.registry.versions["4.0.0"].dist, integrity: "sha512-verified-bytes" },
+    };
+  });
+  const finalizeFromWorkflowRun = f.reconcile("workflow_run");
+  success(finalizeFromWorkflowRun);
+  assert.match(
+    readFileSync(f.log, "utf8").slice(publishedDraftLogOffset),
+    /POST \/repos\/fitchmultz\/pi-copy-message\/actions\/runs\/105\/rerun-failed-jobs/,
+  );
+
+  const attempt2Offset = readFileSync(f.log, "utf8").length;
+  f.setState((s) => {
+    s.runs = [{ id: 105, head_sha: bump, status: "completed", conclusion: "failure", run_attempt: 2 }];
+  });
+  success(f.reconcile("workflow_run"));
+  assert.match(
+    readFileSync(f.log, "utf8").slice(attempt2Offset),
+    /POST \/repos\/fitchmultz\/pi-copy-message\/actions\/runs\/105\/rerun-failed-jobs/,
+  );
+
+  for (const stopCase of [
+    (s) => {
+      s.runs = [{ id: 105, head_sha: bump, status: "completed", conclusion: "failure", run_attempt: 3 }];
+      s.artifacts = [{ name: `npm-candidate-${bump}`, expired: false }];
+    },
+    (s) => {
+      s.runs = [{ id: 105, head_sha: bump, status: "completed", conclusion: "success", run_attempt: 1 }];
+      s.artifacts = [{ name: `npm-candidate-${bump}`, expired: false }];
+    },
+    (s) => {
+      s.runs = [{ id: 105, head_sha: bump, status: "completed", conclusion: "failure", run_attempt: 1 }];
+      s.artifacts = [{ name: `npm-candidate-${bump}`, expired: true }];
+    },
+    (s) => {
+      s.runs = [];
+    },
+  ]) {
+    const offset = readFileSync(f.log, "utf8").length;
+    f.setState(stopCase);
+    success(f.reconcile("workflow_run"));
+    assert.doesNotMatch(readFileSync(f.log, "utf8").slice(offset), /\/rerun|\/dispatches/);
+  }
 
   completeRelease(f, bump, "4.0.1", f.first, "sha512-verified-bytes");
   success(f.reconcile("workflow_run"));

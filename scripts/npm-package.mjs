@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { hash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { readJson, run, stageSource } from "./common.mjs";
@@ -55,7 +55,7 @@ export async function publishedTarball(published, directory) {
   const response = await releaseFetch("npm", tarball);
   assert.ok(response.ok, `Published tarball: HTTP ${response.status}`);
   const bytes = Buffer.from(await response.arrayBuffer());
-  assert.equal(`sha512-${createHash("sha512").update(bytes).digest("base64")}`, integrity, "Published tarball differs from its registry integrity");
+  assert.equal(`sha512-${hash("sha512", bytes, "base64")}`, integrity, "Published tarball differs from its registry integrity");
   const file = join(directory, "published.tgz");
   writeFileSync(file, bytes);
   return file;
