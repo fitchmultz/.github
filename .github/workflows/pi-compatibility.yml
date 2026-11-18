@@ -117,7 +117,7 @@ jobs:
         id: package-cache
         with:
           path: ${{ runner.temp }}/fork-package
-          key: pi-fork-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ needs.resolve.outputs.fork-ref }}-${{ inputs.automation-ref }}-${{ hashFiles('fork/package-lock.json', 'fork/packages/ai/src/providers/data/*.json', 'fork/packages/ai/src/providers/data/.manifest.json') }}
+          key: pi-fork-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ needs.resolve.outputs.fork-ref }}-${{ inputs.automation-ref }}-${{ hashFiles('fork/package-lock.json', 'fork/packages/ai/src/providers/data/[!.]*.json') }}
       - name: Build the exact fork once for all compatibility lanes
         if: steps.package-cache.outputs.cache-hit != 'true'
         working-directory: fork
