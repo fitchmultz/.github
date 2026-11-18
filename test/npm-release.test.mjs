@@ -662,7 +662,7 @@ test("successful publication and exact-source recovery wait for several-minute r
 });
 
 test("post-publication verification fails closed on HTTP, identity, integrity and shared visibility expiry", async (t) => {
-  for (const kind of ["exact-403", "metadata-503", "network", "identity", "maintainer", "exact-integrity", "metadata-integrity", "exact-expiry", "metadata-expiry",
+  for (const kind of ["exact-403", "metadata-503", "network", "identity", "maintainer", "exact-integrity", "metadata-integrity", "exact-expiry", "exact-timeout-expiry", "metadata-expiry",
     "stage-name", "stage-missing-name", "stage-stub", "stage-version", "stage-tag", "stage-integrity", "stage-expiry"]) {
     await t.test(kind, async (t) => {
       const f = publicationFixture(t, !kind.startsWith("stage-"));
@@ -676,12 +676,17 @@ test("post-publication verification fails closed on HTTP, identity, integrity an
         published: () => {
           exactRequests++;
           if (kind === "network") throw new TypeError("fixture network failure");
+          if (kind === "exact-timeout-expiry") {
+            elapsed = 900_000;
+            const timeoutError = new DOMException("The operation was aborted due to timeout", "TimeoutError");
+            throw timeoutError;
+          }
           if (kind === "identity") return { ...f.published, repository: { url: "https://github.com/other/package" } };
           if (kind === "exact-integrity") return { ...f.published, dist: { integrity: "sha512-other" } };
           return f.published;
         },
         publishedStatus: () => kind === "exact-403" ? 403
-          : kind === "exact-expiry" || kind === "metadata-expiry" && elapsed < 370_000 ? 404 : 200,
+          : kind === "exact-expiry" || kind === "metadata-expiry" && elapsed < 850_000 ? 404 : 200,
         status: () => boundary.published && kind === "metadata-503" ? 503 : 200,
         data: () => {
           packageRequests++;
@@ -701,12 +706,16 @@ test("post-publication verification fails closed on HTTP, identity, integrity an
       const reasons = { "exact-403": /HTTP 403/, "metadata-503": /HTTP 503/, network: /fixture network failure/,
         identity: /repository identity/, maintainer: /not maintained/, "exact-integrity": /Published bytes differ/,
         "metadata-integrity": /Published bytes differ/, "exact-expiry": /visibility timed out/,
+        "exact-timeout-expiry": /visibility timed out/,
         "metadata-expiry": /visibility timed out/, "stage-name": /Package name differs/, "stage-missing-name": /Package name differs/, "stage-stub": /stable x.y.z/,
         "stage-version": /stable x.y.z/, "stage-tag": /stable x.y.z/, "stage-integrity": /Published bytes differ/,
         "stage-expiry": /visibility timed out/ };
       refused(result, reasons[kind]);
-      if (kind.endsWith("expiry")) {
-        assert.ok(elapsed >= 400_000 && elapsed <= 420_000, `one shared deadline expired at ${elapsed}ms`);
+      if (kind === "exact-timeout-expiry") {
+        assert.equal(elapsed, 900_000);
+        assert.equal(exactRequests, 1);
+      } else if (kind.endsWith("expiry")) {
+        assert.ok(elapsed >= 880_000 && elapsed <= 900_000, `one shared deadline expired at ${elapsed}ms`);
         assert.match(result.logs.at(-1), kind === "exact-expiry" ? /exact version HTTP 404/
           : kind === "stage-expiry" ? /latest=0.0.0-stage/ : /package version entry missing/);
       } else {

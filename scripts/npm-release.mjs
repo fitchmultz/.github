@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { hash as digestBytes } from "node:crypto";
 import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -23,6 +23,8 @@ const { values, positionals } = parseArgs({ allowPositionals: true, options: {
 const [command] = positionals;
 const repository = values.repository ?? process.env.GITHUB_REPOSITORY;
 const entry = readJson(new URL("../fleet.json", import.meta.url)).find((item) => `fitchmultz/${item.repo}` === repository);
+const VISIBILITY_BUDGET_MS = 900_000;
+const MIN_VISIBILITY_ATTEMPT_MS = 5_000;
 
 function output(values) {
   for (const [key, value] of Object.entries(values)) {
@@ -36,6 +38,20 @@ function visibilityRemaining(deadline) {
   return remaining;
 }
 
+async function visibilityFetch(url, deadline) {
+  const timeoutMs = deadline === undefined
+    ? 30_000
+    : Math.min(30_000, Math.max(MIN_VISIBILITY_ATTEMPT_MS, visibilityRemaining(deadline)));
+  try {
+    return await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  } catch (error) {
+    if (deadline !== undefined && error?.name === "TimeoutError") {
+      visibilityRemaining(deadline);
+    }
+    throw error;
+  }
+}
+
 function nativeStagingLatest(data) {
   const latest = data.versions?.["0.0.0-stage"];
   // npm can expose its repository-less stub before latest catches up with the verified publication.
@@ -44,8 +60,7 @@ function nativeStagingLatest(data) {
 }
 
 async function metadata(name, deadline) {
-  const response = await fetch(`${registry}${encodeURIComponent(name)}`, { signal: AbortSignal.timeout(
-    deadline === undefined ? 30_000 : Math.min(30_000, visibilityRemaining(deadline))) });
+  const response = await visibilityFetch(`${registry}${encodeURIComponent(name)}`, deadline);
   if (response.status === 404 && (deadline !== undefined || (name === entry?.npmPackage && name === `@fitchmultz/${entry.repo}`
     && ["automatic", "approval"].includes(entry.npmRelease)))) return null;
   assert.ok(response.ok, `Owned npm package metadata: HTTP ${response.status}`);
@@ -59,14 +74,13 @@ async function metadata(name, deadline) {
 }
 
 async function verifyPublication(candidate) {
-  // npm processing has taken over six minutes; leave three minutes of the ten-minute job for setup/publication/finalization.
-  const deadline = Date.now() + 420_000;
+  // npm processing has taken over seven minutes in production; allow fifteen minutes inside the twenty-five-minute job.
+  const deadline = Date.now() + VISIBILITY_BUDGET_MS;
   let exactVerified = false;
   while (true) {
     let pending = "exact version HTTP 404";
     if (!exactVerified) {
-      const response = await fetch(`${registry}${encodeURIComponent(candidate.name)}/${candidate.version}`,
-        { signal: AbortSignal.timeout(Math.min(30_000, visibilityRemaining(deadline))) });
+      const response = await visibilityFetch(`${registry}${encodeURIComponent(candidate.name)}/${candidate.version}`, deadline);
       if (response.status !== 404) {
         assert.ok(response.ok, `Published exact-version verification: HTTP ${response.status}; retain the candidate and retry, never unpublish`);
         const published = await response.json();
@@ -93,6 +107,7 @@ async function verifyPublication(candidate) {
       }
     }
     console.log(`Waiting for npm registry visibility: ${candidate.name}@${candidate.version} (${pending})`);
+    // Keep globalThis.setTimeout so test/npm-release.test.mjs can advance virtual elapsed time synchronously.
     await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, visibilityRemaining(deadline))));
   }
 }
@@ -248,7 +263,7 @@ async function prepare() {
       filename = packed.filename;
       const packedTarball = join(destination, filename);
       hash = sha256(packedTarball);
-      integrity = `sha512-${createHash("sha512").update(readFileSync(packedTarball)).digest("base64")}`;
+      integrity = `sha512-${digestBytes("sha512", readFileSync(packedTarball), "base64")}`;
       assert.equal(integrity, packed.integrity);
     }
     const tarball = join(destination, filename);
@@ -293,7 +308,7 @@ function verifyArtifact(directory, env, currentHosts = true, legacy = false) {
   assert.equal(basename(candidate.filename), candidate.filename);
   const tarball = join(directory, candidate.filename);
   assert.equal(sha256(tarball), candidate.sha256, "Release tarball checksum changed");
-  assert.equal(`sha512-${createHash("sha512").update(readFileSync(tarball)).digest("base64")}`, candidate.integrity, "Release tarball integrity changed");
+  assert.equal(`sha512-${digestBytes("sha512", readFileSync(tarball), "base64")}`, candidate.integrity, "Release tarball integrity changed");
   const manifest = packedManifest(tarball, env);
   identity(manifest);
   assert.equal(manifest.version, candidate.version);

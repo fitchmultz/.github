@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { hash as digestBytes } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DefaultResourceLoader, getPackageDir, SettingsManager, VERSION, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -34,7 +34,7 @@ export default function (pi: ExtensionAPI) {
       const { themes, diagnostics } = resources.getThemes();
       assert.deepEqual(diagnostics, [], `Packaged theme acceptance failed: ${JSON.stringify(diagnostics)}`);
       const packageDir = getPackageDir();
-      const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
+      const hash = (file: string) => digestBytes("sha256", readFileSync(file), "hex");
       const manifest = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8"));
       const model = ctx.model;
       writeFileSync(process.env.PI_COMPAT_OBSERVATION!, JSON.stringify({

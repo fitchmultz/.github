@@ -34,7 +34,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     environment:
       name: npm
       url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
