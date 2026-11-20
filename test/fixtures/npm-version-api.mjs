@@ -137,7 +137,11 @@ globalThis.fetch = async (input, options = {}) => {
       body: `## What's Changed\n\n${changes}\n\n**Full Changelog**: https://github.com/${process.env.GITHUB_REPOSITORY}/compare/${previous}...${tag}`,
     });
   }
-  if (path === "releases") return json(data.releases);
+  if (path === "releases") {
+    // GitHub lists draft releases only to tokens with push access.
+    const push = options.headers?.Authorization === "Bearer app-fixture";
+    return json(push ? data.releases : data.releases.filter((release) => !release.draft));
+  }
   if (path === "actions/workflows/npm-release.yml/runs") return json({ workflow_runs: data.runs });
   if (path === "actions/workflows/npm-release.yml/dispatches" && options.method === "POST") {
     return new Response(null, { status: 204 });

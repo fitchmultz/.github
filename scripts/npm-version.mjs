@@ -378,7 +378,8 @@ async function reconcile(source, entry, repository, appSlug, versionReviewEnable
       const commits = history(source, "refs/remotes/origin/main");
       const latestBump = await versionCommit(commits, inspectCommit, source);
       const data = await npmMetadata(entry, repository);
-      const releases = await request("releases?per_page=100", { token: process.env.GH_TOKEN, paginate: true });
+      // GitHub lists draft releases only to tokens with push access, so this read uses the release App token.
+      const releases = await request("releases?per_page=100", { paginate: true });
 
       if (recovery) {
         assert.equal(latestBump?.sha, recovery.source, "Supersession source does not match the latest automatic version");
