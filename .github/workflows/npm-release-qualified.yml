@@ -25,8 +25,8 @@ on:
         type: string
     secrets:
       RELEASE_APP_PRIVATE_KEY:
-        description: Release App private key supplied by the npm environment
-        required: false
+        description: Release App private key passed by name from the protected npm environment
+        required: true
       NPM_BOOTSTRAP_TOKEN:
         description: Environment-only credential for a first scoped publication
         required: false
