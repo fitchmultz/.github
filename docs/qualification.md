@@ -36,7 +36,7 @@ Linux qualification uses private `/var/tmp/pc-*` roots to avoid the Ubuntu 26 `/
 
 Posthorse qualifies its native compaction-based rollover, recovery history and retain-none behavior on both current hosts; it does not require retired fork checkpoint APIs. The kit's Unix terminal contract exercises the current fork's managed launcher restart; its legacy multi-session helper is not activated inside that launcher.
 
-Supported and tested platforms are Apple Silicon macOS and Linux. Qualification retains all 19 repositories and 58 lanes, including 29 fork lanes.
+Supported and tested platforms are Apple Silicon macOS and Linux. Qualification retains all 19 repositories and 54 lanes, including 27 fork lanes. All fleet packages now declare Node 24+ (including `pi-oracle` and `pi-zai-mcp`, which dropped Node 22 in `engines.node`), so `defaultNodes` runs Node `24` while `.github`'s own automation scripts retain Node `22.23.5` and `24` in `ci.yml`.
 
 Historical support floors and locked development dependencies do not select validation hosts. Node/OS lanes are selected by the fleet and existing repository-specific workflows. Additional platform lanes use the latest Node 24 release; the primary platform also tests the declared Node floor. Native `setup-node` version resolution checks for the latest release matching each selector rather than accepting an older runner-cache entry; exact floor selectors remain exact. Routine checks use empty profiles and no provider credentials. These results do not certify live browser, Cursor, Oracle, OAuth or desktop operations. Those existing release gates remain separate when a shipped change touches their behavior. An unavailable platform must be recorded as unqualified, never counted as passed.
 
