@@ -16,5 +16,6 @@
   { "repo": "pi-agent-skills", "kind": "assets", "nodes": ["24"] },
   { "repo": "pi-ask-question", "kind": "extension", "npmPackage": "@fitchmultz/pi-ask-question", "npmRelease": "automatic", "nodes": ["24"] },
   { "repo": "pi-copy-message", "kind": "extension", "npmPackage": "pi-copy-message", "npmRelease": "automatic", "nodes": ["24"] },
-  { "repo": "pi-zai-mcp", "kind": "extension", "npmPackage": "pi-zai-mcp", "npmRelease": "automatic", "releaseQualification": true }
+  { "repo": "pi-zai-mcp", "kind": "extension", "npmPackage": "pi-zai-mcp", "npmRelease": "automatic", "releaseQualification": true },
+  { "repo": "pi-emphasis", "kind": "extension", "nodes": ["24"] }
 ]
