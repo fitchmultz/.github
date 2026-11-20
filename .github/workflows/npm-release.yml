@@ -24,6 +24,9 @@ on:
         required: true
         type: string
     secrets:
+      RELEASE_APP_PRIVATE_KEY:
+        description: Release App private key passed by name from the protected npm environment
+        required: true
       NPM_BOOTSTRAP_TOKEN:
         description: Environment-only credential for a first scoped publication
         required: false
@@ -60,6 +63,14 @@ jobs:
           ref: ${{ inputs.automation-ref }}
           path: automation
           persist-credentials: false
+      - name: Authorize release tag creation in this repository
+        id: release-tag
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-workflows: write
       - uses: ./automation/.github/actions/npm-publish
         with:
           source-ref: ${{ inputs.source-ref }}
@@ -67,4 +78,5 @@ jobs:
           official-version: ${{ inputs.official-version }}
           fork-ref: ${{ inputs.fork-ref }}
           qualified: 'false'
+          tag-token: ${{ steps.release-tag.outputs.token }}
           bootstrap-token: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}

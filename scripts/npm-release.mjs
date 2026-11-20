@@ -447,7 +447,7 @@ async function publish() {
     }
     const githubEnv = { ...runnerEnv, GH_TOKEN: process.env.GH_TOKEN };
     const gh = (args, options = {}) => run("gh", args, { cwd: root, env: githubEnv, quiet: true, ...options });
-    const api = (path, body) => JSON.parse(gh(["api", `repos/${repository}/${path}`, ...(body ? ["--method", "POST", "--input", "-"] : [])], body ? { input: JSON.stringify(body) } : {}));
+    const api = (path, body, options) => JSON.parse(gh(["api", `repos/${repository}/${path}`, ...(body ? ["--method", "POST", "--input", "-"] : [])], { ...(body && { input: JSON.stringify(body) }), ...options }));
     if (values.qualification) verifyQualification(resolve(values.qualification), directory, candidate, gh);
     const environment = api("environments/npm");
     assert.equal(environment.deployment_branch_policy?.custom_branch_policies, true, "npm environment must restrict publication to main");
@@ -493,7 +493,7 @@ async function publish() {
     cpSync(forkArchive, join(root, forkAsset));
     if (!ref) {
       const object = api("git/tags", { tag, message: `${candidate.name} ${candidate.version}`, object: candidate.source, type: "commit" });
-      api("git/refs", { ref: `refs/tags/${tag}`, sha: object.sha });
+      api("git/refs", { ref: `refs/tags/${tag}`, sha: object.sha }, { env: { ...githubEnv, GH_TOKEN: process.env.RELEASE_TAG_TOKEN } });
     }
     if (!release) {
       release = api("releases", { tag_name: tag, name: `${candidate.name} ${candidate.version}`, draft: true,

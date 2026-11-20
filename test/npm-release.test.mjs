@@ -427,7 +427,7 @@ function publicationFixture(t, existing = false) {
     GITHUB_WORKFLOW_REF: `${f.repository}/.github/workflows/npm-release.yml@refs/heads/main`,
     GITHUB_SHA: f.ref, ACTIONS_ID_TOKEN_REQUEST_TOKEN: "fixture", ACTIONS_ID_TOKEN_REQUEST_URL: "https://example.invalid/oidc",
     GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", RUNNER_ENVIRONMENT: "github-hosted",
-    GH_TOKEN: "github-fixture", AWS_SECRET_ACCESS_KEY: "ambient-fixture" };
+    GH_TOKEN: "github-fixture", RELEASE_TAG_TOKEN: "tag-fixture", AWS_SECRET_ACCESS_KEY: "ambient-fixture" };
   f.args = ["--artifact", f.directory, "--fork", f.fork, "--source-ref", f.ref, "--release-source", f.ref, "--official-version", "9.8.7", "--fork-ref", forkRef];
   f.published = { name: f.name, version: f.version, repository: { url: `git+https://github.com/${f.repository}.git` },
     dist: { integrity: f.candidate.integrity } };
@@ -491,6 +491,7 @@ function publicationBoundary(t, f, { guard, bootstrap = false, recovery = false,
     calls.push({ command, args, cwd: options.cwd });
     assert.equal(options.env.NPM_BOOTSTRAP_TOKEN, undefined, "bootstrap parent variable must never be inherited");
     assert.equal(options.env.NPM_TOKEN, undefined, "ambient credentials must never be inherited");
+    assert.equal(options.env.RELEASE_TAG_TOKEN, undefined);
     assert.equal(options.env.AWS_SECRET_ACCESS_KEY, undefined);
     assert.equal(readFileSync(options.env.npm_config_globalconfig, "utf8"), "");
     let value;
@@ -516,9 +517,10 @@ function publicationBoundary(t, f, { guard, bootstrap = false, recovery = false,
     } else {
       assert.equal(options.env.NODE_AUTH_TOKEN, undefined, "GitHub subprocess must never receive npm credentials");
       assert.equal(options.env.RUNNER_ENVIRONMENT, undefined, "runner context must not reach GitHub subprocesses");
-      assert.equal(options.env.GH_TOKEN, "github-fixture");
+
       assert.equal(readFileSync(options.env.npm_config_userconfig, "utf8"), "");
       const path = args[1]?.replace(`repos/${f.repository}/`, "");
+      assert.equal(options.env.GH_TOKEN, path === "git/refs" ? "tag-fixture" : "github-fixture");
       if (path === "environments/npm") value = { deployment_branch_policy: { custom_branch_policies: guard !== "environment" } };
       else if (path === "environments/npm/deployment-branch-policies") value = { branch_policies: [{ name: "main", type: "branch" }] };
       else if (path?.startsWith("actions/runs/") && qualificationJobs) {

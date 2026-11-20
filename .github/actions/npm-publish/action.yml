@@ -16,6 +16,9 @@ inputs:
   qualified:
     required: true
     description: Whether the caller supplied a package qualification receipt
+  tag-token:
+    required: true
+    description: Current repository App token for creating the tag reference
   bootstrap-token:
     required: false
     description: Environment-only token for a first scoped publication
@@ -49,6 +52,7 @@ runs:
     - name: Publish the verified artifact without lifecycle scripts
       shell: bash
       env:
+        RELEASE_TAG_TOKEN: ${{ inputs.tag-token }}
         GH_TOKEN: ${{ github.token }}
         NPM_BOOTSTRAP_TOKEN: ${{ inputs.bootstrap-token }}
         SOURCE_REF: ${{ inputs.source-ref }}
