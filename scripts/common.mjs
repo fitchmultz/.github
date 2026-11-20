@@ -28,8 +28,8 @@ import { delimiter, dirname, join, resolve } from "node:path";
 /** @typedef {Omit<SpawnSyncOptions, "encoding"> & { quiet?: boolean }} RunOptions */
 
 export const codingAgent = "@earendil-works/pi-coding-agent";
-// Default Node floor/current lanes.
-export const defaultNodes = ["22.23.5", "24"];
+// Default Node lane.
+export const defaultNodes = ["24"];
 /**
  * @param {string} os
  * @returns {"win32" | "darwin" | "linux"}
