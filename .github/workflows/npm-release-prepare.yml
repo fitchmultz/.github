@@ -123,6 +123,7 @@ jobs:
           name: npm-recovered-${{ inputs.source-ref }}-${{ needs.select.outputs.attempt }}
           path: ${{ runner.temp }}/npm-recovered
       - name: Install native offline prerequisites
+        timeout-minutes: 5
         run: |
           bash automation/scripts/setup-linux-dns.sh
           sudo rm -f /etc/apt/sources.list.d/google-chrome.sources
